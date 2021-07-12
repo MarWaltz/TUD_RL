@@ -15,7 +15,7 @@ from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from td3_agent import *
 
 # training config
-TIMESTEPS = 1000000     # overall number of training interaction steps
+TIMESTEPS = 10000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
