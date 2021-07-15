@@ -43,7 +43,7 @@ class LSTM_TD3_Agent:
                  act_start_step   = 10000,
                  upd_start_step   = 1000,
                  upd_every        = 1,
-                 batch_size       = 1,
+                 batch_size       = 100,
                  history_length   = 5,
                  use_past_actions = False,
                  device           = "cpu"):
