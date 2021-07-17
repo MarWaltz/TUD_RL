@@ -236,4 +236,4 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
 if __name__ == "__main__":
-    train(env_str="HalfCheetahPyBulletEnv-v0", pomdp=False, critic_weights=None, actor_weights=None, seed=0, device="cpu")
+    train(env_str="AntPyBulletEnv-v0", pomdp=False, critic_weights=None, actor_weights=None, seed=0, device="cpu")
