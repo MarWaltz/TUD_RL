@@ -82,7 +82,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     random.seed(seed)
 
     # init agent
-    agent = TD3_Agent(mode           = "train",
+    agent = SAC_Agent(mode           = "train",
                       action_dim     = env.action_space.shape[0], 
                       state_dim      = env.observation_space.shape[0], 
                       action_high    = env.action_space.high[0],
@@ -169,11 +169,8 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
-            if agent.double_critic:
-                agent.logger.log_tabular("Q1_val", with_min_and_max=True)
-                agent.logger.log_tabular("Q2_val", with_min_and_max=True)
-            else:
-                agent.logger.log_tabular("Q_val", with_min_and_max=True)
+            agent.logger.log_tabular("Q1_val", with_min_and_max=True)
+            agent.logger.log_tabular("Q2_val", with_min_and_max=True)
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()

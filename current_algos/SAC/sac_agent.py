@@ -11,12 +11,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from sac_buffer import UniformReplayBuffer
-from sac_nets import Actor, Critic, Double_Critic
-from current_algos.common.noise import Gaussian_Noise
+from sac_nets import GaussianActor, Double_Critic
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
 from current_algos.common.logging_func import *
 
-class TD3_Agent:
+class SAC_Agent:
     def __init__(self, 
                  mode,
                  action_dim, 
@@ -27,19 +26,11 @@ class TD3_Agent:
                  critic_weights   = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double_critic    = False,
-                 tgt_pol_smooth   = False,
-                 tgt_noise        = 0.2,
-                 tgt_noise_clip   = 0.5,
-                 pol_upd_delay    = 1,
                  gamma            = 0.99,
-                 n_steps          = 1,
                  tau              = 0.005,
                  lr_actor         = 0.0001,
                  lr_critic        = 0.001,
-                 alpha            = 0.4,
-                 beta_start       = 0.5,
-                 beta_inc         = 1e-5,
+                 temperature      = 0.2,
                  buffer_length    = 1000000,
                  grad_clip        = False,
                  grad_rescale     = False,
@@ -88,19 +79,11 @@ class TD3_Agent:
         self.critic_weights   = critic_weights 
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
-        self.double_critic    = double_critic
-        self.tgt_pol_smooth   = tgt_pol_smooth
-        self.tgt_noise        = tgt_noise
-        self.tgt_noise_clip   = tgt_noise_clip
-        self.pol_upd_delay    = pol_upd_delay
         self.gamma            = gamma
-        self.n_steps          = n_steps
         self.tau              = tau
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
-        self.alpha            = alpha
-        self.beta_start       = beta_start
-        self.beta_inc         = beta_inc
+        self.temperature      = temperature
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -108,9 +91,6 @@ class TD3_Agent:
         self.upd_start_step   = upd_start_step
         self.upd_every        = upd_every
         self.batch_size       = batch_size
-
-        # n_step
-        assert n_steps >= 1, "'n_steps' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -125,11 +105,10 @@ class TD3_Agent:
         self.logger = EpochLogger()
         self.logger.save_config(locals())
         
-        # init replay buffer and noise
+        # init replay buffer
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
+            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, gamma=gamma,
                                                      buffer_length=buffer_length, batch_size=batch_size, device=self.device)
-            self.noise = Gaussian_Noise(action_dim=action_dim)
 
         # init input, action normalizer
         if input_norm:
@@ -145,11 +124,8 @@ class TD3_Agent:
         self.act_normalizer = Action_Normalizer(action_high=action_high, action_low=action_low)
         
         # init actor, critic
-        self.actor  = Actor(action_dim=action_dim, state_dim=state_dim).to(self.device)
-        if self.double_critic:
-            self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
-        else:
-            self.critic = Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
+        self.actor = GaussianActor(action_dim=action_dim, state_dim=state_dim).to(self.device)
+        self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params actor: {self._count_params(self.actor)}, n_params critic: {self._count_params(self.critic)}")
@@ -160,10 +136,8 @@ class TD3_Agent:
             self.actor.load_state_dict(torch.load(actor_weights))            
             self.critic.load_state_dict(torch.load(critic_weights))
 
-        # init target nets and counter for polyak-updates
-        self.target_actor  = copy.deepcopy(self.actor).to(self.device)
+        # init target critic
         self.target_critic = copy.deepcopy(self.critic).to(self.device)
-        self.pol_upd_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
         for p in self.target_actor.parameters():
@@ -188,14 +162,13 @@ class TD3_Agent:
         s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
 
         # forward pass
-        a = self.actor(s) 
-        
-        # add noise
         if self.mode == "train":
-            a += torch.tensor(self.noise.sample()).to(self.device)
+            a, _ = self.actor(s, deterministic=False, with_logprob=False).to(self.device)
+        else:
+            a, _ = self.actor(s, deterministic=True, with_logprob=False).to(self.device)
         
-        # clip actions in [-1,1]
-        a = torch.clip(a, -1, 1).cpu().numpy().reshape(self.action_dim)
+        # reshape actions
+        a = a.cpu().numpy().reshape(self.action_dim)
         
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)
@@ -209,10 +182,7 @@ class TD3_Agent:
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        
         # sample batch
-        if self.PER:
-            *batch, weights, idx = self.replay_buffer.sample()
-        else:
-            batch = self.replay_buffer.sample()
+        batch = self.replay_buffer.sample()
         
         # unpack batch
         s, a, r, s2, d = batch
@@ -222,39 +192,24 @@ class TD3_Agent:
         self.critic_optimizer.zero_grad()
         
         # calculate current estimated Q-values
-        if self.double_critic:
-            Q_v1, Q_v2 = self.critic(s, a)
-        else:
-            Q_v = self.critic(s, a)
+        Q_v1, Q_v2 = self.critic(s, a)
  
         # calculate targets
         with torch.no_grad():
-            target_a = self.target_actor(s2)
 
-            # target policy smoothing
-            if self.tgt_pol_smooth:
-                eps = torch.randn_like(target_a) * self.tgt_noise
-                eps = torch.clamp(eps, -self.tgt_noise_clip, self.tgt_noise_clip)
-                target_a += eps
-                target_a = torch.clamp(target_a, -1, 1)
+            # target actions come from current policy (no target actor)
+            target_a, target_logp_a = self.actor(s2, deterministic=False, with_logprob=True)
 
             # Q-value of next state-action pair
-            if self.double_critic:
-                target_Q_next1, target_Q_next2 = self.target_critic(s2, target_a)
-                target_Q_next = torch.min(target_Q_next1, target_Q_next2)
-            else:
-                target_Q_next = self.target_critic(s2, target_a)
+            target_Q_next1, target_Q_next2 = self.target_critic(s2, target_a)
+            target_Q_next = torch.min(target_Q_next1, target_Q_next2)
 
             # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+            target_Q = r + self.gamma * (1 - d) * (target_Q_next - self.temperature * target_logp_a)
 
         # calculate loss
-        if self.double_critic:
-            critic_loss = F.mse_loss(Q_v1, target_Q) + F.mse_loss(Q_v2, target_Q)
-
-        else:
-            critic_loss = F.mse_loss(Q_v, target_Q)
-        
+        critic_loss = F.mse_loss(Q_v1, target_Q) + F.mse_loss(Q_v2, target_Q)
+ 
         # compute gradients
         critic_loss.backward()
 
@@ -270,55 +225,48 @@ class TD3_Agent:
         
         # log critic training
         self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item())
-        if self.double_critic:
-            self.logger.store(Q1_val=Q_v1.detach().mean().cpu().numpy().item(), Q2_val=Q_v2.detach().mean().cpu().numpy().item())
-        else:
-            self.logger.store(Q_val=Q_v.detach().mean().cpu().numpy().item())
-
-        #-------- train actor --------
-        if self.pol_upd_cnt % self.pol_upd_delay == 0:
+        self.logger.store(Q1_val=Q_v1.detach().mean().cpu().numpy().item(), Q2_val=Q_v2.detach().mean().cpu().numpy().item())
         
-            # freeze critic so no gradient computations are wasted while training actor
-            for param in self.critic.parameters():
-                param.requires_grad = False
-            
-            # clear gradients
-            self.actor_optimizer.zero_grad()
+        #-------- train actor --------
+        # freeze critic so no gradient computations are wasted while training actor
+        for param in self.critic.parameters():
+            param.requires_grad = False
+        
+        # clear gradients
+        self.actor_optimizer.zero_grad()
 
-            # get current actions via actor
-            curr_a = self.actor(s)
-            
-            # compute loss, which is negative Q-values from critic
-            if self.double_critic:
-                actor_loss = -self.critic.Q1(s, curr_a).mean()
-            else:
-                actor_loss = -self.critic(s, curr_a).mean()
-            
-            # compute gradients
-            actor_loss.backward()
+        # get current actions via actor
+        curr_a, curr_a_logprob = self.actor(s, deterministic=False, with_logprob=True)
+        
+        # compute Q1, Q2 values for current state and actor's actions
+        Q1_val_curr_a, Q2_val_curr_a = self.critic(s, curr_a)
+        Q_val_curr_a = torch.min(Q1_val_curr_a, Q2_val_curr_a)
 
-            # gradient scaling and clipping
-            if self.grad_rescale:
-                for p in self.actor.parameters():
-                    p.grad *= 1 / math.sqrt(2)
-            if self.grad_clip:
-                nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10)
-            
-            # perform step with optimizer
-            self.actor_optimizer.step()
+        # compute policy loss (which is based on min Q1, Q2 instead of just Q1 as in TD3, plus consider entropy regularization)
+        actor_loss = (self.temperature * curr_a_logprob - Q_val_curr_a).mean()
+        
+        # compute gradients
+        actor_loss.backward()
 
-            # unfreeze critic so it can be trained in next iteration
-            for param in self.critic.parameters():
-                param.requires_grad = True
-            
-            # log actor training
-            self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())
+        # gradient scaling and clipping
+        if self.grad_rescale:
+            for p in self.actor.parameters():
+                p.grad *= 1 / math.sqrt(2)
+        if self.grad_clip:
+            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10)
+        
+        # perform step with optimizer
+        self.actor_optimizer.step()
 
-            #------- Update target networks -------
-            self.polyak_update()
+        # unfreeze critic so it can be trained in next iteration
+        for param in self.critic.parameters():
+            param.requires_grad = True
+        
+        # log actor training
+        self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())
 
-        # increase polyak-update cnt
-        self.pol_upd_cnt += 1
+        #------- Update target networks -------
+        self.polyak_update()
     
     @torch.no_grad()
     def polyak_update(self):
