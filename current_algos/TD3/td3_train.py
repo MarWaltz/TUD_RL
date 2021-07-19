@@ -130,7 +130,6 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
         # memorize
         agent.memorize(s, a, r, s2, d)
         
-
         # s becomes s2
         s = s2
 
@@ -153,7 +152,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             epi_ret = 0
 
         # Buffer now needs to be completely full in order to begin training
-        if agent.replay_buffer.fill_ptr < agent.replay_buffer.max_size:
+        if agent.replay_buffer.ptr < agent.replay_buffer.max_size:
             print(f"Filling buffer {total_steps} / {agent.replay_buffer.max_size}" , end="\r")
             continue
 
@@ -161,7 +160,6 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             for _ in range(agent.upd_every):
                 agent.train()
         
-
         # end of epoch handling
         if (total_steps + 1) % EPOCH_LENGTH == 0:
 
