@@ -12,12 +12,15 @@ import torch
 
 from current_algos.common.LCP_environment import LCP_Environment
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
-from td3_agent import *
+from current_algos.TD3.td3_agent import *
 
 # training config
-TIMESTEPS = 10000     # overall number of training interaction steps
+TIMESTEPS = 1000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
+
+# TODO: Maybe write this in an argument parser
+torch.set_num_threads(6) # Usually torch should use the maximum avail cores, but I'm not sure for clusters.
 
 def evaluate_policy(test_env, test_agent):
     test_agent.mode = "test"
@@ -127,10 +130,6 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
         # memorize
         agent.memorize(s, a, r, s2, d)
         
-        # train
-        if (total_steps >= agent.upd_start_step) and (total_steps % agent.upd_every == 0):
-            for _ in range(agent.upd_every):
-                agent.train()
 
         # s becomes s2
         s = s2
@@ -152,6 +151,16 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
+
+        # Buffer now needs to be completely full in order to begin training
+        if agent.replay_buffer.fill_ptr < agent.replay_buffer.max_size:
+            print(f"Filling buffer {total_steps} / {agent.replay_buffer.max_size}" , end="\r")
+            continue
+
+        if (total_steps >= agent.upd_start_step) and (total_steps % agent.upd_every == 0):
+            for _ in range(agent.upd_every):
+                agent.train()
+        
 
         # end of epoch handling
         if (total_steps + 1) % EPOCH_LENGTH == 0:
@@ -186,6 +195,6 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             if agent.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
-        
+    
 if __name__ == "__main__":
     train(env_str="HalfCheetahPyBulletEnv-v0", pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

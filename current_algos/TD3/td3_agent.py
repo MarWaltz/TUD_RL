@@ -10,8 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from td3_buffer import UniformReplayBuffer, Proportional_PER_Buffer, Inefficient_Proportional_PER_Buffer, Inefficient_Rank_PER_Buffer
-from td3_nets import Actor, Critic, Double_Critic
+from current_algos.TD3.td3_buffer import UniformReplayBuffer, Proportional_PER_Buffer, Inefficient_Proportional_PER_Buffer, Inefficient_Rank_PER_Buffer, Rank_Based_PER_Buffer
+from current_algos.TD3.td3_nets import Actor, Critic, Double_Critic
 from current_algos.common.noise import Gaussian_Noise
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
 from current_algos.common.logging_func import *
@@ -44,13 +44,13 @@ class TD3_Agent:
                  alpha            = 0.4,
                  beta_start       = 0.5,
                  beta_inc         = 1e-5,
-                 buffer_length    = 1000000,
+                 buffer_length    = 100000,
                  grad_clip        = False,
                  grad_rescale     = False,
                  act_start_step   = 10000,
                  upd_start_step   = 1000,
                  upd_every        = 1,
-                 batch_size       = 100,
+                 batch_size       = 128,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -143,8 +143,8 @@ class TD3_Agent:
                                                                  buffer_length=buffer_length, batch_size=batch_size, alpha=alpha, beta_start=beta_start, 
                                                                  beta_inc=beta_inc, device=self.device)
                 else:
-                    self.replay_buffer = Inefficient_Rank_PER_Buffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
-                                                                     buffer_length=buffer_length, batch_size=batch_size, alpha=alpha, beta_start=beta_start, 
+                    self.replay_buffer = Rank_Based_PER_Buffer(action_dim=action_dim, state_dim=state_dim,
+                                                                     max_size=buffer_length, batch_size=batch_size, alpha=alpha, beta=beta_start, 
                                                                      beta_inc=beta_inc, device=self.device)
 
             else:
