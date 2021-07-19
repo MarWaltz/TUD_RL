@@ -15,7 +15,7 @@ from sac_nets import Actor, Critic, Double_Critic
 from current_algos.common.noise import Gaussian_Noise
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
 from current_algos.common.logging_func import *
-x = 3
+
 class TD3_Agent:
     def __init__(self, 
                  mode,
