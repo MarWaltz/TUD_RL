@@ -137,9 +137,6 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
 
         # end of episode handling
         if d or (epi_steps == max_episode_steps):
- 
-            # reset noise after episode
-            agent.noise.reset()
             
             # reset to initial state and normalize it
             s = env.reset()

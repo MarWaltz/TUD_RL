@@ -19,7 +19,6 @@ current_algos/TD3/td3_buffer.py
 current_algos/TD3/td3_nets.py
 current_algos/TD3/td3_test.py
 current_algos/TD3/td3_train.py
-current_algos/TD3/test.py
 current_algos/common/LCP_environment.py
 current_algos/common/POMDP_wrapper.py
 current_algos/common/__init__.py

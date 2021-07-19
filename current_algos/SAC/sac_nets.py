@@ -49,9 +49,17 @@ class GaussianActor(nn.Module):
         
         # compute logprob from Gaussian and then correct it for the Tanh squashing
         if with_logprob:
-            # this is from SpinningUp Open AI - TO BE CHECKED
-            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
+
+            # this does not exactly match the expression given in Appendix C in the paper, but it is 
+            # equivalent and according to SpinningUp OpenAI numerically much more stable
+            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=1)
             logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=1)
+
+            # logp_pi sums in both prior steps over all actions,
+            # since these are assumed to be independent Gaussians and can thus be factorized into their margins
+            # however, shape is now torch.Size([batch_size]), but we want torch.Size([batch_size, 1])
+            logp_pi = logp_pi.reshape((-1, 1))
+
         else:
             logp_pi = None
 

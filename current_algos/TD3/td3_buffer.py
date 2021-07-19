@@ -574,16 +574,16 @@ class Rank_Based_PER_Buffer:
     def __init__(self, state_dim, action_dim, alpha, beta, beta_inc, max_size, batch_size, device) -> None:
         
         # Input args
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.alpha = alpha
-        self.beta = beta
-        self.beta_inc = beta_inc
-        self.max_size = max_size
-        self.batch_size = batch_size
+        self.state_dim    = state_dim
+        self.action_dim   = action_dim
+        self.alpha        = alpha
+        self.beta         = beta
+        self.beta_inc     = beta_inc
+        self.max_size     = max_size
+        self.batch_size   = batch_size
         self.max_TD_error = 1.0
-        self.ptr = 0
-        self.name = "RankPER"
+        self.ptr          = 0
+        self.name         = "RankPER"
 
         # assert device in ["cpu", "cuda"], "Unknown device"
         self.device = device

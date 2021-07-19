@@ -133,15 +133,13 @@ class SAC_Agent:
         
         # load prior weights if available
         if actor_weights is not None and critic_weights is not None:
-            self.actor.load_state_dict(torch.load(actor_weights))            
+            self.actor.load_state_dict(torch.load(actor_weights))
             self.critic.load_state_dict(torch.load(critic_weights))
 
         # init target critic
         self.target_critic = copy.deepcopy(self.critic).to(self.device)
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_actor.parameters():
-            p.requires_grad = False
         for p in self.target_critic.parameters():
             p.requires_grad = False
 
@@ -163,9 +161,9 @@ class SAC_Agent:
 
         # forward pass
         if self.mode == "train":
-            a, _ = self.actor(s, deterministic=False, with_logprob=False).to(self.device)
+            a, _ = self.actor(s, deterministic=False, with_logprob=False)
         else:
-            a, _ = self.actor(s, deterministic=True, with_logprob=False).to(self.device)
+            a, _ = self.actor(s, deterministic=True, with_logprob=False)
         
         # reshape actions
         a = a.cpu().numpy().reshape(self.action_dim)
@@ -271,8 +269,6 @@ class SAC_Agent:
     @torch.no_grad()
     def polyak_update(self):
         """Soft update of target network weights."""
-        for target_p, main_p in zip(self.target_actor.parameters(), self.actor.parameters()):
-            target_p.data.copy_(self.tau * main_p.data + (1-self.tau) * target_p.data)
-        
+
         for target_p, main_p in zip(self.target_critic.parameters(), self.critic.parameters()):
             target_p.data.copy_(self.tau * main_p.data + (1-self.tau) * target_p.data)

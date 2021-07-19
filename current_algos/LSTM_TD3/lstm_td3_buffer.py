@@ -87,11 +87,6 @@ class UniformReplayBuffer:
                 o_hist[i, :, :] = self.o_buff[(b_idx - self.history_length) : b_idx, :]
                 a_hist[i, :, :] = self.a_buff[(b_idx - self.history_length) : b_idx, :]
 
-                # INJECT SOME NOISE IN HISTORY - TO BE DELETED
-                if np.random.uniform(low = 0, high = 1, size = 1)[0] < 0.1:
-                    rnd_idx =  np.random.randint(low = self.history_length, high = self.size, size = 1)[0]
-                    o_hist[i, : , :] = self.o_buff[(rnd_idx - self.history_length) : rnd_idx, :]
-
                 # truncate if done appeared
                 for j in range(1, self.history_length + 1):
                     
