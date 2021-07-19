@@ -99,7 +99,7 @@ class Double_Critic(nn.Module):
         self.l2 = nn.Linear(128, 128)
         self.l3 = nn.Linear(128, 1)
 
-		# Q2 architecture
+	# Q2 architecture
         self.l4 = nn.Linear(state_dim + action_dim, 128)
         self.l5 = nn.Linear(128, 128)
         self.l6 = nn.Linear(128, 1)
