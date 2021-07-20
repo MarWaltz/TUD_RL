@@ -30,7 +30,7 @@ class SAC_Agent:
                  tau              = 0.005,
                  lr_actor         = 0.0003,
                  lr_critic        = 0.0003,
-                 temperature      = 0.2,
+                 lr_temperature   = 0.0003,
                  buffer_length    = 1000000,
                  grad_clip        = False,
                  grad_rescale     = False,
@@ -38,6 +38,8 @@ class SAC_Agent:
                  upd_start_step   = 1000,
                  upd_every        = 1,
                  batch_size       = 128,
+                 temp_tuning      = True,
+                 temperature      = 0.2,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -83,7 +85,7 @@ class SAC_Agent:
         self.tau              = tau
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
-        self.temperature      = temperature
+        self.lr_temperature   = lr_temperature
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -100,7 +102,24 @@ class SAC_Agent:
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-        
+
+        # dynamic or static temperature
+        self.temp_tuning = temp_tuning
+
+        if self.temp_tuning:
+
+            # define target entropy
+            self.target_entropy = -action_dim
+
+            # optimize log(temperature) instead of temperature
+            self.log_temperature = torch.zeros(1, requires_grad=True, device=self.device)
+
+            # define temperature optimizer
+            self.temp_optimizer = optim.Adam([self.log_temperature], lr=self.lr_temperature)
+
+        else:
+            self.temperature = temperature
+
         # init logger and save config
         self.logger = EpochLogger()
         self.logger.save_config(locals())
@@ -185,6 +204,10 @@ class SAC_Agent:
         # unpack batch
         s, a, r, s2, d = batch
 
+        # get current temperature
+        if self.temp_tuning:
+            self.temperature = torch.exp(self.log_temperature).detach()
+
         #-------- train critic --------
         # clear gradients
         self.critic_optimizer.zero_grad()
@@ -262,6 +285,21 @@ class SAC_Agent:
         
         # log actor training
         self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())
+
+        #------- update temperature --------
+        if self.temp_tuning:
+
+            # clear gradients
+            self.temp_optimizer.zero_grad()
+
+            # calculate loss
+            temperature_loss = -self.log_temperature * (curr_a_logprob + self.target_entropy).detach().mean()
+
+            # compute gradients
+            temperature_loss.backward()
+
+            # perform optimizer step
+            self.temp_optimizer.step()
 
         #------- Update target networks -------
         self.polyak_update()
