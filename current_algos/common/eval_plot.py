@@ -76,5 +76,6 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[1,1].set_xlabel("Timestep")
     ax[1,1].set_ylabel("Actor loss")
 
-    # safe figure
+    # safe figure and close
     plt.savefig(f"{dir}/eval_plot.png")
+    plt.close()
