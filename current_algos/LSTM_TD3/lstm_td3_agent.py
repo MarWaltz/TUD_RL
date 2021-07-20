@@ -10,8 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from lstm_td3_buffer import UniformReplayBuffer
-from lstm_td3_nets import LSTM_Actor, LSTM_Critic, LSTM_Double_Critic
+from current_algos.LSTM_TD3.lstm_td3_buffer import UniformReplayBuffer
+from current_algos.LSTM_TD3.lstm_td3_nets import LSTM_Actor, LSTM_Critic, LSTM_Double_Critic
 from current_algos.common.noise import Gaussian_Noise
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
 from current_algos.common.logging_func import *

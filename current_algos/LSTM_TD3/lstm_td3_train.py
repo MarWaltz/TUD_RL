@@ -1,3 +1,4 @@
+import argparse
 import copy
 import pickle
 import random
@@ -11,8 +12,7 @@ import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.LCP_environment import LCP_Environment
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
-
-from lstm_td3_agent import *
+from current_algos.LSTM_TD3.lstm_td3_agent import *
 
 # training config
 TIMESTEPS = 1000000     # overall number of training interaction steps
@@ -239,4 +239,14 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
 if __name__ == "__main__":
-    train(env_str="AntPyBulletEnv-v0", pomdp=False, critic_weights=None, actor_weights=None, seed=0, device="cpu")
+
+    # init and prepare argument parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
+    args = parser.parse_args()
+    
+    # set number of torch threads
+    torch.set_num_threads(6)
+
+    # run main loop
+    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

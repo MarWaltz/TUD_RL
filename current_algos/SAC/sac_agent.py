@@ -10,8 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from sac_buffer import UniformReplayBuffer
-from sac_nets import GaussianActor, Double_Critic
+from current_algos.SAC.sac_buffer import UniformReplayBuffer
+from current_algos.SAC.sac_nets import GaussianActor, Double_Critic
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
 from current_algos.common.logging_func import *
 
