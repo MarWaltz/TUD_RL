@@ -246,7 +246,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # set number of torch threads
-    torch.set_num_threads(6)
+    torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
     train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

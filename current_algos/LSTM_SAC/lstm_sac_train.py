@@ -12,7 +12,7 @@ import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.LCP_environment import LCP_Environment
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
-from current_algos.TD3.td3_agent import *
+from current_algos.LSTM_SAC.lstm_sac_agent import *
 
 # training config
 TIMESTEPS = 1000000     # overall number of training interaction steps
@@ -23,30 +23,48 @@ def evaluate_policy(test_env, test_agent):
     test_agent.mode = "test"
     rets = []
     
-    for i in range(EVAL_EPISODES):
+    for _ in range(EVAL_EPISODES):
+
+        # init history
+        o_hist = np.zeros((test_agent.history_length, test_agent.obs_dim))
+        a_hist = np.zeros((test_agent.history_length, test_agent.action_dim))
+        hist_len = 0
+
         # get initial state
-        s = test_env.reset()
+        o = test_env.reset()
 
         # potentially normalize it
         if test_agent.input_norm:
-            s = test_agent.inp_normalizer.normalize(s, mode="test")
+            o = test_agent.inp_normalizer.normalize(o, mode="test")
         cur_ret = 0
 
         d = False
         
         while not d:
             # select action
-            a = test_agent.select_action(s)
+            a = test_agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
             
             # perform step
-            s2, r, d, _ = test_env.step(a)
+            o2, r, d, _ = test_env.step(a)
 
-            # potentially normalize s2
+            # potentially normalize o2
             if test_agent.input_norm:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
+                o2 = test_agent.inp_normalizer.normalize(o2, mode="test")
 
-            # s becomes s2
-            s = s2
+            # update history
+            if hist_len == test_agent.history_length:
+                o_hist = np.roll(o_hist, shift = -1, axis = 0)
+                o_hist[test_agent.history_length - 1, :] = o
+
+                a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                a_hist[test_agent.history_length - 1, :] = a
+            else:
+                o_hist[hist_len] = o
+                a_hist[hist_len] = a
+                hist_len += 1
+            
+            # o becomes o2
+            o = o2
             cur_ret += r
         
         # compute average return and append it
@@ -82,19 +100,24 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     random.seed(seed)
 
     # init agent
-    agent = TD3_Agent(mode           = "train",
-                      action_dim     = env.action_space.shape[0], 
-                      state_dim      = env.observation_space.shape[0], 
-                      action_high    = env.action_space.high[0],
-                      action_low     = env.action_space.low[0], 
-                      actor_weights  = actor_weights, 
-                      critic_weights = critic_weights, 
-                      device         = device)
+    agent = LSTM_SAC_Agent(mode           = "train",
+                           action_dim     = env.action_space.shape[0], 
+                           obs_dim        = env.observation_space.shape[0], 
+                           action_high    = env.action_space.high[0],
+                           action_low     = env.action_space.low[0], 
+                           actor_weights  = actor_weights, 
+                           critic_weights = critic_weights, 
+                           device         = device)
     
+    # init history
+    o_hist = np.zeros((agent.history_length, agent.obs_dim))
+    a_hist = np.zeros((agent.history_length, agent.action_dim))
+    hist_len = 0
+
     # get initial state and normalize it
-    s = env.reset()
+    o = env.reset()
     if agent.input_norm:
-        s = agent.inp_normalizer.normalize(s, mode="train")
+        o = agent.inp_normalizer.normalize(o, mode="train")
 
     # init epi step counter and epi return
     epi_steps = 0
@@ -109,42 +132,56 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
         if total_steps <= agent.act_start_step:
             a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.action_dim)
         else:
-            a = agent.select_action(s)
+            a = agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
         
         # perform step
-        s2, r, d, _ = env.step(a)
+        o2, r, d, _ = env.step(a)
         
         # Ignore "done" if it comes from hitting the time horizon of the environment
         d = False if epi_steps == max_episode_steps else d
 
-        # potentially normalize s2
+        # potentially normalize o2
         if agent.input_norm:
-            s2 = agent.inp_normalizer.normalize(s2, mode="train")
+            o2 = agent.inp_normalizer.normalize(o2, mode="train")
 
         # add epi ret
         epi_ret += r
         
         # memorize
-        agent.memorize(s, a, r, s2, d)
+        agent.memorize(o, a, r, o2, d)
+                
+        # update history
+        if hist_len == agent.history_length:
+            o_hist = np.roll(o_hist, shift = -1, axis = 0)
+            o_hist[agent.history_length - 1, :] = o
+
+            a_hist = np.roll(a_hist, shift = -1, axis = 0)
+            a_hist[agent.history_length - 1, :] = a
+        else:
+            o_hist[hist_len] = o
+            a_hist[hist_len] = a
+            hist_len += 1
 
         # train
         if (total_steps >= agent.upd_start_step) and (total_steps % agent.upd_every == 0):
             for _ in range(agent.upd_every):
                 agent.train()
 
-        # s becomes s2
-        s = s2
+        # o becomes o2
+        o = o2
 
         # end of episode handling
         if d or (epi_steps == max_episode_steps):
- 
-            # reset noise after episode
-            agent.noise.reset()
-            
-            # reset to initial state and normalize it
-            s = env.reset()
+
+            # reset history
+            o_hist = np.zeros((agent.history_length, agent.obs_dim))
+            a_hist = np.zeros((agent.history_length, agent.action_dim))
+            hist_len = 0
+
+            # reset env to initial state and normalize it
+            o = env.reset()
             if agent.input_norm:
-                s = agent.inp_normalizer.normalize(s, mode="train")
+                o = agent.inp_normalizer.normalize(o, mode="train")
             
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
@@ -169,17 +206,20 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
-            if agent.double_critic:
-                agent.logger.log_tabular("Q1_val", with_min_and_max=True)
-                agent.logger.log_tabular("Q2_val", with_min_and_max=True)
-            else:
-                agent.logger.log_tabular("Q_val", with_min_and_max=True)
+            agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
+            agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
+            agent.logger.log_tabular("Q1_val", with_min_and_max=True)
+            agent.logger.log_tabular("Q1_CurFE", with_min_and_max=False)
+            agent.logger.log_tabular("Q1_ExtMemory", with_min_and_max=False)
+            agent.logger.log_tabular("Q2_val", with_min_and_max=True)
+            agent.logger.log_tabular("Q2_CurFE", with_min_and_max=False)
+            agent.logger.log_tabular("Q2_ExtMemory", with_min_and_max=False)
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg="TD3", env_str=env_str, info=None)
+            plot_from_progress(dir=agent.logger.output_dir, alg="LSTM-SAC", env_str=env_str, info=None)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
@@ -189,9 +229,9 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             if agent.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
-    
+        
 if __name__ == "__main__":
-    
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
