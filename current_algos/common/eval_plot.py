@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
+
 def plot_from_progress(dir, alg, env_str, info=None):
     """Plots based on a given 'progress.txt' the evaluation return, Q_values and losses.
 

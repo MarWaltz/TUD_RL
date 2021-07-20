@@ -1,15 +1,14 @@
-import sys
-
 import copy
 import pickle
-import time
 import random
+import sys
+import time
 
 import gym
 import numpy as np
 import pybulletgym
 import torch
-
+from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.LCP_environment import LCP_Environment
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.TD3.td3_agent import *
@@ -184,6 +183,9 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()
+
+            # create evaluation plot based on current 'progress.txt'
+            plot_from_progress(dir=agent.logger.output_dir, alg="TD3", env_str=env_str, info=None)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")

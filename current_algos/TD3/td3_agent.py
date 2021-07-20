@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.TD3.td3_buffer import UniformReplayBuffer, Proportional_PER_Buffer, Inefficient_Proportional_PER_Buffer, Inefficient_Rank_PER_Buffer, Rank_Based_PER_Buffer
+from current_algos.TD3.td3_buffer import UniformReplayBuffer
 from current_algos.TD3.td3_nets import Actor, Critic, Double_Critic
 from current_algos.common.noise import Gaussian_Noise
 from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
@@ -39,12 +39,7 @@ class TD3_Agent:
                  lr_critic        = 0.001,
                  l2_reg_actor     = 0.0,
                  l2_reg_critic    = 0.0,
-                 PER              = True,
-                 PER_type         = "rank",
-                 alpha            = 0.4,
-                 beta_start       = 0.5,
-                 beta_inc         = 1e-5,
-                 buffer_length    = 100000,
+                 buffer_length    = 1000000,
                  grad_clip        = False,
                  grad_rescale     = False,
                  act_start_step   = 10000,
@@ -104,11 +99,6 @@ class TD3_Agent:
         self.lr_critic        = lr_critic
         self.l2_reg_actor     = l2_reg_actor
         self.l2_reg_critic    = l2_reg_critic
-        self.PER              = PER
-        self.PER_type         = PER_type
-        self.alpha            = alpha
-        self.beta_start       = beta_start
-        self.beta_inc         = beta_inc
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -135,21 +125,8 @@ class TD3_Agent:
         
         # init replay buffer and noise
         if mode == "train":
-            if self.PER:
-                assert PER_type in ["proportional", "rank"], "Unknown PER type. Should be 'proportional' or 'rank'."
-
-                if PER_type == "proportional":
-                    self.replay_buffer = Inefficient_Proportional_PER_Buffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
-                                                                 buffer_length=buffer_length, batch_size=batch_size, alpha=alpha, beta_start=beta_start, 
-                                                                 beta_inc=beta_inc, device=self.device)
-                else:
-                    self.replay_buffer = Rank_Based_PER_Buffer(action_dim=action_dim, state_dim=state_dim,
-                                                                     max_size=buffer_length, batch_size=batch_size, alpha=alpha, beta=beta_start, 
-                                                                     beta_inc=beta_inc, device=self.device)
-
-            else:
-                self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
-                                                         buffer_length=buffer_length, batch_size=batch_size, device=self.device)
+            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
+                                                     buffer_length=buffer_length, batch_size=batch_size, device=self.device)
             self.noise = Gaussian_Noise(action_dim=action_dim)
 
         # init input, action normalizer
@@ -230,10 +207,7 @@ class TD3_Agent:
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        
         # sample batch
-        if self.PER:
-            *batch, weights, idx = self.replay_buffer.sample()
-        else:
-            batch = self.replay_buffer.sample()
+        batch = self.replay_buffer.sample()
         
         # unpack batch
         s, a, r, s2, d = batch
@@ -269,26 +243,9 @@ class TD3_Agent:
             # target
             target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
 
-        # update priorities when using PER
-        if self.PER:
-            if self.double_critic:
-                self.replay_buffer.update_prio(idx = idx, TD_error = torch.abs(target_Q - Q_v1) + torch.abs(target_Q - Q_v2))
-            else:
-                self.replay_buffer.update_prio(idx = idx, TD_error = torch.abs(target_Q - Q_v))
-
         # calculate loss
-        if self.PER and self.double_critic:
-            sq_TD_e1 = (Q_v1 - target_Q) ** 2
-            sq_TD_e2 = (Q_v2 - target_Q) ** 2
-            critic_loss = torch.mean(sq_TD_e1 * weights.detach()) + torch.mean(sq_TD_e2 * weights.detach())
-
-        elif self.PER:
-            sq_TD_e = (Q_v - target_Q) ** 2
-            critic_loss = torch.mean(sq_TD_e * weights.detach())
-
-        elif self.double_critic:
+        if self.double_critic:
             critic_loss = F.mse_loss(Q_v1, target_Q) + F.mse_loss(Q_v2, target_Q)
-
         else:
             critic_loss = F.mse_loss(Q_v, target_Q)
         
