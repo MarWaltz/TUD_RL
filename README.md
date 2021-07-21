@@ -1,1 +1,1 @@
-# algo_package
+# This is an implementation of reinforcement learning algorithms for continuous action spaces. Computations are performed via PyTorch.
