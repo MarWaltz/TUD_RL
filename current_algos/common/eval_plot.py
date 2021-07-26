@@ -77,5 +77,5 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[1,1].set_ylabel("Actor loss")
 
     # safe figure and close
-    plt.savefig(f"{dir}/eval_plot.png")
+    plt.savefig(f"{dir}/{alg}_{env_str}.png")
     plt.close()
