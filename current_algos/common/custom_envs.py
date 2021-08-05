@@ -304,3 +304,41 @@ class LCP_Environment(gym.Env):
         
         # delay plotting for ease of user
         plt.pause(self.plot_delay)
+
+
+class MountainCar:
+    """The MountainCar environment following the description of p.245 in Sutton & Barto (2018).
+    Methods: __init__, step, reset. State consists of [position, velocity]."""
+
+    def __init__(self, rewardStd):
+        self.rewardStd = rewardStd
+    
+    def reset(self):
+        self.position = -0.6 + np.random.random()*0.2
+        self.velocity = 0.0
+        return np.array([self.position, self.velocity])
+
+    def step(self, a):
+        """Updates internal state for given action and returns tuple (s2, r, d, None)."""
+
+        assert a in [0, 1, 2], "Invalid action."
+        
+        # update velocity
+        self.velocity += 0.001*(a-1) - 0.0025*np.cos(3*self.position)
+
+        if self.velocity < -0.07:
+            self.velocity = -0.07
+        elif self.velocity >= 0.07:
+            self.velocity = 0.06999999
+        
+        # update position
+        self.position += self.velocity
+        if self.position < -1.2:
+            self.position = -1.2
+            self.velocity = 0.0
+        
+        # calculate done flag and sample reward
+        done = True if self.position >= 0.5 else False
+        r = np.random.normal(-1.0, self.rewardStd)
+ 
+        return np.array([self.position, self.velocity]), r, done, None
