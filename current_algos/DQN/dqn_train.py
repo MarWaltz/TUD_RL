@@ -9,7 +9,7 @@ import numpy as np
 
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import LCP_Environment, MountainCar
+from current_algos.common.custom_envs import MountainCar
 from current_algos.DQN.dqn_agent import *
 
 # training config
@@ -59,9 +59,9 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
     start_time = time.time()
     
     # init env
-    if env_str == "LCP":
-        env = LCP_Environment()
-        test_env = LCP_Environment()
+    if env_str == "MountainCar":
+        env = MountainCar(rewardStd=0)
+        test_env = MountainCar(rewardStd=0)
         max_episode_steps = env._max_episode_steps
     else:
         env = gym.make(env_str)
@@ -162,7 +162,7 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            #plot_from_progress(dir=agent.logger.output_dir, alg="DQN", env_str=env_str, info=None)
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
 
             # save weights
             torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="CartPole-v0")
+    parser.add_argument("--env_str", type=str, default="MountainCar")
     args = parser.parse_args()
     
     # set number of torch threads

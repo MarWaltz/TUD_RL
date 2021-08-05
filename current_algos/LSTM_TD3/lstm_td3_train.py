@@ -227,7 +227,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg="LSTM-TD3", env_str=env_str, info=None)
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")

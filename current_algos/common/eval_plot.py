@@ -57,7 +57,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[0,0].set_ylabel("Test return")
 
     # fill second axis
-    if alg in ["TD3", "LSTM-TD3", "SAC", "LSTM-SAC"]:
+    if any([alg.startswith(name) for name in ["TD3", "LSTM-TD3", "SAC", "LSTM-SAC"]]):
         ax[0,1].plot(df["Timestep"], df["Avg_Q1_val"])
         ax[0,1].set_ylabel("Avg_Q1_val")
     else:
@@ -67,14 +67,20 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[0,1].set_xlabel("Timestep")
     
     # fill third axis
-    ax[1,0].plot(df["Timestep"], df["Critic_loss"])
-    ax[1,0].set_xlabel("Timestep")
-    ax[1,0].set_ylabel("Critic loss")
+    if any([alg.startswith(name) for name in ["TD3", "LSTM-TD3", "SAC", "LSTM-SAC"]]):
+        ax[1,0].plot(df["Timestep"], df["Critic_loss"])
+        ax[1,0].set_xlabel("Timestep")
+        ax[1,0].set_ylabel("Critic loss")
+    else:
+        ax[1,0].plot(df["Timestep"], df["Loss"])
+        ax[1,0].set_xlabel("Timestep")
+        ax[1,0].set_ylabel("Loss")
 
     # fill fourth axis
-    ax[1,1].plot(df["Timestep"], df["Actor_loss"])
-    ax[1,1].set_xlabel("Timestep")
-    ax[1,1].set_ylabel("Actor loss")
+    if any([alg.startswith(name) for name in ["TD3", "LSTM-TD3", "SAC", "LSTM-SAC"]]):
+        ax[1,1].plot(df["Timestep"], df["Actor_loss"])
+        ax[1,1].set_xlabel("Timestep")
+        ax[1,1].set_ylabel("Actor loss")
 
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.png")
