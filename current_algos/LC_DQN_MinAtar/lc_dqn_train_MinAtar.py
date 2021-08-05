@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import MountainCar
-from current_algos.DQN_MinAtar.dqn_agent_MinAtar import *
+from current_algos.LC_DQN_MinAtar.lc_dqn_agent_MinAtar import *
 
 # training config
 TIMESTEPS = 1000000     # overall number of training interaction steps
@@ -60,7 +60,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -87,12 +87,11 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = CNN_DQN_Agent(mode        = "train",
-                          num_actions = env.action_space.n, 
-                          state_shape = state_shape,
-                          double      = double,
-                          dqn_weights = dqn_weights,
-                          device      = device)
+    agent = LinearComb_CNN_DQN_Agent(mode        = "train",
+                                     num_actions = env.action_space.n, 
+                                     state_shape = state_shape,
+                                     dqn_weights = dqn_weights,
+                                     device      = device)
     
     # get initial state and normalize it
     s = env.reset()
@@ -108,8 +107,6 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
     
     # main loop    
     for total_steps in range(TIMESTEPS):
-
-        epi_steps += 1
         
         # select action
         if total_steps <= agent.act_start_step:
@@ -186,7 +183,7 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
 
             # save weights
-            torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+            torch.save(agent.DQN[0].state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if agent.input_norm:
@@ -198,11 +195,10 @@ if __name__ == "__main__":
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
-    parser.add_argument("--double", type=str, default="False")
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, dqn_weights=None, seed=10, device="cpu")

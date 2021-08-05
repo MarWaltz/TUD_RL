@@ -8,12 +8,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.DQN_MinAtar.dqn_buffer_MinAtar import UniformReplayBuffer_CNN
-from current_algos.DQN_MinAtar.dqn_nets_MinAtar import CNN_DQN
+from current_algos.LC_DQN_MinAtar.lc_dqn_buffer_MinAtar import UniformReplayBuffer_CNN
+from current_algos.LC_DQN_MinAtar.lc_dqn_nets_MinAtar import CNN_DQN
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
-class CNN_DQN_Agent:
+class LinearComb_CNN_DQN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
@@ -21,7 +21,7 @@ class CNN_DQN_Agent:
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double           = False,
+                 N                = 4,
                  gamma            = 0.99,
                  eps_decay        = 0.995,
                  eps_final        = 0.001,
@@ -68,17 +68,17 @@ class CNN_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_DQN_Agent"
+        self.name        = "LinearComb_CNN_DQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
-        assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width)."
+        assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width)"
         self.state_shape = state_shape
 
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
-        self.double           = double
+        self.N                = N
         self.gamma            = gamma
         self.epsilon          = 1.0
         self.eps_decay        = eps_decay
@@ -111,10 +111,11 @@ class CNN_DQN_Agent:
         self.logger = EpochLogger()
         self.logger.save_config(locals())
         
-        # init replay buffer and noise
+        # init two replay buffers (one for Q and one for w)
         if mode == "train":
             self.replay_buffer = UniformReplayBuffer_CNN(state_shape=state_shape, n_steps=n_steps, gamma=gamma,
                                                          buffer_length=buffer_length, batch_size=batch_size, device=self.device)
+            self.replay_buffer_w = copy.deepcopy(self.replay_buffer)
 
         # init input normalizer
         if input_norm:
@@ -127,30 +128,63 @@ class CNN_DQN_Agent:
             else:
                 self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
         
-        # init convolutional DQN
-        self.DQN = CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device)
+        # init convolutional DQN-ensemble
+        self.DQN = [CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device) for _ in range(N)]
         
         print("--------------------------------------------")
-        print(f"n_params DQN: {self._count_params(self.DQN)}")
+        print(f"n_params of one DQN: {self._count_params(self.DQN[0])}")
         print("--------------------------------------------")
         
         # load prior weights if available
         if dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(dqn_weights))
+            for n in range(N):
+                self.DQN[n].load_state_dict(torch.load(dqn_weights[n]))
 
         # init target net and counter for target update
-        self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
+        self.target_DQN = [copy.deepcopy(net).to(self.device) for net in self.DQN]
         self.tgt_up_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_DQN.parameters():
-            p.requires_grad = False
+        for target_net in self.target_DQN:
+            for p in target_net.parameters():
+                p.requires_grad = False
+
+        # init linear combination
+        self.w = torch.tensor([1/N for _ in range(N)], requires_grad=True)
 
         # define optimizer
-        self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
+        self.DQN_optimizer = [optim.Adam(main_net.parameters(), lr=lr, weight_decay=l2_reg) for main_net in self.DQN]
+        self.w_optimizer = optim.Adam([self.w], lr=lr)
 
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
+
+    def _get_combined_Q(self, s, use_target):
+        """Computes for a given state Q_combined(s,a) which is defined to be the weighted sum (by w) over all Q for each action.
+        
+        s:          torch.Size([batch_size, in_channels, height, width])
+        use_target: bool
+
+        returns:    torch.Size([batch_size, num_actions])"""
+
+        # transform w to sum up to 1
+        w = torch.exp(self.w) / torch.sum(torch.exp(self.w))
+
+        # use main nets for Q_comb
+        if use_target == False:
+            
+            Q_comb = w[0] * self.DQN[0](s)
+            for Q_idx in range(1, self.N):
+                Q_comb += w[Q_idx] * self.DQN[Q_idx](s)
+        
+        # or target nets
+        else:
+            
+            Q_comb = w[0] * self.target_DQN[0](s)
+            for Q_idx in range(1, self.N):
+                Q_comb += w[Q_idx] * self.target_DQN[Q_idx](s)
+
+        return Q_comb
 
     @torch.no_grad()
     def select_action(self, s):
@@ -167,11 +201,11 @@ class CNN_DQN_Agent:
             # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
             s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
-            # forward pass
-            q = self.DQN(s).to(self.device)
+            # compute Q_comb
+            Q_comb = self._get_combined_Q(s, use_target=False)
 
             # greedy
-            a = torch.argmax(q).item()
+            a = torch.argmax(Q_comb).item()
 
         # decay epsilon
         self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
@@ -180,54 +214,61 @@ class CNN_DQN_Agent:
 
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
-        self.replay_buffer.add(s, a, r, s2, d)
+        if np.random.binomial(1, 0.5) == 1:
+            self.replay_buffer.add(s, a, r, s2, d)
+        else:
+            self.replay_buffer_w.add(s, a, r, s2, d)
 
     def train(self):
-        """Samples from replay_buffer, updates critic and the target networks."""        
+        """Train Q and w."""
+        self.train_Q()
+        self.train_w()
+
+    def train_Q(self):
+        """Samples from replay_buffer, updates Q and the target networks."""        
         # sample batch
         batch = self.replay_buffer.sample()
         
         # unpack batch
         s, a, r, s2, d = batch
 
+        # sample Q to update
+        Q_idx = np.random.choice(self.N)
+
         #-------- train DQN --------
         # clear gradients
-        self.DQN_optimizer.zero_grad()
+        self.DQN_optimizer[Q_idx].zero_grad()
         
         # calculate current estimated Q-values
-        Q_v = self.DQN(s)
+        Q_v = self.DQN[Q_idx](s)
         Q_v = torch.gather(input=Q_v, dim=1, index=a)
  
         # calculate targets
         with torch.no_grad():
 
             # Q-value of next state-action pair
-            if self.double:
-                a2 = torch.argmax(self.DQN(s2), dim=1).reshape(self.batch_size, 1)
-                target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
-            else:
-                target_Q_next = self.target_DQN(s2)
-                target_Q_next = torch.max(target_Q_next, dim=1).values.reshape(self.batch_size, 1)
+            target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
+            target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
 
             # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+            target_Q = r + self.gamma * target_Q_next * (1 - d)
 
         # calculate loss
         loss = F.mse_loss(Q_v, target_Q)
         
         # compute gradients
         loss.backward()
-
+        
         # gradient scaling and clipping
         if self.grad_rescale:
-            for p in self.DQN.parameters():
+            for p in self.DQN[Q_idx].parameters():
                 p.grad *= 1 / math.sqrt(2)
         if self.grad_clip:
-            nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
-        
+            nn.utils.clip_grad_norm_(self.DQN[Q_idx].parameters(), max_norm=10)
+      
         # perform optimizing step
-        self.DQN_optimizer.step()
-        
+        self.DQN_optimizer[Q_idx].step()
+
         # log critic training
         self.logger.store(Loss=loss.detach().cpu().numpy().item())
         self.logger.store(Q_val=Q_v.detach().mean().cpu().numpy().item())
@@ -238,8 +279,45 @@ class CNN_DQN_Agent:
 
         # increase target-update cnt
         self.tgt_up_cnt += 1
-    
+
+    def train_w(self):
+        """Samples from replay_buffer_w and updates w."""
+
+        # sample batch
+        batch = self.replay_buffer_w.sample()
+        
+        # unpack batch
+        s, a, r, s2, d = batch
+
+        # sample Q used in the update
+        Q_idx = np.random.choice(self.N)
+
+        #------------- train w ----------------
+        # clear gradients
+        self.w_optimizer.zero_grad()
+
+        # calculate current estimated Q-values
+        with torch.no_grad():
+            Q_v = self.DQN[Q_idx](s)
+            Q_v = torch.gather(input=Q_v, dim=1, index=a)
+
+        # Q-value of next state-action pair
+        target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
+        target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+
+        # target
+        target_Q = r + self.gamma * target_Q_next * (1 - d)
+
+        # calculate loss
+        loss = F.mse_loss(Q_v, target_Q)
+        
+        # compute gradients
+        loss.backward()
+      
+        # perform optimizing step
+        self.w_optimizer.step()
+
     @torch.no_grad()
     def target_update(self):
-        """Hard update of target network weights."""
-        self.target_DQN.load_state_dict(self.DQN.state_dict())
+        for i in range(self.N):
+            self.target_DQN[i].load_state_dict(self.DQN[i].state_dict())
