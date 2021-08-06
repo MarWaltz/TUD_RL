@@ -176,7 +176,7 @@ if __name__ == "__main__":
     
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="MountainCar")
+    parser.add_argument("--env_str", type=str, default="CartPole-v1")
     args = parser.parse_args()
     
     # set number of torch threads

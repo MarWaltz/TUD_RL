@@ -23,7 +23,7 @@ class DQN_Agent:
                  input_norm_prior = None,
                  double           = False,
                  gamma            = 0.99,
-                 eps_decay        = 0.995,
+                 eps_decay        = 0.99995,
                  eps_final        = 0.001,
                  n_steps          = 1,
                  tgt_update_freq  = 256,

@@ -81,6 +81,12 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,1].plot(df["Timestep"], df["Actor_loss"])
         ax[1,1].set_xlabel("Timestep")
         ax[1,1].set_ylabel("Actor loss")
+    if alg.startswith("LC_DQN"):
+        ax[1,1].plot(df["Timestep"], df["w0"], label="w0")
+        ax[1,1].plot(df["Timestep"], df["w1"], label="w1")
+        ax[1,1].plot(df["Timestep"], df["w2"], label="w2")
+        ax[1,1].plot(df["Timestep"], df["w3"], label="w3")
+        ax[1,1].legend()
 
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.png")
