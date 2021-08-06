@@ -22,6 +22,7 @@ class LinearComb_CNN_DQN_Agent:
                  input_norm       = False,
                  input_norm_prior = None,
                  N                = 4,
+                 act_softmax      = True,
                  gamma            = 0.99,
                  eps_decay        = 0.995,
                  eps_final        = 0.001,
@@ -68,7 +69,7 @@ class LinearComb_CNN_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "LinearComb_CNN_DQN_Agent"
+        self.name        = "LinearComb_CNN_DQN_Agent with Double Softmax"
         self.num_actions = num_actions
  
         # CNN shape
@@ -79,6 +80,7 @@ class LinearComb_CNN_DQN_Agent:
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.N                = N
+        self.act_softmax      = act_softmax
         self.gamma            = gamma
         self.epsilon          = 1.0
         self.eps_decay        = eps_decay
@@ -248,7 +250,12 @@ class LinearComb_CNN_DQN_Agent:
 
             # Q-value of next state-action pair
             target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
-            target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+
+            if self.act_softmax:
+                softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
+                target_Q_next = softmax.reshape(self.batch_size, 1)
+            else:
+                target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
 
             # target
             target_Q = r + self.gamma * target_Q_next * (1 - d)
@@ -303,7 +310,11 @@ class LinearComb_CNN_DQN_Agent:
 
         # Q-value of next state-action pair
         target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
-        target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+        if self.act_softmax:
+            softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
+            target_Q_next = softmax.reshape(self.batch_size, 1)
+        else:
+            target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
 
         # target
         target_Q = r + self.gamma * target_Q_next * (1 - d)
