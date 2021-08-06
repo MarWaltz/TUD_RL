@@ -195,12 +195,23 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
     
 if __name__ == "__main__":
     
+    # helper function for parser
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
-    parser.add_argument("--double", type=bool, default=False)
+    parser.add_argument("--double", type=str2bool, default=False)
     args = parser.parse_args()
-    
+
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
