@@ -8,22 +8,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.LC_DQN_MinAtar.lc_dqn_buffer_MinAtar import UniformReplayBuffer_CNN
-from current_algos.LC_DQN_MinAtar.lc_dqn_nets_MinAtar import CNN_DQN
+from current_algos.LC_DQN.lc_dqn_buffer import UniformReplayBuffer
+from current_algos.LC_DQN.lc_dqn_nets import DQN
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
-class LinearComb_CNN_DQN_Agent:
+class LC_DQN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
-                 state_shape,
+                 state_dim,
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
                  N                = 4,
                  gamma            = 0.99,
-                 eps_decay        = 0.995,
+                 eps_decay        = 0.99995,
                  eps_final        = 0.001,
                  n_steps          = 1,
                  tgt_update_freq  = 256,
@@ -68,13 +68,9 @@ class LinearComb_CNN_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "LinearComb_CNN_DQN_Agent"
-        self.num_actions = num_actions
- 
-        # CNN shape
-        assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width)"
-        self.state_shape = state_shape
-
+        self.name             = "LC_DQN_Agent with Double Softmax"
+        self.num_actions      = num_actions
+        self.state_dim        = state_dim
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
@@ -111,10 +107,10 @@ class LinearComb_CNN_DQN_Agent:
         self.logger = EpochLogger()
         self.logger.save_config(locals())
         
-        # init two replay buffers (one for Q and one for w)
+        # init replay buffer and noise
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer_CNN(state_shape=state_shape, n_steps=n_steps, gamma=gamma,
-                                                         buffer_length=buffer_length, batch_size=batch_size, device=self.device)
+            self.replay_buffer = UniformReplayBuffer(state_dim=state_dim, n_steps=n_steps, gamma=gamma,
+                                                     buffer_length=buffer_length, batch_size=batch_size, device=self.device)
             self.replay_buffer_w = copy.deepcopy(self.replay_buffer)
 
         # init input normalizer
@@ -124,12 +120,12 @@ class LinearComb_CNN_DQN_Agent:
             if input_norm_prior is not None:
                 with open(input_norm_prior, "rb") as f:
                     prior = pickle.load(f)
-                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=prior)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=prior)
             else:
-                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=None)
         
-        # init convolutional DQN-ensemble
-        self.DQN = [CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device) for _ in range(N)]
+        # init DQN-ensemble
+        self.DQN = [DQN(num_actions=num_actions, state_dim=state_dim).to(self.device) for _ in range(N)]
         
         print("--------------------------------------------")
         print(f"n_params of one DQN: {self._count_params(self.DQN[0])}")
@@ -189,7 +185,7 @@ class LinearComb_CNN_DQN_Agent:
     @torch.no_grad()
     def select_action(self, s):
         """Epsilon-greedy based action selection for a given state.
-        Arg s:   np.array with shape (in_channels, height, width)
+        Arg s:   np.array with shape (state_dim,)
         returns: int for the action
         """
         # random action
@@ -198,8 +194,8 @@ class LinearComb_CNN_DQN_Agent:
             
         # greedy action
         else:
-            # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
-            s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
+            # reshape obs
+            s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
 
             # compute Q_comb
             Q_comb = self._get_combined_Q(s, use_target=False)
@@ -211,7 +207,7 @@ class LinearComb_CNN_DQN_Agent:
         self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
 
         return a
-
+    
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
         if np.random.binomial(1, 0.5) == 1:
@@ -248,7 +244,11 @@ class LinearComb_CNN_DQN_Agent:
 
             # Q-value of next state-action pair
             target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
-            target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+            #target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+
+            # use softmax instead
+            softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
+            target_Q_next = softmax.reshape(self.batch_size, 1)
 
             # target
             target_Q = r + self.gamma * target_Q_next * (1 - d)
@@ -279,7 +279,7 @@ class LinearComb_CNN_DQN_Agent:
 
         # increase target-update cnt
         self.tgt_up_cnt += 1
-
+    
     def train_w(self):
         """Samples from replay_buffer_w and updates w."""
 
@@ -303,8 +303,12 @@ class LinearComb_CNN_DQN_Agent:
 
         # Q-value of next state-action pair
         target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
-        target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
-
+        #target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
+        
+        # use softmax instead
+        softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
+        target_Q_next = softmax.reshape(self.batch_size, 1)
+        
         # target
         target_Q = r + self.gamma * target_Q_next * (1 - d)
 
@@ -316,6 +320,12 @@ class LinearComb_CNN_DQN_Agent:
         
         # perform optimizing step
         self.w_optimizer.step()
+
+        # log new normalized w
+        w_dict = dict()
+        for n in range(self.N):
+            w_dict[f"w{n}"] = torch.exp(self.w[n]).item()/torch.sum(torch.exp(self.w)).item()
+        self.logger.store(**w_dict)
 
     @torch.no_grad()
     def target_update(self):
