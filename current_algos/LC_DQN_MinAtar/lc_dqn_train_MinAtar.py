@@ -60,7 +60,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -90,6 +90,7 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
     agent = LC_DQN_CNN_Agent(mode        = "train",
                              num_actions = env.action_space.n, 
                              state_shape = state_shape,
+                             act_softmax = act_softmax,
                              dqn_weights = dqn_weights,
                              device      = device)
     
@@ -160,7 +161,7 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
             epi_ret = 0
 
         # end of epoch handling
-        if (total_steps + 1) % EPOCH_LENGTH == 0:
+        if (total_steps + 1) % EPOCH_LENGTH == 0 and (total_steps + 1) > agent.upd_start_step:
 
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
@@ -191,14 +192,26 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
     
 if __name__ == "__main__":
-    
+
+    # helper function for parser
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
+    parser.add_argument("--act_softmax", type=str2bool, default=False)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, act_softmax=args.act_softmax, dqn_weights=None, seed=10, device="cpu")

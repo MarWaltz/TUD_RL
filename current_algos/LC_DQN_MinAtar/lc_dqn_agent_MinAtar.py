@@ -28,16 +28,16 @@ class LC_DQN_CNN_Agent:
                  eps_final        = 0.1,
                  eps_decay_steps  = 100000,
                  n_steps          = 1,
-                 tgt_update_freq  = 256,
-                 lr               = 0.001,
+                 tgt_update_freq  = 1000,
+                 lr               = 0.00025,
                  l2_reg           = 0.0,
-                 buffer_length    = 10000,
+                 buffer_length    = int(10e5),
                  grad_clip        = False,
                  grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
+                 act_start_step   = 5000,
+                 upd_start_step   = 5000,
                  upd_every        = 1,
-                 batch_size       = 128,
+                 batch_size       = 32,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
