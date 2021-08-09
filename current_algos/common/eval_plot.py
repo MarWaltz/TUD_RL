@@ -2,7 +2,9 @@ import csv
 
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
+import matplotlib
+matplotlib.use("agg")
+import matplotlib.pyplot as plt
 
 
 def plot_from_progress(dir, alg, env_str, info=None):
