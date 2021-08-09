@@ -23,19 +23,20 @@ class CNN_DQN_Agent:
                  input_norm_prior = None,
                  double           = False,
                  gamma            = 0.99,
-                 eps_decay        = 0.99995,
-                 eps_final        = 0.001,
+                 eps_init         = 1.0,
+                 eps_final        = 0.1,
+                 eps_decay_steps  = 100000,
                  n_steps          = 1,
-                 tgt_update_freq  = 256,
-                 lr               = 0.001,
+                 tgt_update_freq  = 1000,
+                 lr               = 0.00025,
                  l2_reg           = 0.0,
-                 buffer_length    = 10000,
+                 buffer_length    = int(10e5),
                  grad_clip        = False,
                  grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
+                 act_start_step   = 5000,
+                 upd_start_step   = 5000,
                  upd_every        = 1,
-                 batch_size       = 128,
+                 batch_size       = 32,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -80,9 +81,15 @@ class CNN_DQN_Agent:
         self.input_norm_prior = input_norm_prior
         self.double           = double
         self.gamma            = gamma
-        self.epsilon          = 1.0
-        self.eps_decay        = eps_decay
+
+        # linear epsilon schedule
+        self.eps_init         = eps_init
+        self.epsilon          = eps_init
         self.eps_final        = eps_final
+        self.eps_decay_steps  = eps_decay_steps
+        self.eps_inc          = (eps_final - eps_init) / eps_decay_steps
+        self.eps_t            = 0
+
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
         self.lr               = lr
@@ -173,8 +180,10 @@ class CNN_DQN_Agent:
             # greedy
             a = torch.argmax(q).item()
 
-        # decay epsilon
-        self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
+        # anneal epsilon linearly
+        if self.mode == "train":
+            self.eps_t += 1
+            self.epsilon = max(self.eps_inc * self.eps_t + self.eps_init, self.eps_final)
 
         return a
 

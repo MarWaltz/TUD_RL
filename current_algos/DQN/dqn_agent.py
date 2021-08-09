@@ -22,6 +22,7 @@ class DQN_Agent:
                  input_norm       = False,
                  input_norm_prior = None,
                  double           = False,
+                 act_softmax      = False,
                  gamma            = 0.99,
                  eps_decay        = 0.99995,
                  eps_final        = 0.001,
@@ -68,13 +69,16 @@ class DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "DQN_Agent"
+        assert (act_softmax and double) == False, "Currently, softmax double-DQN is not implemented."
+        self.name             = "Softmax DQN_Agent" if act_softmax else "DQN_Agent"
+
         self.num_actions      = num_actions
         self.state_dim        = state_dim
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.double           = double
+        self.act_softmax      = act_softmax
         self.gamma            = gamma
         self.epsilon          = 1.0
         self.eps_decay        = eps_decay
@@ -201,6 +205,10 @@ class DQN_Agent:
             if self.double:
                 a2 = torch.argmax(self.DQN(s2), dim=1).reshape(self.batch_size, 1)
                 target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
+            elif self.act_softmax:
+                target_Q_next = self.target_DQN(s2)
+                softmax = torch.sum(F.softmax(target_Q_next, dim=1) * target_Q_next, dim=1)
+                target_Q_next = softmax.reshape(self.batch_size, 1)
             else:
                 target_Q_next = self.target_DQN(s2)
                 target_Q_next = torch.max(target_Q_next, dim=1).values.reshape(self.batch_size, 1)

@@ -112,7 +112,7 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
         epi_steps += 1
         
         # select action
-        if total_steps <= agent.act_start_step:
+        if total_steps < agent.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)
@@ -163,7 +163,7 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
             epi_ret = 0
 
         # end of epoch handling
-        if (total_steps + 1) % EPOCH_LENGTH == 0:
+        if (total_steps + 1) % EPOCH_LENGTH == 0 and (total_steps + 1) > agent.upd_start_step:
 
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
+    parser.add_argument("--env_str", type=str, default="Asterix-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     args = parser.parse_args()
 

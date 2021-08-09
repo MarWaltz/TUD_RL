@@ -69,7 +69,7 @@ class LC_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "LC_DQN_Agent with Double Softmax"
+        self.name             = "LC_DQN_Agent with Double Softmax" if act_softmax else "LC_DQN_Agent"
         self.num_actions      = num_actions
         self.state_dim        = state_dim
         self.dqn_weights      = dqn_weights
@@ -160,7 +160,7 @@ class LC_DQN_Agent:
     def _get_combined_Q(self, s, use_target):
         """Computes for a given state Q_combined(s,a) which is defined to be the exponentially-w-weighted sum over all Q for each action.
         
-        s:          torch.Size([batch_size, in_channels, height, width])
+        s:          torch.Size([batch_size, state_dim])
         use_target: bool
 
         returns:    torch.Size([batch_size, num_actions])"""
@@ -306,6 +306,7 @@ class LC_DQN_Agent:
 
         # Q-value of next state-action pair
         target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
+        
         if self.act_softmax:
             softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
             target_Q_next = softmax.reshape(self.batch_size, 1)

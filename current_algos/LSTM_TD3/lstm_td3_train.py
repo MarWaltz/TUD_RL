@@ -129,7 +129,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
         epi_steps += 1
         
         # select action
-        if total_steps <= agent.act_start_step:
+        if total_steps < agent.act_start_step:
             a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.action_dim)
         else:
             a = agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)

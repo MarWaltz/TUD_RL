@@ -13,7 +13,7 @@ from current_algos.LC_DQN_MinAtar.lc_dqn_nets_MinAtar import CNN_DQN
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
-class LinearComb_CNN_DQN_Agent:
+class LC_DQN_CNN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
@@ -24,8 +24,9 @@ class LinearComb_CNN_DQN_Agent:
                  N                = 4,
                  act_softmax      = True,
                  gamma            = 0.99,
-                 eps_decay        = 0.99995,
-                 eps_final        = 0.001,
+                 eps_init         = 1.0,
+                 eps_final        = 0.1,
+                 eps_decay_steps  = 100000,
                  n_steps          = 1,
                  tgt_update_freq  = 256,
                  lr               = 0.001,
@@ -69,7 +70,7 @@ class LinearComb_CNN_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "LinearComb_CNN_DQN_Agent with Double Softmax"
+        self.name        = "LinearComb_CNN_DQN_Agent with Double Softmax" if act_softmax else "LinearComb_CNN_DQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
@@ -82,9 +83,15 @@ class LinearComb_CNN_DQN_Agent:
         self.N                = N
         self.act_softmax      = act_softmax
         self.gamma            = gamma
-        self.epsilon          = 1.0
-        self.eps_decay        = eps_decay
+
+        # linear epsilon schedule
+        self.eps_init         = eps_init
+        self.epsilon          = eps_init
         self.eps_final        = eps_final
+        self.eps_decay_steps  = eps_decay_steps
+        self.eps_inc          = (eps_final - eps_init) / eps_decay_steps
+        self.eps_t            = 0
+
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
         self.lr               = lr
@@ -209,8 +216,10 @@ class LinearComb_CNN_DQN_Agent:
             # greedy
             a = torch.argmax(Q_comb).item()
 
-        # decay epsilon
-        self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
+        # anneal epsilon linearly
+        if self.mode == "train":
+            self.eps_t += 1
+            self.epsilon = max(self.eps_inc * self.eps_t + self.eps_init, self.eps_final)
 
         return a
 
@@ -310,6 +319,7 @@ class LinearComb_CNN_DQN_Agent:
 
         # Q-value of next state-action pair
         target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
+
         if self.act_softmax:
             softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
             target_Q_next = softmax.reshape(self.batch_size, 1)

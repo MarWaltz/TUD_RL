@@ -97,7 +97,7 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
         epi_steps += 1
         
         # select action
-        if total_steps <= agent.act_start_step:
+        if total_steps < agent.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)

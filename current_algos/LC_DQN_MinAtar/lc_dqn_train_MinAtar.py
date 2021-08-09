@@ -87,11 +87,11 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = LinearComb_CNN_DQN_Agent(mode        = "train",
-                                     num_actions = env.action_space.n, 
-                                     state_shape = state_shape,
-                                     dqn_weights = dqn_weights,
-                                     device      = device)
+    agent = LC_DQN_CNN_Agent(mode        = "train",
+                             num_actions = env.action_space.n, 
+                             state_shape = state_shape,
+                             dqn_weights = dqn_weights,
+                             device      = device)
     
     # get initial state and normalize it
     s = env.reset()
@@ -109,7 +109,7 @@ def train(env_str, dqn_weights=None, seed=0, device="cpu"):
     for total_steps in range(TIMESTEPS):
         
         # select action
-        if total_steps <= agent.act_start_step:
+        if total_steps < agent.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)
