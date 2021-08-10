@@ -14,7 +14,7 @@ from current_algos.common.custom_envs import MountainCar
 from current_algos.CNN_based.LC_DQN_w_net_MinAtar.lc_dqn_w_net_agent_MinAtar import *
 
 # training config
-TIMESTEPS = 1000000     # overall number of training interaction steps
+TIMESTEPS = 2000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -178,8 +178,8 @@ def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
-            for n in range(agent.N):
-                agent.logger.log_tabular(f"w{n}", average_only=True)
+            #for n in range(agent.N):
+            #    agent.logger.log_tabular(f"w{n}", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -216,4 +216,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, act_softmax=args.act_softmax, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, act_softmax=args.act_softmax, dqn_weights=None, seed=1, device="cpu")

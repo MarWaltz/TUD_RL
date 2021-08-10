@@ -14,7 +14,7 @@ from current_algos.common.custom_envs import MountainCar
 from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
 
 # training config
-TIMESTEPS = 5000000     # overall number of training interaction steps
+TIMESTEPS = 2000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -216,4 +216,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=1, device="cpu")

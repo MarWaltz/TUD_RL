@@ -70,7 +70,7 @@ class LC_DQN_W_NET_CNN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "LinearComb_exp_w_CNN_DQN_Agent with Double Softmax" if act_softmax else "LinearComb_CNN_DQN_Agent"
+        self.name        = "LinearComb_w_net_CNN_DQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
@@ -339,12 +339,12 @@ class LC_DQN_W_NET_CNN_Agent:
         self.w_optimizer.step()
 
         # log new w
-        with torch.no_grad():
-            w_dict = dict()
-            w_out = self.w(s).mean(0)
-            for n in range(self.N):
-                w_dict[f"w{n}"] = w_out[n].item()
-            self.logger.store(**w_dict)
+        #with torch.no_grad():
+        #    w_dict = dict()
+        #    w_out = self.w(s).mean(0)
+        #    for n in range(self.N):
+        #        w_dict[f"w{n}"] = w_out[n].item()
+        #    self.logger.store(**w_dict)
 
     @torch.no_grad()
     def target_update(self):
