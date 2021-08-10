@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import MountainCar
-from current_algos.LC_DQN_MinAtar.lc_dqn_agent_MinAtar import *
+from current_algos.CNN_based.LC_DQN_w_net_MinAtar.lc_dqn_w_net_agent_MinAtar import *
 
 # training config
 TIMESTEPS = 1000000     # overall number of training interaction steps
@@ -87,12 +87,12 @@ def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = LC_DQN_CNN_Agent(mode        = "train",
-                             num_actions = env.action_space.n, 
-                             state_shape = state_shape,
-                             act_softmax = act_softmax,
-                             dqn_weights = dqn_weights,
-                             device      = device)
+    agent = LC_DQN_W_NET_CNN_Agent(mode        = "train",
+                                   num_actions = env.action_space.n, 
+                                   state_shape = state_shape,
+                                   act_softmax = act_softmax,
+                                   dqn_weights = dqn_weights,
+                                   device      = device)
     
     # get initial state and normalize it
     s = env.reset()
@@ -178,6 +178,8 @@ def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
+            for n in range(agent.N):
+                agent.logger.log_tabular(f"w{n}", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'

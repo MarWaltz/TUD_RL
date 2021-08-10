@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.DQN_MinAtar.dqn_buffer_MinAtar import UniformReplayBuffer_CNN
-from current_algos.DQN_MinAtar.dqn_nets_MinAtar import CNN_DQN
+from current_algos.CNN_based.DQN_MinAtar.dqn_buffer_MinAtar import UniformReplayBuffer_CNN
+from current_algos.CNN_based.DQN_MinAtar.dqn_nets_MinAtar import CNN_DQN
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
