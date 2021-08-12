@@ -13,8 +13,8 @@ class LCP_Environment(gym.Env):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
         # river size and number of vessels
-
-        self.y_max = 500
+        self.x_max = 3000
+        self.y_max = 300
         self.n_vessels  = 5
         self.over_coast = 10
 
@@ -71,7 +71,6 @@ class LCP_Environment(gym.Env):
         self.vessel_a   = None
         self.delta      = None # delta are truncated delta x and y, but NOT normalized to [-1,1]
         self.state      = None # state is normalized, flattened delta AND agent's y and y-y_max to have information about coast distance
-        self.reward     = None
         
     def reset(self):
         """Resets environment to initial state."""
@@ -315,8 +314,9 @@ class ObstacleAvoidance_Env(gym.Env):
     def __init__(self):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
-        # river size and vessel characteristics
-        
+        self.hide_velocity = True
+
+        # river size and vessel characteristics   
         self.y_max = 500
         self.n_vessels  = 20
         self.n_vessels_half  = int(self.n_vessels/2)
@@ -360,14 +360,18 @@ class ObstacleAvoidance_Env(gym.Env):
         self.variance_y = 25
         
         # for rendering only
-        self.reward_lines   = [0.5, 0.1, 0.001] 
-        self.ellipse_width  = [2 * np.sqrt(-2 * self.variance_x * np.log(reward)) for reward in self.reward_lines]
-        self.ellipse_height = [2 * np.sqrt(-2 * self.variance_y * np.log(reward)) for reward in self.reward_lines]
+        # self.reward_lines   = [0.5, 0.1, 0.001] 
+        # self.ellipse_width  = [2 * np.sqrt(-2 * self.variance_x * np.log(reward)) for reward in self.reward_lines]
+        # self.ellipse_height = [2 * np.sqrt(-2 * self.variance_y * np.log(reward)) for reward in self.reward_lines]
         
         # --------------------------------  gym inherits ---------------------------------------------------
+        if self.hide_velocity:
+            num_vessel_obs = 2
+        else:
+            num_vessel_obs = 4
         super(ObstacleAvoidance_Env, self).__init__()
-        self.observation_space = spaces.Box(low=np.full((1, 4 * self.n_vessels + 2), -1, dtype=np.float32)[0],
-                                            high=np.full((1, 4 * self.n_vessels + 2), 1, dtype=np.float32)[0])
+        self.observation_space = spaces.Box(low=np.full((1, num_vessel_obs * self.n_vessels + 2), -1, dtype=np.float32)[0],
+                                            high=np.full((1, num_vessel_obs * self.n_vessels + 2), 1, dtype=np.float32)[0])
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
         
@@ -497,9 +501,14 @@ class ObstacleAvoidance_Env(gym.Env):
         self.state = np.append(self.state, np.clip(self.agent_ay/self.ay_max, -1, 1))
         self.state = np.append(self.state, np.clip(self.agent_vy/self.vy_max, -1, 1))
         self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
-        self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
         self.state = np.append(self.state, np.clip((self.agent_y  - self.vessel_y)/self.delta_y_max,-1, 1))
-        self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
+
+        if not self.hide_velocity:
+            self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
+            self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
+
+
+
         
         # order delta based on the euclidean distance and get state
         #eucl_dist = np.apply_along_axis(lambda x: np.sqrt(x[0]**2 + x[1]**2), 1, delta_normalized)
