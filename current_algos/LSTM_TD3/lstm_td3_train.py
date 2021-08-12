@@ -10,7 +10,7 @@ import numpy as np
 import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import LCP_Environment
+from current_algos.common.custom_envs import ObstacleAvoidance_Env
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
 
@@ -80,8 +80,8 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     
     # init env
     if env_str == "LCP":
-        env = LCP_Environment()
-        test_env = LCP_Environment()
+        env = ObstacleAvoidance_Env()
+        test_env = ObstacleAvoidance_Env()
         max_episode_steps = env._max_episode_steps
     elif pomdp:
         env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
@@ -242,7 +242,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
+    parser.add_argument("--env_str", type=str, default="LCP")
     args = parser.parse_args()
     
     # set number of torch threads
