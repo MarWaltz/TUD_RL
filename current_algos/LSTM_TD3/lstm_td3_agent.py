@@ -204,7 +204,7 @@ class LSTM_TD3_Agent:
             a += torch.tensor(self.noise.sample()).to(self.device)
         
         # clip actions in [-1,1]
-        a = torch.clip(a, -1, 1).cpu().numpy().reshape(self.action_dim)
+        a = torch.clamp(a, -1, 1).cpu().numpy().reshape(self.action_dim)
         
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)
