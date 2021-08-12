@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.stats import norm 
+from scipy.signal import savgol_filter
 from matplotlib import pyplot as plt
 from matplotlib.patches import Ellipse
 import gym
@@ -11,7 +13,7 @@ class LCP_Environment(gym.Env):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
         # river size and number of vessels
-        self.x_max = 3000
+
         self.y_max = 500
         self.n_vessels  = 5
         self.over_coast = 10
@@ -69,6 +71,7 @@ class LCP_Environment(gym.Env):
         self.vessel_a   = None
         self.delta      = None # delta are truncated delta x and y, but NOT normalized to [-1,1]
         self.state      = None # state is normalized, flattened delta AND agent's y and y-y_max to have information about coast distance
+        self.reward     = None
         
     def reset(self):
         """Resets environment to initial state."""
@@ -304,6 +307,377 @@ class LCP_Environment(gym.Env):
         
         # delay plotting for ease of user
         plt.pause(self.plot_delay)
+
+
+class ObstacleAvoidance_Env(gym.Env):
+    """Class environment with initializer, step, reset and render method."""
+    
+    def __init__(self):
+        
+        # ----------------------------- settings and hyperparameter -----------------------------------------
+        # river size and vessel characteristics
+        
+        self.y_max = 500
+        self.n_vessels  = 20
+        self.n_vessels_half  = int(self.n_vessels/2)
+        self.over_coast = 10
+        self.max_temporal_dist = 200 # maximal temporal distance when placing new vessel
+
+        # maximum sight of agent
+        self.delta_x_max = 3000
+        self.delta_y_max = 300
+
+        # initial agent position, speed and acceleration
+        self.start_x_agent = 0
+        self.start_y_agent = 0
+        self.v_x_agent = 0
+        self.v_y_agent = 0
+        self.a_x_agent = 0
+        self.a_y_agent = 0
+
+        # speed and acceleration of vessels
+        self.vx_max = 6
+        self.vy_max = 4
+        self.ax_max = 0
+        self.ay_max = 0.01
+
+        # time step, max episode steps and length of river
+        self.delta_t = 5
+        self.current_timestep = 0 
+        self._max_episode_steps = 500
+        
+
+        # rendering
+        self.plot_delay = 0.001
+        self.agent_color = "red"
+        #self.vessel_color = ["purple", "blue", "green", "green", "orange", "purple", "blue", "green", "green", "orange"][0:self.n_vessels]
+        self.vessel_color =  np.full(self.n_vessels,"green")
+        self.vessel_color[0:self.n_vessels_half] = "blue"
+        self.line_color = "black"
+
+        # reward config
+        self.variance_x = 12000
+        self.variance_y = 25
+        
+        # for rendering only
+        self.reward_lines   = [0.5, 0.1, 0.001] 
+        self.ellipse_width  = [2 * np.sqrt(-2 * self.variance_x * np.log(reward)) for reward in self.reward_lines]
+        self.ellipse_height = [2 * np.sqrt(-2 * self.variance_y * np.log(reward)) for reward in self.reward_lines]
+        
+        # --------------------------------  gym inherits ---------------------------------------------------
+        super(ObstacleAvoidance_Env, self).__init__()
+        self.observation_space = spaces.Box(low=np.full((1, 4 * self.n_vessels + 2), -1, dtype=np.float32)[0],
+                                            high=np.full((1, 4 * self.n_vessels + 2), 1, dtype=np.float32)[0])
+        self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
+                                       high=np.array([1], dtype=np.float32))
+        
+        # --------------------------------- custom inits ---------------------------------------------------
+        self.agent_x      = None
+        self.agent_y      = None
+        self.agent_vx     = None
+        self.agent_vy     = None
+        self.agent_ax     = None
+        self.agent_ay     = None
+        self.agent_ay_old = None
+
+        self.vessel_x   = None
+        self.vessel_y   = None
+        self.vessel_vx  = None
+        self.vessel_vy  = None
+        self.vessel_ax  = None
+        self.vessel_ay  = None
+        self.vessel_ttc = None
+
+        self.state      = None 
+        
+    def reset(self):
+        """Resets environment to initial state."""
+        self.current_timestep = 0
+        self.reward = 0
+        self._set_AR1()
+        self._set_dynamics()
+        self._set_state()
+        return self.state
+    
+    def _set_AR1(self):
+        """Sets the AR1 Array containing the desired lateral trajectory for all episode steps"""
+        self.AR1 = np.zeros(self._max_episode_steps+2000, dtype=np.float32) 
+        for i in range(self.AR1.size-1):
+            self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(400))
+
+        # smooth data
+        self.AR1 = savgol_filter(self.AR1,125,2)    
+
+
+    def _set_dynamics(self):
+        """Initializes positions, velocity and acceleration of agent and vessels."""
+        self.agent_x = self.start_x_agent
+        self.agent_y = self.start_y_agent
+        self.agent_vx = np.random.uniform(1,self.vx_max)
+        self.x_max = np.ceil(self.agent_vx * self._max_episode_steps * self.delta_t) # set window length by chosen longitudinal speed
+        self.agent_vy = self.v_y_agent
+        self.agent_ax = self.a_x_agent
+        self.agent_ay = self.a_y_agent 
+        self.agent_ay_old = self.a_y_agent
+        
+        self.vessel_x = np.empty((self.n_vessels), dtype=np.float32)
+        self.vessel_y = np.empty((self.n_vessels), dtype=np.float32)
+        self.vessel_vx = np.empty((self.n_vessels), dtype=np.float32)
+        self.vessel_vy = np.empty((self.n_vessels), dtype=np.float32)
+        self.vessel_ttc = np.empty((self.n_vessels), dtype=np.float32)
+
+        # find initial vessel position
+        self._place_vessel(True,-1)
+        self._place_vessel(True, 1)
+
+
+        for i in range(int(self.n_vessels/2-1)):
+            self._place_vessel(False,-1)
+            self._place_vessel(False, 1)
+
+    
+    def _place_vessel(self, initial_placement, vessel_direction):
+        if vessel_direction == -1:
+            ttc = self.vessel_ttc[:self.n_vessels_half].copy()
+            x = self.vessel_x[:self.n_vessels_half].copy()
+            y = self.vessel_y[:self.n_vessels_half].copy()
+            vx = self.vessel_vx[:self.n_vessels_half].copy()
+            vy = self.vessel_vy[:self.n_vessels_half].copy()
+        else:
+            ttc = self.vessel_ttc[self.n_vessels_half:].copy()
+            x = self.vessel_x[self.n_vessels_half:].copy()
+            y = self.vessel_y[self.n_vessels_half:].copy()
+            vx = self.vessel_vx[self.n_vessels_half:].copy()
+            vy = self.vessel_vy[self.n_vessels_half:].copy()
+
+        # compute new ttc
+        if initial_placement:
+            new_ttc = np.random.uniform(-self.max_temporal_dist, -1)
+        else:
+            new_ttc = np.maximum(1,ttc[-1] +  np.random.uniform(0,self.max_temporal_dist))
+
+        # compute new vessel dynamics
+        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(20, np.random.normal(100,70))
+        new_vx = np.random.uniform(-self.vx_max, self.vx_max)
+        new_x = (self.agent_vx - new_vx) * new_ttc + self.agent_x
+        new_vy = np.abs(new_vx/5) * np.random.uniform(-1,1)
+        new_y = y_future - new_vy * new_ttc
+
+        # rotate dynamic arrays to place new vessel at the end
+        ttc = np.roll(ttc,-1)
+        x = np.roll(x,-1)
+        y = np.roll(y,-1)
+        vx = np.roll(vx,-1)
+        vy = np.roll(vy,-1)
+
+        # set new vessel dynamics
+        ttc[-1] = new_ttc
+        x[-1] = new_x
+        y[-1] = new_y
+        vx[-1] = new_vx
+        vy[-1] = new_vy
+
+        if vessel_direction == -1:
+            self.vessel_ttc[:self.n_vessels_half] = ttc
+            self.vessel_x[:self.n_vessels_half] = x
+            self.vessel_y[:self.n_vessels_half] = y
+            self.vessel_vx[:self.n_vessels_half] = vx
+            self.vessel_vy[:self.n_vessels_half] = vy
+        else:
+            self.vessel_ttc[self.n_vessels_half:] = ttc
+            self.vessel_x[self.n_vessels_half:] = x
+            self.vessel_y[self.n_vessels_half:] = y
+            self.vessel_vx[self.n_vessels_half:] = vx
+            self.vessel_vy[self.n_vessels_half:] = vy
+    
+    
+    def _set_state(self):
+        """Sets state which is flattened, ordered with ascending TTC, normalized and clipped to [-1, 1]"""
+        self.state = np.empty(0, dtype=np.float32)
+        self.state = np.append(self.state, np.clip(self.agent_ay/self.ay_max, -1, 1))
+        self.state = np.append(self.state, np.clip(self.agent_vy/self.vy_max, -1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_y  - self.vessel_y)/self.delta_y_max,-1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
+        
+        # order delta based on the euclidean distance and get state
+        #eucl_dist = np.apply_along_axis(lambda x: np.sqrt(x[0]**2 + x[1]**2), 1, delta_normalized)
+        #idx = np.argsort(eucl_dist)
+        
+
+    
+    def step(self, action):
+        """Takes an action and performs one step in the environment.
+        Returns reward, new_state, done."""
+        self._move_vessel()
+        self._move_agent(action)
+        self._set_state()
+        self._calculate_reward()
+        done = self._done()
+        self.current_timestep += 1
+        
+        return self.state, self.reward, done, {}
+    
+    def _move_vessel(self):
+        """Updates positions, velocities and accelerations of vessels. For now accelerations are constant.
+        Used approximation: Euler-Cromer method, that is v_(n+1) = v_n + a_n * t and x_(n+1) = x_n + v_(n+1) * t."""
+        for i in range(self.n_vessels):
+            # lateral dynamics for ships with positive TTC
+            if self.vessel_ttc[i] > 0:
+                self.vessel_y[i] = self.vessel_y[i] + self.vessel_vy[i] * self.delta_t
+
+            # longitudinal dynamics     
+            self.vessel_x[i] = self.vessel_x[i] + self.vessel_vx[i] * self.delta_t
+            self.vessel_ttc[i] -= self.delta_t
+            
+            
+            # replace vessel if necessary       
+            while self.vessel_ttc[1] < 0:
+                self._place_vessel(False,-1)
+                if self.agent_y < self.vessel_y[0]:
+                    self.agent_y = self.vessel_y[0] # agent crahsed! 
+
+            while self.vessel_ttc[self.n_vessels_half+1] < 0:
+                self._place_vessel(False, 1)           
+                if self.agent_y > self.vessel_y[self.n_vessels_half]:
+                    self.agent_y = self.vessel_y[self.n_vessels_half] # agent crahsed! 
+    
+    def _move_agent(self, action):
+        """Update self.agent_pos using a given action. For now: a_x = 0."""
+        self.agent_ay_old = self.agent_ay
+
+        # update lateral dynamics
+        self.agent_ay = self.ay_max * action
+
+        agent_vy_new = np.clip(self.agent_vy + self.agent_ay * self.delta_t,-self.vy_max, self.vy_max)
+
+        agent_y_new = self.agent_y + 0.5 * (self.agent_vy + agent_vy_new) * self.delta_t
+
+        self.agent_vy = agent_vy_new
+        self.agent_y = agent_y_new
+
+        # update longitudinal dynamics
+        self.agent_x= self.agent_x + self.agent_vx * self.delta_t
+        
+
+    
+    def _calculate_reward(self):
+        """Returns reward of the current state."""           
+        
+        # create vertices between closest upper and lower vessels
+        alpha1 = -self.vessel_ttc[0]/(self.vessel_ttc[1] - self.vessel_ttc[0]) 
+        alpha2 = -self.vessel_ttc[self.n_vessels_half]/(self.vessel_ttc[self.n_vessels_half+1] - self.vessel_ttc[self.n_vessels_half])
+        
+        delta_y1 = self.vessel_y[0] + alpha1 * (self.vessel_y[1] - self.vessel_y[0]) - self.agent_y
+        delta_y2 = self.agent_y - (self.vessel_y[self.n_vessels_half] + alpha2 * (self.vessel_y[self.n_vessels_half+1] - self.vessel_y[self.n_vessels_half]))
+
+        # compute vessel reward based on distance to vertices
+        if delta_y1 > 0: 
+            vess_reward1 = -1
+        else:
+            vess_reward1 = -norm.pdf(delta_y1,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
+
+        if delta_y2 > 0: 
+            vess_reward2 = -1
+        else:
+            vess_reward2 = -norm.pdf(delta_y2,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
+       
+        # compute jerk reward
+        jerk_reward = -40 * (((self.agent_ay_old - self.agent_ay)/0.1)**2)/3600
+        
+        # final reward
+        if vess_reward1 == -1 and vess_reward2 == -1:
+            self.reward = jerk_reward
+        else:
+            self.reward = jerk_reward - (np.maximum(vess_reward1,vess_reward2) - np.minimum(vess_reward1,vess_reward2))/(np.maximum(vess_reward1,vess_reward2)+1)
+    
+    def _done(self):
+        """Returns boolean flag whether episode is over."""
+        return True if self.current_timestep >= self._max_episode_steps else False
+    
+    def render(self, agent_name=None):
+        """Renders the current environment."""
+
+        # plot every nth timestep
+        if self.current_timestep % 1 == 0: 
+
+            # check whether figure has been initialized
+            if len(plt.get_fignums()) == 0:
+                self.fig = plt.figure(figsize=(17, 10))
+                self.gs  = self.fig.add_gridspec(2, 2)
+                self.ax0 = self.fig.add_subplot(self.gs[0, :]) # ship
+                self.ax1 = self.fig.add_subplot(self.gs[1, 0]) # state
+                self.ax2 = self.fig.add_subplot(self.gs[1, 1]) # reward
+                self.ax2.old_time = 0
+                self.ax2.old_reward = 0
+                plt.ion()
+                plt.show()
+            
+            # ---- ACTUAL SHIP MOVEMENT ----
+            # clear prior axes, set limits and add labels and title
+            self.ax0.clear()
+            self.ax0.set_xlim(-1500, self.x_max + 1500)
+            self.ax0.set_ylim(-self.y_max, self.y_max)
+            self.ax0.set_xlabel("x")
+            self.ax0.set_ylabel("y")
+            if agent_name is not None:
+                self.ax0.set_title(agent_name)
+
+            # set agent and vessels
+            self.ax0.scatter(self.agent_x, self.agent_y, color = self.agent_color)
+            self.ax0.scatter(self.vessel_x, self.vessel_y, color = self.vessel_color)
+
+            # draw contour lines around vessels
+            # for i in range(self.n_vessels):
+            #     for j in range(len(self.reward_lines)):
+            #         ellipse = Ellipse(xy=(self.vessel_x[i], self.vessel_y[i]), 
+            #                           width=self.ellipse_width[j], height=self.ellipse_height[j], color = self.line_color, fill = False)
+            #         self.ax0.add_patch(ellipse)
+            
+            # connect agent and "in sight" vessels
+            # for i in range(self.n_vessels):
+            #     if all(abs(self.delta[i]) < np.array([self.delta_x_max, self.delta_y_max])):
+            #         self.ax0.plot(np.array([self.agent_pos[0], self.vessel_pos[i,0]]),
+            #                       np.array([self.agent_pos[1], self.vessel_pos[i,1]]),
+            #                       color = self.line_color, alpha = 0.15)
+            
+            # connect agent with coasts
+            # self.ax0.plot(np.array([self.agent_pos[0], self.agent_pos[0]]),
+            #               np.array([self.agent_pos[1], 0]),
+            #               color = self.line_color, alpha = 0.25)
+            # self.ax0.plot(np.array([self.agent_pos[0], self.agent_pos[0]]),
+            #               np.array([self.agent_pos[1], self.y_max]),
+            #               color = self.line_color, alpha = 0.25)
+            
+            # ---- STATE PLOT ----
+            # clear prior axes, set limits
+            self.ax1.clear()
+            self.ax1.set_xlim(-200, 1000)
+            self.ax1.set_ylim(-self.y_max, self.y_max)
+            
+            # add agent and states
+            self.ax1.scatter(0, self.agent_y, color = self.agent_color)
+            self.ax1.set_xlabel("Normalized delta x")
+            self.ax1.set_ylabel("Normalized delta y")
+            self.ax1.scatter(self.vessel_ttc, self.vessel_y, color = self.vessel_color)
+
+            # ---- REWARD PLOT ----
+            if self.current_timestep == 0:
+                self.ax2.clear()
+                self.ax2.old_time = 0
+                self.ax2.old_reward = 0
+            self.ax2.set_xlim(1, self.x_max / (self.agent_vx * self.delta_t))
+            self.ax2.set_ylim(-1.1, 0.1)
+            self.ax2.set_xlabel("Timestep in episode")
+            self.ax2.set_ylabel("Reward")
+            self.ax2.plot([self.ax2.old_time, self.current_timestep], [self.ax2.old_reward, self.reward], color = self.line_color)
+            self.ax2.old_time = self.current_timestep
+            self.ax2.old_reward = self.reward
+            
+            # delay plotting for ease of user
+            plt.pause(self.plot_delay)
+        
 
 
 class MountainCar(gym.Env):
