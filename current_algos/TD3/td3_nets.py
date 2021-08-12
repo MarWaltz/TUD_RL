@@ -6,9 +6,9 @@ class Actor(nn.Module):
     """Defines deterministic actor."""
     def __init__(self, action_dim, state_dim):
         super(Actor, self).__init__()
-        self.linear1 = nn.Linear(state_dim, 256)
-        self.linear2 = nn.Linear(256, 256)
-        self.linear3 = nn.Linear(256, action_dim)
+        self.linear1 = nn.Linear(state_dim, 128)
+        self.linear2 = nn.Linear(128, 128)
+        self.linear3 = nn.Linear(128, action_dim)
         
     def forward(self, s):
         """s is a torch tensor. Shapes:

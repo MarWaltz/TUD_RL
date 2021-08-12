@@ -27,25 +27,25 @@ class TD3_Agent:
                  critic_weights   = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double_critic    = True,
-                 tgt_pol_smooth   = True,
+                 double_critic    = False,
+                 tgt_pol_smooth   = False,
                  tgt_noise        = 0.2,
                  tgt_noise_clip   = 0.5,
-                 pol_upd_delay    = 2,
-                 gamma            = 0.99,
+                 pol_upd_delay    = 1,
+                 gamma            = 0.95,
                  n_steps          = 1,
-                 tau              = 0.005,
-                 lr_actor         = 0.0001,
+                 tau              = 0.001,
+                 lr_actor         = 0.001,
                  lr_critic        = 0.001,
                  l2_reg_actor     = 0.0,
                  l2_reg_critic    = 0.0,
-                 buffer_length    = 1000000,
+                 buffer_length    = 100000,
                  grad_clip        = False,
                  grad_rescale     = False,
                  act_start_step   = 10000,
                  upd_start_step   = 1000,
                  upd_every        = 1,
-                 batch_size       = 128,
+                 batch_size       = 32,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -78,7 +78,7 @@ class TD3_Agent:
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "TD3_Agent"
+        self.name             = "TD3_Agent" if double_critic == True and tgt_pol_smooth == True and pol_upd_delay != 1 else "DDPG_Agent"
         self.action_dim       = action_dim
         self.state_dim        = state_dim
         self.action_high      = action_high
