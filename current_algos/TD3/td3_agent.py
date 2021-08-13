@@ -27,11 +27,11 @@ class TD3_Agent:
                  critic_weights   = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double_critic    = False,
-                 tgt_pol_smooth   = False,
+                 double_critic    = True,
+                 tgt_pol_smooth   = True,
                  tgt_noise        = 0.2,
                  tgt_noise_clip   = 0.5,
-                 pol_upd_delay    = 1,
+                 pol_upd_delay    = 2,
                  gamma            = 0.95,
                  n_steps          = 1,
                  tau              = 0.001,
@@ -193,7 +193,7 @@ class TD3_Agent:
             a += torch.tensor(self.noise.sample()).to(self.device)
         
         # clip actions in [-1,1]
-        a = torch.clip(a, -1, 1).cpu().numpy().reshape(self.action_dim)
+        a = torch.clamp(a, -1, 1).cpu().numpy().reshape(self.action_dim)
         
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)

@@ -10,7 +10,7 @@ import numpy as np
 import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import LCP_Environment
+from current_algos.common.custom_envs import ObstacleAvoidance_Env
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
 
@@ -72,7 +72,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, hide_velocity=False, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -80,8 +80,8 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     
     # init env
     if env_str == "LCP":
-        env = LCP_Environment()
-        test_env = LCP_Environment()
+        env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
+        test_env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
         max_episode_steps = env._max_episode_steps
     elif pomdp:
         env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
@@ -240,13 +240,25 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
 
 if __name__ == "__main__":
 
+    # helper function for parser
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
+    parser.add_argument("--env_str", type=str, default="LCP")
+    parser.add_argument("--hide_velocity", type=str2bool, default=False)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, hide_velocity=args.hide_velocity, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

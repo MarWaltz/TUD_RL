@@ -32,18 +32,18 @@ class LSTM_TD3_Agent:
                  tgt_noise        = 0.2,
                  tgt_noise_clip   = 0.5,
                  pol_upd_delay    = 2,
-                 gamma            = 0.99,
+                 gamma            = 0.95,
                  n_steps          = 1,
-                 tau              = 0.005,
+                 tau              = 0.001,
                  lr_actor         = 0.001,
                  lr_critic        = 0.001,
-                 buffer_length    = 1000000,
+                 buffer_length    = 100000,
                  grad_clip        = False,
                  grad_rescale     = False,
                  act_start_step   = 10000,
                  upd_start_step   = 1000,
                  upd_every        = 1,
-                 batch_size       = 128,
+                 batch_size       = 32,
                  history_length   = 5,
                  use_past_actions = False,
                  device           = "cpu"):
@@ -204,7 +204,7 @@ class LSTM_TD3_Agent:
             a += torch.tensor(self.noise.sample()).to(self.device)
         
         # clip actions in [-1,1]
-        a = torch.clip(a, -1, 1).cpu().numpy().reshape(self.action_dim)
+        a = torch.clamp(a, -1, 1).cpu().numpy().reshape(self.action_dim)
         
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)

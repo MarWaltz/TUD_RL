@@ -11,10 +11,10 @@ import numpy as np
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import MountainCar
-from current_algos.DQN_MinAtar.dqn_agent_MinAtar import *
+from current_algos.CNN_based.LC_DQN_w_net_MinAtar.lc_dqn_w_net_agent_MinAtar import *
 
 # training config
-TIMESTEPS = 1000000     # overall number of training interaction steps
+TIMESTEPS = 2000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -60,7 +60,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -87,12 +87,12 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = CNN_DQN_Agent(mode        = "train",
-                          num_actions = env.action_space.n, 
-                          state_shape = state_shape,
-                          double      = double,
-                          dqn_weights = dqn_weights,
-                          device      = device)
+    agent = LC_DQN_W_NET_CNN_Agent(mode        = "train",
+                                   num_actions = env.action_space.n, 
+                                   state_shape = state_shape,
+                                   act_softmax = act_softmax,
+                                   dqn_weights = dqn_weights,
+                                   device      = device)
     
     # get initial state and normalize it
     s = env.reset()
@@ -108,8 +108,6 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
     
     # main loop    
     for total_steps in range(TIMESTEPS):
-
-        epi_steps += 1
         
         # select action
         if total_steps < agent.act_start_step:
@@ -180,13 +178,15 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
+            #for n in range(agent.N):
+            #    agent.logger.log_tabular(f"w{n}", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
 
             # save weights
-            torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+            torch.save(agent.DQN[0].state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if agent.input_norm:
@@ -194,7 +194,7 @@ def train(env_str, double, dqn_weights=None, seed=0, device="cpu"):
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
     
 if __name__ == "__main__":
-    
+
     # helper function for parser
     def str2bool(v):
         if isinstance(v, bool):
@@ -208,12 +208,12 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Asterix-MinAtar-v0")
-    parser.add_argument("--double", type=str2bool, default=False)
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
+    parser.add_argument("--act_softmax", type=str2bool, default=False)
     args = parser.parse_args()
-
+    
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, act_softmax=args.act_softmax, dqn_weights=None, seed=1, device="cpu")

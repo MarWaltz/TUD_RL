@@ -2,20 +2,19 @@ import argparse
 import copy
 import pickle
 import random
-import sys
 import time
 
 import gym
+import gym_minatar
 import numpy as np
-import pybulletgym
+
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import ObstacleAvoidance_Env
-from current_algos.common.POMDP_wrapper import POMDP_Wrapper
-from current_algos.TD3.td3_agent import *
+from current_algos.common.custom_envs import MountainCar
+from current_algos.CNN_based.LC_DQN_exp_w_MinAtar.lc_dqn_exp_w_agent_MinAtar import *
 
 # training config
-TIMESTEPS = 1000000     # overall number of training interaction steps
+TIMESTEPS = 2000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -30,11 +29,15 @@ def evaluate_policy(test_env, test_agent):
         # potentially normalize it
         if test_agent.input_norm:
             s = test_agent.inp_normalizer.normalize(s, mode="test")
-        cur_ret = 0
 
+        # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
+        s = np.moveaxis(s, -1, 0)
+
+        cur_ret = 0
         d = False
         
         while not d:
+
             # select action
             a = test_agent.select_action(s)
             
@@ -45,6 +48,9 @@ def evaluate_policy(test_env, test_agent):
             if test_agent.input_norm:
                 s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
 
+            # change s2 to be of shape (in_channels, height, width) instead of (height, width, in_channels)
+            s2 = np.moveaxis(s2, -1, 0)
+
             # s becomes s2
             s = s2
             cur_ret += r
@@ -54,25 +60,21 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, act_softmax, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
     start_time = time.time()
     
     # init env
-    if env_str == "LCP":
-        env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
-        test_env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
+    if env_str == "MountainCar":
+        env = MountainCar(rewardStd=0)
+        test_env = MountainCar(rewardStd=0)
         max_episode_steps = env._max_episode_steps
-    elif pomdp:
-        env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
-        test_env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
-        max_episode_steps = gym.make(env_str)._max_episode_steps
     else:
         env = gym.make(env_str)
         test_env = gym.make(env_str)
-        max_episode_steps = env._max_episode_steps
+        max_episode_steps = np.inf if "MinAtar" in env_str else env._max_episode_steps
 
     # seeding
     env.seed(seed)
@@ -81,20 +83,24 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
     np.random.seed(seed)
     random.seed(seed)
 
+    # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
+    state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+
     # init agent
-    agent = TD3_Agent(mode           = "train",
-                      action_dim     = env.action_space.shape[0], 
-                      state_dim      = env.observation_space.shape[0], 
-                      action_high    = env.action_space.high[0],
-                      action_low     = env.action_space.low[0], 
-                      actor_weights  = actor_weights, 
-                      critic_weights = critic_weights, 
-                      device         = device)
+    agent = LC_DQN_EXP_W_CNN_Agent(mode        = "train",
+                                   num_actions = env.action_space.n, 
+                                   state_shape = state_shape,
+                                   act_softmax = act_softmax,
+                                   dqn_weights = dqn_weights,
+                                   device      = device)
     
     # get initial state and normalize it
     s = env.reset()
     if agent.input_norm:
         s = agent.inp_normalizer.normalize(s, mode="train")
+
+    # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
+    s = np.moveaxis(s, -1, 0)
 
     # init epi step counter and epi return
     epi_steps = 0
@@ -102,12 +108,10 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
     
     # main loop    
     for total_steps in range(TIMESTEPS):
-
-        epi_steps += 1
         
         # select action
         if total_steps < agent.act_start_step:
-            a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.action_dim)
+            a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)
         
@@ -120,6 +124,9 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
         # potentially normalize s2
         if agent.input_norm:
             s2 = agent.inp_normalizer.normalize(s2, mode="train")
+
+        # change s2 to be of shape (in_channels, height, width) instead of (height, width, in_channels)
+        s2 = np.moveaxis(s2, -1, 0)
 
         # add epi ret
         epi_ret += r
@@ -138,14 +145,14 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
         # end of episode handling
         if d or (epi_steps == max_episode_steps):
  
-            # reset noise after episode
-            agent.noise.reset()
-            
             # reset to initial state and normalize it
             s = env.reset()
             if agent.input_norm:
                 s = agent.inp_normalizer.normalize(s, mode="train")
             
+            # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
+            s = np.moveaxis(s, -1, 0)
+
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
             
@@ -154,7 +161,7 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
             epi_ret = 0
 
         # end of epoch handling
-        if (total_steps + 1) % EPOCH_LENGTH == 0:
+        if (total_steps + 1) % EPOCH_LENGTH == 0 and (total_steps + 1) > agent.upd_start_step:
 
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
@@ -169,21 +176,15 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
-            if agent.double_critic:
-                agent.logger.log_tabular("Q1_val", with_min_and_max=True)
-                agent.logger.log_tabular("Q2_val", with_min_and_max=True)
-            else:
-                agent.logger.log_tabular("Q_val", with_min_and_max=True)
-            agent.logger.log_tabular("Critic_loss", average_only=True)
-            agent.logger.log_tabular("Actor_loss", average_only=True)
+            agent.logger.log_tabular("Q_val", with_min_and_max=True)
+            agent.logger.log_tabular("Loss", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
 
             # save weights
-            torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
-            torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
+            torch.save(agent.DQN[0].state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if agent.input_norm:
@@ -205,12 +206,12 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="LCP")
-    parser.add_argument("--hide_velocity", type=str2bool, default=True)
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
+    parser.add_argument("--act_softmax", type=str2bool, default=False)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, hide_velocity=args.hide_velocity, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, act_softmax=args.act_softmax, dqn_weights=None, seed=1, device="cpu")

@@ -311,11 +311,12 @@ class LCP_Environment(gym.Env):
 class ObstacleAvoidance_Env(gym.Env):
     """Class environment with initializer, step, reset and render method."""
     
-    def __init__(self):
+    def __init__(self, hide_velocity):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
-        self.hide_velocity = False
-        self.sort_obs_ttc = True
+
+        self.hide_velocity  = hide_velocity
+        self.sort_obs_ttc   = True
         self.polygon_reward = False
 
         # river size and vessel characteristics   

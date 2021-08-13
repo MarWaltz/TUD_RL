@@ -8,35 +8,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.LC_DQN.lc_dqn_buffer import UniformReplayBuffer
-from current_algos.LC_DQN.lc_dqn_nets import DQN
+from current_algos.CNN_based.LC_DQN_exp_w_MinAtar.lc_dqn_exp_w_buffer_MinAtar import UniformReplayBuffer_CNN
+from current_algos.CNN_based.LC_DQN_exp_w_MinAtar.lc_dqn_exp_w_nets_MinAtar import CNN_DQN
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
-class LC_DQN_Agent:
+class LC_DQN_EXP_W_CNN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
-                 state_dim,
+                 state_shape,
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
                  N                = 4,
                  act_softmax      = False,
                  gamma            = 0.99,
-                 eps_decay        = 0.99995,
-                 eps_final        = 0.001,
+                 eps_init         = 1.0,
+                 eps_final        = 0.1,
+                 eps_decay_steps  = 100000,
                  n_steps          = 1,
-                 tgt_update_freq  = 256,
-                 lr               = 0.001,
+                 tgt_update_freq  = 1000,
+                 lr               = 0.00025,
                  l2_reg           = 0.0,
-                 buffer_length    = 10000,
+                 buffer_length    = int(10e5),
                  grad_clip        = False,
                  grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
+                 act_start_step   = 5000,
+                 upd_start_step   = 5000,
                  upd_every        = 1,
-                 batch_size       = 128,
+                 batch_size       = 32,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -69,18 +70,28 @@ class LC_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "LC_DQN_Agent with Double Softmax" if act_softmax else "LC_DQN_Agent"
-        self.num_actions      = num_actions
-        self.state_dim        = state_dim
+        self.name        = "LinearComb_exp_w_CNN_DQN_Agent with Double Softmax" if act_softmax else "LinearComb_CNN_DQN_Agent"
+        self.num_actions = num_actions
+ 
+        # CNN shape
+        assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width)"
+        self.state_shape = state_shape
+
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.N                = N
         self.act_softmax      = act_softmax
         self.gamma            = gamma
-        self.epsilon          = 1.0
-        self.eps_decay        = eps_decay
+
+        # linear epsilon schedule
+        self.eps_init         = eps_init
+        self.epsilon          = eps_init
         self.eps_final        = eps_final
+        self.eps_decay_steps  = eps_decay_steps
+        self.eps_inc          = (eps_final - eps_init) / eps_decay_steps
+        self.eps_t            = 0
+
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
         self.lr               = lr
@@ -109,10 +120,10 @@ class LC_DQN_Agent:
         self.logger = EpochLogger()
         self.logger.save_config(locals())
         
-        # init replay buffer and noise
+        # init two replay buffers (one for Q and one for w)
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(state_dim=state_dim, n_steps=n_steps, gamma=gamma,
-                                                     buffer_length=buffer_length, batch_size=batch_size, device=self.device)
+            self.replay_buffer = UniformReplayBuffer_CNN(state_shape=state_shape, n_steps=n_steps, gamma=gamma,
+                                                         buffer_length=buffer_length, batch_size=batch_size, device=self.device)
             self.replay_buffer_w = copy.deepcopy(self.replay_buffer)
 
         # init input normalizer
@@ -122,12 +133,12 @@ class LC_DQN_Agent:
             if input_norm_prior is not None:
                 with open(input_norm_prior, "rb") as f:
                     prior = pickle.load(f)
-                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=prior)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=prior)
             else:
-                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=None)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
         
-        # init DQN-ensemble
-        self.DQN = [DQN(num_actions=num_actions, state_dim=state_dim).to(self.device) for _ in range(N)]
+        # init convolutional DQN-ensemble
+        self.DQN = [CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device) for _ in range(N)]
         
         print("--------------------------------------------")
         print(f"n_params of one DQN: {self._count_params(self.DQN[0])}")
@@ -160,7 +171,7 @@ class LC_DQN_Agent:
     def _get_combined_Q(self, s, use_target):
         """Computes for a given state Q_combined(s,a) which is defined to be the exponentially-w-weighted sum over all Q for each action.
         
-        s:          torch.Size([batch_size, state_dim])
+        s:          torch.Size([batch_size, in_channels, height, width])
         use_target: bool
 
         returns:    torch.Size([batch_size, num_actions])"""
@@ -187,7 +198,7 @@ class LC_DQN_Agent:
     @torch.no_grad()
     def select_action(self, s):
         """Epsilon-greedy based action selection for a given state.
-        Arg s:   np.array with shape (state_dim,)
+        Arg s:   np.array with shape (in_channels, height, width)
         returns: int for the action
         """
         # random action
@@ -196,8 +207,8 @@ class LC_DQN_Agent:
             
         # greedy action
         else:
-            # reshape obs
-            s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
+            # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
+            s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
             # compute Q_comb
             Q_comb = self._get_combined_Q(s, use_target=False)
@@ -205,11 +216,13 @@ class LC_DQN_Agent:
             # greedy
             a = torch.argmax(Q_comb).item()
 
-        # decay epsilon
-        self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
+        # anneal epsilon linearly
+        if self.mode == "train":
+            self.eps_t += 1
+            self.epsilon = max(self.eps_inc * self.eps_t + self.eps_init, self.eps_final)
 
         return a
-    
+
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
         if np.random.binomial(1, 0.5) == 1:
@@ -282,7 +295,7 @@ class LC_DQN_Agent:
 
         # increase target-update cnt
         self.tgt_up_cnt += 1
-    
+
     def train_w(self):
         """Samples from replay_buffer_w and updates w."""
 
@@ -306,13 +319,13 @@ class LC_DQN_Agent:
 
         # Q-value of next state-action pair
         target_Qcomb_next = self._get_combined_Q(s2, use_target=True)
-        
+
         if self.act_softmax:
             softmax = torch.sum(F.softmax(target_Qcomb_next, dim=1) * target_Qcomb_next, dim=1)
             target_Q_next = softmax.reshape(self.batch_size, 1)
         else:
             target_Q_next = torch.max(target_Qcomb_next, dim=1).values.reshape(self.batch_size, 1)
-        
+
         # target
         target_Q = r + self.gamma * target_Q_next * (1 - d)
 
@@ -324,12 +337,6 @@ class LC_DQN_Agent:
         
         # perform optimizing step
         self.w_optimizer.step()
-
-        # log new normalized w
-        w_dict = dict()
-        for n in range(self.N):
-            w_dict[f"w{n}"] = torch.exp(self.w[n]).item()/torch.sum(torch.exp(self.w)).item()
-        self.logger.store(**w_dict)
 
     @torch.no_grad()
     def target_update(self):

@@ -8,12 +8,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.LC_DQN_MinAtar.lc_dqn_buffer_MinAtar import UniformReplayBuffer_CNN
-from current_algos.LC_DQN_MinAtar.lc_dqn_nets_MinAtar import CNN_DQN
+from current_algos.CNN_based.LC_DQN_w_net_MinAtar.lc_dqn_w_net_buffer_MinAtar import UniformReplayBuffer_CNN
+from current_algos.CNN_based.LC_DQN_w_net_MinAtar.lc_dqn_w_net_nets_MinAtar import CNN_DQN, W_NET
 from current_algos.common.normalizer import Input_Normalizer
 from current_algos.common.logging_func import *
 
-class LC_DQN_CNN_Agent:
+class LC_DQN_W_NET_CNN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
@@ -22,7 +22,7 @@ class LC_DQN_CNN_Agent:
                  input_norm       = False,
                  input_norm_prior = None,
                  N                = 4,
-                 act_softmax      = True,
+                 act_softmax      = False,
                  gamma            = 0.99,
                  eps_init         = 1.0,
                  eps_final        = 0.1,
@@ -70,7 +70,7 @@ class LC_DQN_CNN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "LinearComb_CNN_DQN_Agent with Double Softmax" if act_softmax else "LinearComb_CNN_DQN_Agent"
+        self.name        = "LinearComb_w_net_CNN_DQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
@@ -140,10 +140,6 @@ class LC_DQN_CNN_Agent:
         # init convolutional DQN-ensemble
         self.DQN = [CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device) for _ in range(N)]
         
-        print("--------------------------------------------")
-        print(f"n_params of one DQN: {self._count_params(self.DQN[0])}")
-        print("--------------------------------------------")
-        
         # load prior weights if available
         if dqn_weights is not None:
             for n in range(N):
@@ -158,40 +154,44 @@ class LC_DQN_CNN_Agent:
             for p in target_net.parameters():
                 p.requires_grad = False
 
-        # init linear combination
-        self.w = torch.tensor([1/N for _ in range(N)], requires_grad=True)
+        # init w net
+        self.w = W_NET(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], N=N)
 
+        print("--------------------------------------------")
+        print(f"n_params of one DQN: {self._count_params(self.DQN[0])} | n_params of w: {self._count_params(self.w)}")
+        print("--------------------------------------------")
+        
         # define optimizer
         self.DQN_optimizer = [optim.Adam(main_net.parameters(), lr=lr, weight_decay=l2_reg) for main_net in self.DQN]
-        self.w_optimizer = optim.Adam([self.w], lr=lr)
+        self.w_optimizer = optim.Adam(self.w.parameters(), lr=lr)
 
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
 
     def _get_combined_Q(self, s, use_target):
-        """Computes for a given state Q_combined(s,a) which is defined to be the exponentially-w-weighted sum over all Q for each action.
+        """Computes for a given state Q_combined(s,a) which is defined to be the w-weighted sum over all Q for each action.
         
         s:          torch.Size([batch_size, in_channels, height, width])
         use_target: bool
 
         returns:    torch.Size([batch_size, num_actions])"""
 
-        # transform w to sum up to 1
-        w = torch.exp(self.w) / torch.sum(torch.exp(self.w))
+        # forward pass for w
+        w = self.w(s)
 
         # use main nets for Q_comb
         if use_target == False:
             
-            Q_comb = w[0] * self.DQN[0](s)
+            Q_comb = w[:, 0].view(-1, 1) * self.DQN[0](s)
             for Q_idx in range(1, self.N):
-                Q_comb += w[Q_idx] * self.DQN[Q_idx](s)
+                Q_comb += w[:, Q_idx].view(-1, 1) * self.DQN[Q_idx](s)
         
         # or target nets
         else:
             
-            Q_comb = w[0] * self.target_DQN[0](s)
+            Q_comb = w[:, 0].view(-1, 1) * self.target_DQN[0](s)
             for Q_idx in range(1, self.N):
-                Q_comb += w[Q_idx] * self.target_DQN[Q_idx](s)
+                Q_comb += w[:, Q_idx].view(-1, 1) * self.target_DQN[Q_idx](s)
 
         return Q_comb
 
@@ -337,6 +337,14 @@ class LC_DQN_CNN_Agent:
         
         # perform optimizing step
         self.w_optimizer.step()
+
+        # log new w
+        #with torch.no_grad():
+        #    w_dict = dict()
+        #    w_out = self.w(s).mean(0)
+        #    for n in range(self.N):
+        #        w_dict[f"w{n}"] = w_out[n].item()
+        #    self.logger.store(**w_dict)
 
     @torch.no_grad()
     def target_update(self):
