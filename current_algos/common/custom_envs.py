@@ -314,14 +314,17 @@ class ObstacleAvoidance_Env(gym.Env):
     def __init__(self, hide_velocity):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
-        self.hide_velocity = hide_velocity
+
+        self.hide_velocity  = hide_velocity
+        self.sort_obs_ttc   = True
+        self.polygon_reward = False
 
         # river size and vessel characteristics   
         self.y_max = 500
-        self.n_vessels  = 20
+        self.n_vessels  = 10
         self.n_vessels_half  = int(self.n_vessels/2)
         self.over_coast = 10
-        self.max_temporal_dist = 200 # maximal temporal distance when placing new vessel
+        self.max_temporal_dist = 300 # maximal temporal distance when placing new vessel
 
         # maximum sight of agent
         self.delta_x_max = 3000
@@ -358,6 +361,7 @@ class ObstacleAvoidance_Env(gym.Env):
         # reward config
         self.variance_x = 12000
         self.variance_y = 25
+        self.variance_ttc = 25
         
         # for rendering only
         # self.reward_lines   = [0.5, 0.1, 0.001] 
@@ -497,28 +501,37 @@ class ObstacleAvoidance_Env(gym.Env):
     
     def _set_state(self):
         """Sets state which is flattened, ordered with ascending TTC, normalized and clipped to [-1, 1]"""
+        if self.sort_obs_ttc:
+            # arrays are already sorted according ascending ttc
+            x = self.vessel_x.copy()
+            y = self.vessel_y.copy()
+            vx = self.vessel_vx.copy()
+            vy = self.vessel_vy.copy()
+        else:
+            # compute sorting index array for asceding x-value
+            idx = np.concatenate([np.argsort(self.vessel_x[:self.n_vessels_half]),np.argsort(self.vessel_x[self.n_vessels_half:]) + self.n_vessels_half])
+
+            x = self.vessel_x[idx].copy()
+            y = self.vessel_y[idx].copy()
+            vx = self.vessel_vx[idx].copy()
+            vy = self.vessel_vy[idx].copy()
+
+
         self.state = np.empty(0, dtype=np.float32)
         self.state = np.append(self.state, np.clip(self.agent_ay/self.ay_max, -1, 1))
         self.state = np.append(self.state, np.clip(self.agent_vy/self.vy_max, -1, 1))
-        self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
-        self.state = np.append(self.state, np.clip((self.agent_y  - self.vessel_y)/self.delta_y_max,-1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_x  - x)/self.delta_x_max,-1, 1))
+        self.state = np.append(self.state, np.clip((self.agent_y  - y)/self.delta_y_max,-1, 1))
 
         if not self.hide_velocity:
-            self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
-            self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
-
-
-
-        
-        # order delta based on the euclidean distance and get state
-        #eucl_dist = np.apply_along_axis(lambda x: np.sqrt(x[0]**2 + x[1]**2), 1, delta_normalized)
-        #idx = np.argsort(eucl_dist)
-        
+            self.state = np.append(self.state, np.clip((self.agent_vx - vx)/(2*self.vx_max),-1, 1))
+            self.state = np.append(self.state, np.clip((self.agent_vy - vy)/(2*self.vy_max),-1, 1))
 
     
     def step(self, action):
         """Takes an action and performs one step in the environment.
         Returns reward, new_state, done."""
+        self.crash_flag = False
         self._move_vessel()
         self._move_agent(action)
         self._set_state()
@@ -546,11 +559,13 @@ class ObstacleAvoidance_Env(gym.Env):
                 self._place_vessel(False,-1)
                 if self.agent_y < self.vessel_y[0]:
                     self.agent_y = self.vessel_y[0] # agent crahsed! 
+                    self.crash_flag = True
 
             while self.vessel_ttc[self.n_vessels_half+1] < 0:
                 self._place_vessel(False, 1)           
                 if self.agent_y > self.vessel_y[self.n_vessels_half]:
                     self.agent_y = self.vessel_y[self.n_vessels_half] # agent crahsed! 
+                    self.crash_flag = True
     
     def _move_agent(self, action):
         """Update self.agent_pos using a given action. For now: a_x = 0."""
@@ -572,34 +587,52 @@ class ObstacleAvoidance_Env(gym.Env):
 
     
     def _calculate_reward(self):
-        """Returns reward of the current state."""           
-        
-        # create vertices between closest upper and lower vessels
-        alpha1 = -self.vessel_ttc[0]/(self.vessel_ttc[1] - self.vessel_ttc[0]) 
-        alpha2 = -self.vessel_ttc[self.n_vessels_half]/(self.vessel_ttc[self.n_vessels_half+1] - self.vessel_ttc[self.n_vessels_half])
-        
-        delta_y1 = self.vessel_y[0] + alpha1 * (self.vessel_y[1] - self.vessel_y[0]) - self.agent_y
-        delta_y2 = self.agent_y - (self.vessel_y[self.n_vessels_half] + alpha2 * (self.vessel_y[self.n_vessels_half+1] - self.vessel_y[self.n_vessels_half]))
-
-        # compute vessel reward based on distance to vertices
-        if delta_y1 > 0: 
-            vess_reward1 = -1
-        else:
-            vess_reward1 = -norm.pdf(delta_y1,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
-
-        if delta_y2 > 0: 
-            vess_reward2 = -1
-        else:
-            vess_reward2 = -norm.pdf(delta_y2,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
-       
+        """Returns reward of the current state."""   
         # compute jerk reward
         jerk_reward = -40 * (((self.agent_ay_old - self.agent_ay)/0.1)**2)/3600
+
+        if self.polygon_reward:                
         
-        # final reward
-        if vess_reward1 == -1 and vess_reward2 == -1:
-            self.reward = jerk_reward
-        else:
-            self.reward = jerk_reward - (np.maximum(vess_reward1,vess_reward2) - np.minimum(vess_reward1,vess_reward2))/(np.maximum(vess_reward1,vess_reward2)+1)
+            # create vertices between closest upper and lower vessels
+            alpha1 = -self.vessel_ttc[0]/(self.vessel_ttc[1] - self.vessel_ttc[0]) 
+            alpha2 = -self.vessel_ttc[self.n_vessels_half]/(self.vessel_ttc[self.n_vessels_half+1] - self.vessel_ttc[self.n_vessels_half])
+            
+            delta_y1 = self.vessel_y[0] + alpha1 * (self.vessel_y[1] - self.vessel_y[0]) - self.agent_y
+            delta_y2 = self.agent_y - (self.vessel_y[self.n_vessels_half] + alpha2 * (self.vessel_y[self.n_vessels_half+1] - self.vessel_y[self.n_vessels_half]))
+
+            # compute vessel reward based on distance to vertices
+            if delta_y1 > 0: 
+                vess_reward1 = -1
+            else:
+                vess_reward1 = -norm.pdf(delta_y1,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
+
+            if delta_y2 > 0: 
+                vess_reward2 = -1
+            else:
+                vess_reward2 = -norm.pdf(delta_y2,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
+        
+
+            
+            # final reward
+            if vess_reward1 == -1 and vess_reward2 == -1:
+                self.reward = jerk_reward
+            else:
+                self.reward = jerk_reward - (np.maximum(vess_reward1,vess_reward2) - np.minimum(vess_reward1,vess_reward2))/(np.maximum(vess_reward1,vess_reward2)+1)
+
+        else: # point reward for all vessels            
+            vess_reward1 = 0
+            vess_reward2 = 0
+            for i in range(self.n_vessels_half):
+                vess_reward1 = np.maximum(vess_reward1, 
+                                        norm.pdf(self.vessel_ttc[i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
+                                        norm.pdf(np.maximum(0,self.agent_y-self.vessel_y[i]),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
+                vess_reward2 = np.maximum(vess_reward2, 
+                                        norm.pdf(self.vessel_ttc[self.n_vessels_half+i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
+                                        norm.pdf(np.maximum(0,self.vessel_y[self.n_vessels_half+i]-self.agent_y),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
+            self.reward = jerk_reward - (np.maximum(-vess_reward1,-vess_reward2) - np.minimum(-vess_reward1,-vess_reward2))/(np.maximum(-vess_reward1,-vess_reward2)+1)
+
+        #if self.crash_flag: 
+            # self.reward -=6
     
     def _done(self):
         """Returns boolean flag whether episode is over."""
@@ -636,28 +669,6 @@ class ObstacleAvoidance_Env(gym.Env):
             # set agent and vessels
             self.ax0.scatter(self.agent_x, self.agent_y, color = self.agent_color)
             self.ax0.scatter(self.vessel_x, self.vessel_y, color = self.vessel_color)
-
-            # draw contour lines around vessels
-            # for i in range(self.n_vessels):
-            #     for j in range(len(self.reward_lines)):
-            #         ellipse = Ellipse(xy=(self.vessel_x[i], self.vessel_y[i]), 
-            #                           width=self.ellipse_width[j], height=self.ellipse_height[j], color = self.line_color, fill = False)
-            #         self.ax0.add_patch(ellipse)
-            
-            # connect agent and "in sight" vessels
-            # for i in range(self.n_vessels):
-            #     if all(abs(self.delta[i]) < np.array([self.delta_x_max, self.delta_y_max])):
-            #         self.ax0.plot(np.array([self.agent_pos[0], self.vessel_pos[i,0]]),
-            #                       np.array([self.agent_pos[1], self.vessel_pos[i,1]]),
-            #                       color = self.line_color, alpha = 0.15)
-            
-            # connect agent with coasts
-            # self.ax0.plot(np.array([self.agent_pos[0], self.agent_pos[0]]),
-            #               np.array([self.agent_pos[1], 0]),
-            #               color = self.line_color, alpha = 0.25)
-            # self.ax0.plot(np.array([self.agent_pos[0], self.agent_pos[0]]),
-            #               np.array([self.agent_pos[1], self.y_max]),
-            #               color = self.line_color, alpha = 0.25)
             
             # ---- STATE PLOT ----
             # clear prior axes, set limits
