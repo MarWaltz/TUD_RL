@@ -318,10 +318,10 @@ class ObstacleAvoidance_Env(gym.Env):
 
         # river size and vessel characteristics   
         self.y_max = 500
-        self.n_vessels  = 20
+        self.n_vessels  = 12
         self.n_vessels_half  = int(self.n_vessels/2)
         self.over_coast = 10
-        self.max_temporal_dist = 200 # maximal temporal distance when placing new vessel
+        self.max_temporal_dist = 400 # maximal temporal distance when placing new vessel
 
         # maximum sight of agent
         self.delta_x_max = 3000
@@ -337,7 +337,7 @@ class ObstacleAvoidance_Env(gym.Env):
 
         # speed and acceleration of vessels
         self.vx_max = 6
-        self.vy_max = 4
+        self.vy_max = 6
         self.ax_max = 0
         self.ay_max = 0.01
 
@@ -368,7 +368,7 @@ class ObstacleAvoidance_Env(gym.Env):
         if self.hide_velocity:
             num_vessel_obs = 2
         else:
-            num_vessel_obs = 4
+            num_vessel_obs = 3
         super(ObstacleAvoidance_Env, self).__init__()
         self.observation_space = spaces.Box(low=np.full((1, num_vessel_obs * self.n_vessels + 2), -1, dtype=np.float32)[0],
                                             high=np.full((1, num_vessel_obs * self.n_vessels + 2), 1, dtype=np.float32)[0])
@@ -461,10 +461,10 @@ class ObstacleAvoidance_Env(gym.Env):
             new_ttc = np.maximum(1,ttc[-1] +  np.random.uniform(0,self.max_temporal_dist))
 
         # compute new vessel dynamics
-        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(20, np.random.normal(100,70))
+        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(40, np.random.normal(100,50))
         new_vx = np.random.uniform(-self.vx_max, self.vx_max)
         new_x = (self.agent_vx - new_vx) * new_ttc + self.agent_x
-        new_vy = np.abs(new_vx/5) * np.random.uniform(-1,1)
+        new_vy = np.abs(new_vx/1) * np.random.uniform(-1,1)
         new_y = y_future - new_vy * new_ttc
 
         # rotate dynamic arrays to place new vessel at the end
@@ -500,11 +500,12 @@ class ObstacleAvoidance_Env(gym.Env):
         self.state = np.empty(0, dtype=np.float32)
         self.state = np.append(self.state, np.clip(self.agent_ay/self.ay_max, -1, 1))
         self.state = np.append(self.state, np.clip(self.agent_vy/self.vy_max, -1, 1))
-        self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
+        #self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
+        self.state = np.append(self.state, self.vessel_ttc/1200)
         self.state = np.append(self.state, np.clip((self.agent_y  - self.vessel_y)/self.delta_y_max,-1, 1))
 
         if not self.hide_velocity:
-            self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
+            #self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
             self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
 
 
@@ -670,6 +671,7 @@ class ObstacleAvoidance_Env(gym.Env):
             self.ax1.set_xlabel("Normalized delta x")
             self.ax1.set_ylabel("Normalized delta y")
             self.ax1.scatter(self.vessel_ttc, self.vessel_y, color = self.vessel_color)
+            self.ax1.plot(self.AR1[self.current_timestep:])
 
             # ---- REWARD PLOT ----
             if self.current_timestep == 0:
