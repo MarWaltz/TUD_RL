@@ -324,7 +324,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self.n_vessels  = 12
         self.n_vessels_half  = int(self.n_vessels/2)
         self.over_coast = 10
-        self.max_temporal_dist = 400 # maximal temporal distance when placing new vessel
+        self.max_temporal_dist = 300 # maximal temporal distance when placing new vessel
 
         # maximum sight of agent
         self.delta_x_max = 3000
