@@ -54,7 +54,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, hide_velocity=True, lr_critic=0.001, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -89,6 +89,7 @@ def train(env_str, hide_velocity=True, pomdp=False, actor_weights=None, critic_w
                       action_low     = env.action_space.low[0], 
                       actor_weights  = actor_weights, 
                       critic_weights = critic_weights, 
+                      lr_critic      = lr_critic,
                       device         = device)
     
     # get initial state and normalize it
@@ -207,10 +208,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="LCP")
     parser.add_argument("--hide_velocity", type=str2bool, default=True)
+    parser.add_argument("--lr_critic", type=float, default=0.001)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, hide_velocity=args.hide_velocity, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, hide_velocity=args.hide_velocity, lr_critic=args.lr_critic, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
