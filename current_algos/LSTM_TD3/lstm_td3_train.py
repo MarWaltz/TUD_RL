@@ -72,7 +72,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, hide_velocity=False, lr_critic=0.001, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, hide_velocity=False, lr_critic=0.001, history_length=5, use_past_actions=False, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -100,15 +100,17 @@ def train(env_str, hide_velocity=False, lr_critic=0.001, pomdp=False, actor_weig
     random.seed(seed)
 
     # init agent
-    agent = LSTM_TD3_Agent(mode           = "train",
-                           action_dim     = env.action_space.shape[0], 
-                           obs_dim        = env.observation_space.shape[0], 
-                           action_high    = env.action_space.high[0],
-                           action_low     = env.action_space.low[0], 
-                           actor_weights  = actor_weights, 
-                           critic_weights = critic_weights, 
-                           lr_critic      = lr_critic,
-                           device         = device)
+    agent = LSTM_TD3_Agent(mode             = "train",
+                           action_dim       = env.action_space.shape[0], 
+                           obs_dim          = env.observation_space.shape[0], 
+                           action_high      = env.action_space.high[0],
+                           action_low       = env.action_space.low[0], 
+                           actor_weights    = actor_weights, 
+                           critic_weights   = critic_weights, 
+                           lr_critic        = lr_critic,
+                           history_length   = history_length,
+                           use_past_actions = use_past_actions,
+                           device           = device)
 
     # init history
     o_hist = np.zeros((agent.history_length, agent.obs_dim))
@@ -257,10 +259,13 @@ if __name__ == "__main__":
     parser.add_argument("--env_str", type=str, default="LCP")
     parser.add_argument("--hide_velocity", type=str2bool, default=False)
     parser.add_argument("--lr_critic", type=float, default=0.001)
+    parser.add_argument("--history_length", type=int, default=5)
+    parser.add_argument("--use_past_actions", type=str2bool, default=True)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, hide_velocity=args.hide_velocity, lr_critic=args.lr_critic, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, hide_velocity=args.hide_velocity, lr_critic=args.lr_critic, history_length=args.history_length,
+          use_past_actions=args.use_past_actions, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

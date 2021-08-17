@@ -12,19 +12,19 @@ class LSTM_Actor(nn.Module):
         self.use_past_actions = use_past_actions
 
         # current feature extraction
-        self.curr_fe_dense1 = nn.Linear(obs_dim, 128)
-        self.curr_fe_dense2 = nn.Linear(128, 128)
+        self.curr_fe_dense1 = nn.Linear(obs_dim, 64)
+        self.curr_fe_dense2 = nn.Linear(64, 64)
         
         # memory
         if use_past_actions:
-            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 64)
         else:
-            self.mem_dense = nn.Linear(obs_dim, 128)
-        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+            self.mem_dense = nn.Linear(obs_dim, 64)
+        self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
-        self.post_comb_dense2 = nn.Linear(128, action_dim)
+        self.post_comb_dense1 = nn.Linear(64 + 64, 64)
+        self.post_comb_dense2 = nn.Linear(64, action_dim)
 
 
     def forward(self, o, o_hist, a_hist, hist_len) -> tuple:
@@ -97,19 +97,19 @@ class LSTM_Critic(nn.Module):
         self.use_past_actions = use_past_actions
 
         # current feature extraction
-        self.curr_fe_dense1 = nn.Linear(obs_dim + action_dim, 128)
-        self.curr_fe_dense2 = nn.Linear(128, 128)
+        self.curr_fe_dense1 = nn.Linear(obs_dim + action_dim, 64)
+        self.curr_fe_dense2 = nn.Linear(64, 64)
         
         # memory
         if use_past_actions:
-            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 64)
         else:
-            self.mem_dense = nn.Linear(obs_dim, 128)
-        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+            self.mem_dense = nn.Linear(obs_dim, 64)
+        self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
-        self.post_comb_dense2 = nn.Linear(128, 1)
+        self.post_comb_dense1 = nn.Linear(64 + 64, 64)
+        self.post_comb_dense2 = nn.Linear(64, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
@@ -185,35 +185,35 @@ class LSTM_Double_Critic(nn.Module):
 
         # ----------------------- Q1 ---------------------------
         # current feature extraction
-        self.curr_fe_dense1_q1 = nn.Linear(obs_dim + action_dim, 128)
-        self.curr_fe_dense2_q1 = nn.Linear(128, 128)
+        self.curr_fe_dense1_q1 = nn.Linear(obs_dim + action_dim, 64)
+        self.curr_fe_dense2_q1 = nn.Linear(64, 64)
         
         # memory
         if use_past_actions:
-            self.mem_dense_q1 = nn.Linear(obs_dim + action_dim, 128)
+            self.mem_dense_q1 = nn.Linear(obs_dim + action_dim, 64)
         else:
-            self.mem_dense_q1 = nn.Linear(obs_dim, 128)
-        self.mem_LSTM_q1 = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+            self.mem_dense_q1 = nn.Linear(obs_dim, 64)
+        self.mem_LSTM_q1 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1_q1 = nn.Linear(128 + 128, 128)
-        self.post_comb_dense2_q1 = nn.Linear(128, 1)
+        self.post_comb_dense1_q1 = nn.Linear(64 + 64, 64)
+        self.post_comb_dense2_q1 = nn.Linear(64, 1)
         
         # ----------------------- Q2 ---------------------------
         # current feature extraction
-        self.curr_fe_dense1_q2 = nn.Linear(obs_dim + action_dim, 128)
-        self.curr_fe_dense2_q2 = nn.Linear(128, 128)
+        self.curr_fe_dense1_q2 = nn.Linear(obs_dim + action_dim, 64)
+        self.curr_fe_dense2_q2 = nn.Linear(64, 64)
         
         # memory
         if use_past_actions:
-            self.mem_dense_q2 = nn.Linear(obs_dim + action_dim, 128)
+            self.mem_dense_q2 = nn.Linear(obs_dim + action_dim, 64)
         else:
-            self.mem_dense_q2 = nn.Linear(obs_dim, 128)
-        self.mem_LSTM_q2 = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+            self.mem_dense_q2 = nn.Linear(obs_dim, 64)
+        self.mem_LSTM_q2 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1_q2 = nn.Linear(128 + 128, 128)
-        self.post_comb_dense2_q2 = nn.Linear(128, 1)
+        self.post_comb_dense1_q2 = nn.Linear(64 + 64, 64)
+        self.post_comb_dense2_q2 = nn.Linear(64, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
