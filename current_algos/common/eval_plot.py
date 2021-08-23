@@ -69,7 +69,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[0,1].set_xlabel("Timestep")
     
     # fill third axis
-    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC"]]):
+    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
         ax[1,0].plot(df["Timestep"], df["Critic_loss"])
         ax[1,0].set_xlabel("Timestep")
         ax[1,0].set_ylabel("Critic loss")
@@ -79,7 +79,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,0].set_ylabel("Loss")
 
     # fill fourth axis
-    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC"]]):
+    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
         ax[1,1].plot(df["Timestep"], df["Actor_loss"])
         ax[1,1].set_xlabel("Timestep")
         ax[1,1].set_ylabel("Actor loss")
