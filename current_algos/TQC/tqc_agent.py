@@ -16,33 +16,32 @@ from current_algos.common.logging_func import *
 # updates on every step, automatic temperature tuning.
 class TQC_Agent:
     def __init__(self, 
-    mode,
-    action_dim, 
-    state_dim,
-    action_high,
-    action_low,
-    top_quantiles_to_drop,
-    n_quantiles = 25, # Number of atoms per critic // Quantiles estimates per critic
-    n_critics = 4, # Number of critics with n_quantiles of atoms each.
-    actor_weights = None,
-    critic_weights = None,
-    input_norm = False,
-    input_norm_prior = None, 
-    gamma = 0.99,
-    polyak_tau = 0.005,
-    lr_actor = 0.0003,
-    lr_critic = 0.0003,
-    buffer_length = 1000000,
-    batch_size = 128,
-    temperature = 0.2,
-    device = "cpu",
-     ) -> None:
-        
+            mode,
+            action_dim, 
+            state_dim,
+            action_high,
+            action_low,
+            top_quantiles_to_drop,
+            n_quantiles = 25, # Number of atoms per critic // Quantiles estimates per critic
+            n_critics = 4, # Number of critics with n_quantiles of atoms each.
+            actor_weights = None,
+            critic_weights = None,
+            input_norm = False,
+            input_norm_prior = None, 
+            gamma = 0.99,
+            polyak_tau = 0.005,
+            lr_actor = 0.0003,
+            lr_critic = 0.0003,
+            buffer_length = 1000000,
+            batch_size = 128,
+            temperature = 0.2,
+            device = "cpu") -> None:
+
         # store attributes and hyperparameters
         assert mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode             = mode
-        
+
         self.name             = "TQC_Agent"
         self.action_dim       = action_dim
         self.state_dim        = state_dim
@@ -95,22 +94,25 @@ class TQC_Agent:
         self.actor_optim = optim.Adam(self.actor.parameters(),self.lr_actor)
         self.critic_optim = optim.Adam(self.critic.parameters(),self.lr_critic)
         self.temp_optim = optim.Adam([self.log_alpha],self.lr_critic)
-        
-    
+
+
     @torch.no_grad()
     def select_action(self,s):
 
         # reshape obs
         s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
 
-        a,_ = self.actor(s)
+        if self.mode == "train":
+            a,_ = self.actor(s,deterministic=False)
+        else:
+            a,_ = self.actor(s,deterministic=True)
 
         # reshape actions
         a = a.cpu().numpy().reshape(self.action_dim)
-        
+
         # transform [-1,1] to application scale
         return self.action_normalizer.norm_to_action(a)
-    
+
     def memorize(self, s, a, r, s2, d):
 
         a = self.action_normalizer.action_to_norm(a)
@@ -184,8 +186,8 @@ class TQC_Agent:
 
         # Compute huber loss as in Dabney, 2018
         huber_loss = torch.where(abs_pairwise_delta >1,
-                                abs_pairwise_delta - 0.5,
-                                pairwise_delta * 0.5 ** 2)
+                abs_pairwise_delta - 0.5,
+                pairwise_delta * 0.5 ** 2)
 
         n_quantiles = quantiles.shape[2]
         tau = torch.arange(n_quantiles, device=self.device).float() / n_quantiles + 1/2 / n_quantiles

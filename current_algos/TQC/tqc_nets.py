@@ -81,7 +81,7 @@ class Actor(nn.Module):
             nn.Linear(256,2 * action_dim)
         )
 
-    def forward(self, state):
+    def forward(self, state, deterministic=False):
 
         # Construct mean, log_std and std of Gaussian distribution
         mu, log_std = self.net(state).split([self.action_dim, self.action_dim], dim=1)
@@ -91,14 +91,14 @@ class Actor(nn.Module):
         # Define Gaussian distribution with mean and std given by neural net
         pi_distr = Normal(mu, std)
 
-        if self.training:
-            action = pi_distr.rsample()
-            logprob = pi_distr.log_prob(action).sum(axis=1) # Appendix C in the paper, but rewritten
-            logprob = logprob - (2*(np.log(2) - action - F.softplus(-2 * action))).sum(axis=1) # Eq. 21 (SAC | Haarnoja, 2019)
-            logprob = logprob.reshape((-1,1)) # Reshape to ([batch_size, 1])
-        else:
-            action = pi_distr.mean()
+        if deterministic:
+            action = pi_distr.mean
             logprob = None
+        else:
+            action = pi_distr.rsample()
+        logprob = pi_distr.log_prob(action).sum(axis=1) # Appendix C in the paper, but rewritten
+        logprob = logprob - (2*(np.log(2) - action - F.softplus(-2 * action))).sum(axis=1) # Eq. 21 (SAC | Haarnoja, 2019)
+        logprob = logprob.reshape((-1,1)) # Reshape to ([batch_size, 1])
 
         action = torch.tanh(action)
 

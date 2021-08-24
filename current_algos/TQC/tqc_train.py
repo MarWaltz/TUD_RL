@@ -184,7 +184,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
+    parser.add_argument("--env_str", type=str, default="HopperMuJoCoEnv-v0")
     args = parser.parse_args()
     
     # set number of torch threads
