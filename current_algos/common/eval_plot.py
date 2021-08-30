@@ -26,6 +26,8 @@ def plot_from_progress(dir, alg, env_str, info=None):
     df = df.iloc[1:]
     df = df.astype(float)
 
+    runtime = df["Runtime_in_h"].iloc[-1].round(3)
+
     # define moving and rolling average functions
     # Note: this could be defined outside of plot_from_progress(), but having just one function appears handy
     def moving_average(a, n):
@@ -45,9 +47,9 @@ def plot_from_progress(dir, alg, env_str, info=None):
     
     # define title
     if info is not None:
-        fig.suptitle(f"{alg} ({info}) | {env_str}")
+        fig.suptitle(f"{alg} ({info}) | {env_str} | Runtime (h): {runtime}")
     else:
-        fig.suptitle(f"{alg} | {env_str}")
+        fig.suptitle(f"{alg} | {env_str} | Runtime (h): {runtime}")
 
     # fill first axis
     ax[0,0].plot(df["Timestep"], df["Avg_Eval_ret"], label = "Avg. test return")

@@ -23,7 +23,7 @@ class TQC_Agent:
             action_low,
             top_quantiles_to_drop,
             n_quantiles = 25, # Number of atoms per critic // Quantiles estimates per critic
-            n_critics = 4, # Number of critics with n_quantiles of atoms each.
+            n_critics = 5, # Number of critics with n_quantiles of atoms each.
             actor_weights = None,
             critic_weights = None,
             input_norm = False,
@@ -33,7 +33,7 @@ class TQC_Agent:
             lr_actor = 0.0003,
             lr_critic = 0.0003,
             buffer_length = 1000000,
-            batch_size = 128,
+            batch_size = 256,
             temperature = 0.2,
             device = "cpu") -> None:
 
@@ -147,32 +147,37 @@ class TQC_Agent:
         self.logger.store(Avg_Q_val = current_z.mean().detach().cpu().numpy().item())
 
         critic_loss = self.quantile_huber_loss(current_z,target)
+        
+
 
         # Policy and alpha losses
         new_action, log_pi = self.actor(s)
         alpha_loss = -self.log_alpha * (log_pi + self.target_entropy).detach().mean() # Eq. 5
         current_mean_z = self.critic(s,new_action).mean(2).mean(1,keepdim=True)
-        actor_loss = (alpha*log_pi - current_mean_z).mean()
+        actor_loss = (alpha * log_pi - current_mean_z).mean()
 
-        # SGD
-        self.temp_optim.zero_grad()
-        alpha_loss.backward()
-        self.temp_optim.step()
+        # SGD for critic
 
         self.actor_optim.zero_grad()
         actor_loss.backward()
         self.actor_optim.step()
 
+        self.temp_optim.zero_grad()
+        alpha_loss.backward()
+        self.temp_optim.step()
+
         self.critic_optim.zero_grad()
         critic_loss.backward()
         self.critic_optim.step()
 
-        # Log critic loss
-        self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item())
-
         # Polyak update
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.polyak_tau * param.data + (1 - self.polyak_tau) * target_param.data)
+
+
+        # Log critic loss
+        self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item())
+
 
         # Log actor loss
         self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())

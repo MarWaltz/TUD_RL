@@ -16,7 +16,7 @@ from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.TQC.tqc_agent import *
 
 # training config
-TIMESTEPS = 500000     # overall number of training interaction steps
+TIMESTEPS = 5_000_000     # overall number of training interaction steps
 EPOCH_LENGTH = 1000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -88,7 +88,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
                       state_dim      = env.observation_space.shape[0], 
                       action_high    = env.action_space.high[0],
                       action_low     = env.action_space.low[0], 
-                      top_quantiles_to_drop=2,
+                      top_quantiles_to_drop=10,
                       actor_weights  = actor_weights, 
                       critic_weights = critic_weights, 
                       device         = device)
@@ -184,13 +184,13 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HopperMuJoCoEnv-v0")
+    parser.add_argument("--env_str", type=str, default="HopperPyBulletEnv-v0")
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    torch.autograd.set_detect_anomaly(True)
-    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    # torch.autograd.set_detect_anomaly(True)
+    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=69, device="cpu")
 

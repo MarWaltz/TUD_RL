@@ -92,13 +92,13 @@ class Actor(nn.Module):
         pi_distr = Normal(mu, std)
 
         if deterministic:
-            action = pi_distr.mean
+            action = mu
             logprob = None
         else:
             action = pi_distr.rsample()
-        logprob = pi_distr.log_prob(action).sum(axis=1) # Appendix C in the paper, but rewritten
-        logprob = logprob - (2*(np.log(2) - action - F.softplus(-2 * action))).sum(axis=1) # Eq. 21 (SAC | Haarnoja, 2019)
-        logprob = logprob.reshape((-1,1)) # Reshape to ([batch_size, 1])
+            logprob = pi_distr.log_prob(action).sum(axis=1) # Appendix C in the paper, but rewritten
+            logprob = logprob - (2*(np.log(2) - action - F.softplus(-2 * action))).sum(axis=1) # Eq. 21 (SAC | Haarnoja, 2019)
+            logprob = logprob.reshape((-1,1)) # Reshape to ([batch_size, 1])
 
         action = torch.tanh(action)
 
