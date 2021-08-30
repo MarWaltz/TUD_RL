@@ -72,7 +72,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, hide_velocity=False, lr_critic=0.001, history_length=5, use_past_actions=False, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, lr_critic=0.001, history_length=5, use_past_actions=False, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -80,8 +80,8 @@ def train(env_str, hide_velocity=False, lr_critic=0.001, history_length=5, use_p
     
     # init env
     if env_str == "LCP":
-        env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
-        test_env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
+        env = ObstacleAvoidance_Env()
+        test_env = ObstacleAvoidance_Env()
         max_episode_steps = env._max_episode_steps
     elif pomdp:
         env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
@@ -257,7 +257,6 @@ if __name__ == "__main__":
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="LCP")
-    parser.add_argument("--hide_velocity", type=str2bool, default=False)
     parser.add_argument("--lr_critic", type=float, default=0.001)
     parser.add_argument("--history_length", type=int, default=5)
     parser.add_argument("--use_past_actions", type=str2bool, default=True)
@@ -267,5 +266,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, hide_velocity=args.hide_velocity, lr_critic=args.lr_critic, history_length=args.history_length,
+    train(env_str=args.env_str, lr_critic=args.lr_critic, history_length=args.history_length,
           use_past_actions=args.use_past_actions, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")

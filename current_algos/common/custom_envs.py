@@ -311,12 +311,15 @@ class LCP_Environment(gym.Env):
 class ObstacleAvoidance_Env(gym.Env):
     """Class environment with initializer, step, reset and render method."""
     
-    def __init__(self, hide_velocity):
+    def __init__(self, POMDP_type="MDP"):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
 
-        self.hide_velocity  = hide_velocity
-        self.sort_obs_ttc   = True
+        assert POMDP_type in ["MDP", "RV", "FL"], "Unknown MDP/POMDP specification."
+
+        self.POMDP_type     = POMDP_type
+        self.FL_prob        = 0.2
+        self.sort_obs_ttc   = False
         self.polygon_reward = False
 
         # river size and vessel characteristics   
@@ -328,7 +331,7 @@ class ObstacleAvoidance_Env(gym.Env):
 
         # maximum sight of agent
         self.delta_x_max = 3000
-        self.delta_y_max = 300
+        self.delta_y_max = 3000
 
         # initial agent position, speed and acceleration
         self.start_x_agent = 0
@@ -369,10 +372,10 @@ class ObstacleAvoidance_Env(gym.Env):
         # self.ellipse_height = [2 * np.sqrt(-2 * self.variance_y * np.log(reward)) for reward in self.reward_lines]
         
         # --------------------------------  gym inherits ---------------------------------------------------
-        if self.hide_velocity:
+        if self.POMDP_type == "RV":
             num_vessel_obs = 2
         else:
-            num_vessel_obs = 3
+            num_vessel_obs = 4
         super(ObstacleAvoidance_Env, self).__init__()
         self.observation_space = spaces.Box(low=np.full((1, num_vessel_obs * self.n_vessels + 2), -1, dtype=np.float32)[0],
                                             high=np.full((1, num_vessel_obs * self.n_vessels + 2), 1, dtype=np.float32)[0])
@@ -516,27 +519,23 @@ class ObstacleAvoidance_Env(gym.Env):
             vx = self.vessel_vx[idx].copy()
             vy = self.vessel_vy[idx].copy()
 
-
         self.state = np.empty(0, dtype=np.float32)
-        self.state = np.append(self.state, np.clip(self.agent_ay/self.ay_max, -1, 1))
-        self.state = np.append(self.state, np.clip(self.agent_vy/self.vy_max, -1, 1))
-        #self.state = np.append(self.state, np.clip((self.agent_x  - self.vessel_x)/self.delta_x_max,-1, 1))
-        self.state = np.append(self.state, self.vessel_ttc/1200)
-        self.state = np.append(self.state, np.clip((self.agent_y  - self.vessel_y)/self.delta_y_max,-1, 1))
+        self.state = np.append(self.state, self.agent_ay/self.ay_max)
+        self.state = np.append(self.state, self.agent_vy/self.vy_max)
+        self.state = np.append(self.state, (self.agent_x  - x)/self.delta_x_max)
+        #self.state = np.append(self.state, self.vessel_ttc/1200)
+        self.state = np.append(self.state, (self.agent_y  - y)/self.delta_y_max)
 
-        if not self.hide_velocity:
-            #self.state = np.append(self.state, np.clip((self.agent_vx - self.vessel_vx)/(2*self.vx_max),-1, 1))
-            self.state = np.append(self.state, np.clip((self.agent_vy - self.vessel_vy)/(2*self.vy_max),-1, 1))
+        if self.POMDP_type in ["MDP", "FL"]:
+            self.state = np.append(self.state, (self.agent_vx - vx)/(2*self.vx_max))
+            self.state = np.append(self.state, (self.agent_vy - vy)/(2*self.vy_max))
+        elif self.POMDP_type == "FL" and np.random.binomial(1, self.FL_prob) == 1:
+            self.state = np.zeros_like(self.state)
 
-
-
-        
         # order delta based on the euclidean distance and get state
         #eucl_dist = np.apply_along_axis(lambda x: np.sqrt(x[0]**2 + x[1]**2), 1, delta_normalized)
         #idx = np.argsort(eucl_dist)
-        
 
-    
     def step(self, action):
         """Takes an action and performs one step in the environment.
         Returns reward, new_state, done."""
@@ -566,15 +565,15 @@ class ObstacleAvoidance_Env(gym.Env):
             # replace vessel if necessary       
             while self.vessel_ttc[1] < 0:
                 self._place_vessel(False,-1)
-                if self.agent_y < self.vessel_y[0]:
-                    self.agent_y = self.vessel_y[0] # agent crahsed! 
-                    self.crash_flag = True
+                #if self.agent_y < self.vessel_y[0]:
+                #    self.agent_y = self.vessel_y[0] # agent crahsed! 
+                #    self.crash_flag = True
 
             while self.vessel_ttc[self.n_vessels_half+1] < 0:
                 self._place_vessel(False, 1)           
-                if self.agent_y > self.vessel_y[self.n_vessels_half]:
-                    self.agent_y = self.vessel_y[self.n_vessels_half] # agent crahsed! 
-                    self.crash_flag = True
+                #if self.agent_y > self.vessel_y[self.n_vessels_half]:
+                #    self.agent_y = self.vessel_y[self.n_vessels_half] # agent crahsed! 
+                #    self.crash_flag = True
     
     def _move_agent(self, action):
         """Update self.agent_pos using a given action. For now: a_x = 0."""
@@ -593,8 +592,6 @@ class ObstacleAvoidance_Env(gym.Env):
         # update longitudinal dynamics
         self.agent_x= self.agent_x + self.agent_vx * self.delta_t
         
-
-    
     def _calculate_reward(self):
         """Returns reward of the current state."""   
         # compute jerk reward
@@ -687,16 +684,18 @@ class ObstacleAvoidance_Env(gym.Env):
             
             # add agent and states
             self.ax1.scatter(0, self.agent_y, color = self.agent_color)
-            self.ax1.set_xlabel("Normalized delta x")
-            self.ax1.set_ylabel("Normalized delta y")
+            self.ax1.set_xlabel("TTC-x")
+            self.ax1.set_ylabel("y")
             self.ax1.scatter(self.vessel_ttc, self.vessel_y, color = self.vessel_color)
-            self.ax1.plot(self.AR1[self.current_timestep:])
+            y = self.AR1[self.current_timestep:]
+            self.ax1.plot([i * self.delta_t for i in range(len(y))], y)
 
             # ---- REWARD PLOT ----
             if self.current_timestep == 0:
                 self.ax2.clear()
                 self.ax2.old_time = 0
                 self.ax2.old_reward = 0
+            self.ax2.hlines(-1, 1, self.x_max / (self.agent_vx * self.delta_t), linestyles="dashed")
             self.ax2.set_xlim(1, self.x_max / (self.agent_vx * self.delta_t))
             self.ax2.set_ylim(-1.1, 0.1)
             self.ax2.set_xlabel("Timestep in episode")
