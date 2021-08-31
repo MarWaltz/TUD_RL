@@ -26,6 +26,8 @@ def plot_from_progress(dir, alg, env_str, info=None):
     df = df.iloc[1:]
     df = df.astype(float)
 
+    runtime = df["Runtime_in_h"].iloc[-1].round(3)
+
     # define moving and rolling average functions
     # Note: this could be defined outside of plot_from_progress(), but having just one function appears handy
     def moving_average(a, n):
@@ -45,9 +47,9 @@ def plot_from_progress(dir, alg, env_str, info=None):
     
     # define title
     if info is not None:
-        fig.suptitle(f"{alg} ({info}) | {env_str}")
+        fig.suptitle(f"{alg} ({info}) | {env_str} | Runtime (h): {runtime}")
     else:
-        fig.suptitle(f"{alg} | {env_str}")
+        fig.suptitle(f"{alg} | {env_str} | Runtime (h): {runtime}")
 
     # fill first axis
     ax[0,0].plot(df["Timestep"], df["Avg_Eval_ret"], label = "Avg. test return")
@@ -69,7 +71,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[0,1].set_xlabel("Timestep")
     
     # fill third axis
-    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC"]]):
+    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
         ax[1,0].plot(df["Timestep"], df["Critic_loss"])
         ax[1,0].set_xlabel("Timestep")
         ax[1,0].set_ylabel("Critic loss")
@@ -79,7 +81,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,0].set_ylabel("Loss")
 
     # fill fourth axis
-    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC"]]):
+    if any([alg.startswith(name) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
         ax[1,1].plot(df["Timestep"], df["Actor_loss"])
         ax[1,1].set_xlabel("Timestep")
         ax[1,1].set_ylabel("Actor loss")
