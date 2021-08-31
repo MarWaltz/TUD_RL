@@ -176,7 +176,7 @@ def train(env_str, POMDP_type="MDP", lr_critic=0.001, actor_weights=None, critic
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=POMDP_type)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
@@ -211,4 +211,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, POMDP_type=args.POMDP_type ,lr_critic=args.lr_critic, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=10, device="cpu")
