@@ -91,4 +91,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    visualize_policy(POMDP_type="FL", critic_weights="LSTM_TD3_Agent_critic_weights.pth", actor_weights="LSTM_TD3_Agent_actor_weights.pth")
+    visualize_policy(POMDP_type="MDP", critic_weights="LSTM_TD3_Agent_critic_weights.pth", actor_weights="LSTM_TD3_Agent_actor_weights.pth")

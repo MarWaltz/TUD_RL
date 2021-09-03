@@ -319,7 +319,7 @@ class ObstacleAvoidance_Env(gym.Env):
 
         self.POMDP_type     = POMDP_type
         self.FL_prob        = 0.2
-        self.sort_obs_ttc   = False
+        self.sort_obs_ttc   = True
         self.polygon_reward = False
 
         # river size and vessel characteristics   
