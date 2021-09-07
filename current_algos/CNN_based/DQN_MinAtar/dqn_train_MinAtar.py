@@ -14,7 +14,7 @@ from current_algos.common.custom_envs import MountainCar
 from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
 
 # training config
-TIMESTEPS = 2000000     # overall number of training interaction steps
+TIMESTEPS = 5000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Asterix-MinAtar-v0")
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     args = parser.parse_args()
 
