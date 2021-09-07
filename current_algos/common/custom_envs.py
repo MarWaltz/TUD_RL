@@ -318,20 +318,19 @@ class ObstacleAvoidance_Env(gym.Env):
         assert POMDP_type in ["MDP", "RV", "FL"], "Unknown MDP/POMDP specification."
 
         self.POMDP_type     = POMDP_type
-        self.FL_prob        = 0.2
-        self.sort_obs_ttc   = True
+        self.FL_prob        = 0.5
+        self.sort_obs_ttc   = False
         self.polygon_reward = False
 
         # river size and vessel characteristics   
-        self.y_max = 500
+        self.y_max = 500 # only for plotting
         self.n_vessels  = 12
         self.n_vessels_half  = int(self.n_vessels/2)
-        self.over_coast = 10
         self.max_temporal_dist = 300 # maximal temporal distance when placing new vessel
 
         # maximum sight of agent
         self.delta_x_max = 3000
-        self.delta_y_max = 3000
+        self.delta_y_max = 500
 
         # initial agent position, speed and acceleration
         self.start_x_agent = 0
@@ -343,7 +342,7 @@ class ObstacleAvoidance_Env(gym.Env):
 
         # speed and acceleration of vessels
         self.vx_max = 6
-        self.vy_max = 6
+        self.vy_max = 1
         self.ax_max = 0
         self.ay_max = 0.01
 
@@ -468,10 +467,10 @@ class ObstacleAvoidance_Env(gym.Env):
             new_ttc = np.maximum(1,ttc[-1] +  np.random.uniform(0,self.max_temporal_dist))
 
         # compute new vessel dynamics
-        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(40, np.random.normal(100,50))
+        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(10, np.random.normal(40,60))
         new_vx = np.random.uniform(-self.vx_max, self.vx_max)
         new_x = (self.agent_vx - new_vx) * new_ttc + self.agent_x
-        new_vy = np.abs(new_vx/1) * np.random.uniform(-1,1)
+        new_vy = np.abs(new_vx/self.vx_max) * np.random.uniform(-1,1)
         new_y = y_future - new_vy * new_ttc
 
         # rotate dynamic arrays to place new vessel at the end
