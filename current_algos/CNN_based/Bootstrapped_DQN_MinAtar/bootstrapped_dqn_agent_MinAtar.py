@@ -24,7 +24,7 @@ class CNN_Bootstrapped_DQN_Agent:
                  input_norm       = False,
                  input_norm_prior = None,
                  double           = False,
-                 K                = 5,
+                 K                = 10,
                  mask_p           = 0.5,
                  gamma            = 0.99,
                  eps_init         = 1.0,
@@ -36,11 +36,11 @@ class CNN_Bootstrapped_DQN_Agent:
                  l2_reg           = 0.0,
                  buffer_length    = int(10e5),
                  grad_clip        = False,
-                 grad_rescale     = False,
+                 grad_rescale     = True,
                  act_start_step   = 5000,
                  upd_start_step   = 5000,
                  upd_every        = 1,
-                 batch_size       = 2,
+                 batch_size       = 32,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
@@ -225,42 +225,50 @@ class CNN_Bootstrapped_DQN_Agent:
         # clear gradients
         self.DQN_optimizer.zero_grad()
         
-        # calculate current estimated Q-values
-        Q_v = self.DQN(s)
+        # calculate current estimated Q-values and next Q-values
+        Q_v_all      = self.DQN(s)
+        Q_v2_all_tgt = self.target_DQN(s2)
 
-        # gather actions (for this we need to repeat a, which is (batch_size, 1), K times in an extra dimension)
-        a = a.unsqueeze(2).repeat(1, 1, self.K)
-        Q_v = torch.gather(input=Q_v, dim=1, index=a)
+        if self.double:
+            Q_v2_all_main = self.DQN(s2)
 
-        # gather heads from masks
-        Q_v = Q_v * m.unsqueeze(1)
- 
+        # set up losses
+        losses = []
 
- 
-        # calculate targets
-        with torch.no_grad():
+        # calculate loss for each head
+        for k in range(self.K):
+            
+            # gather actions
+            Q_v = torch.gather(input=Q_v_all[:, :, k], dim=1, index=a)
 
-            # Q-value of next state-action pair
-            if self.double:
-                a2 = torch.argmax(self.DQN(s2), dim=1).reshape(self.batch_size, 1)
-                target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
-            else:
-                target_Q_next = self.target_DQN(s2)
-                target_Q_next = torch.max(target_Q_next, dim=1).values.reshape(self.batch_size, 1)
+            # calculate targets
+            with torch.no_grad():
 
-            # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+                # Q-value of next state-action pair
+                if self.double:
+                    a2 = torch.argmax(Q_v2_all_main[:, :, k], dim=1).reshape(self.batch_size, 1)
+                    target_Q_next = torch.gather(input=Q_v2_all_tgt[:, :, k], dim=1, index=a2)
+                else:
+                    target_Q_next = torch.max(Q_v2_all_tgt[:, :, k], dim=1).values.reshape(self.batch_size, 1)
 
-        # calculate loss
-        loss = F.mse_loss(Q_v, target_Q)
-        
+                # target
+                target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+
+            # gather active head from masks
+            Q_v      = Q_v * m[:, k].unsqueeze(1)
+            target_Q = target_Q * m[:, k].unsqueeze(1)
+
+            # calculate loss
+            losses.append(F.mse_loss(Q_v, target_Q))
+       
         # compute gradients
+        loss = sum(losses)
         loss.backward()
 
         # gradient scaling and clipping
         if self.grad_rescale:
-            for p in self.DQN.parameters():
-                p.grad *= 1 / math.sqrt(2)
+            for p in self.DQN.core.parameters():
+                p.grad *= 1/float(self.K)
         if self.grad_clip:
             nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
         

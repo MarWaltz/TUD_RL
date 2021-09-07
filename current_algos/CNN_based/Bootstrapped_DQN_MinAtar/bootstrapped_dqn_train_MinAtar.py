@@ -215,7 +215,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Asterix-MinAtar-v0")
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     args = parser.parse_args()
 
