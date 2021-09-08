@@ -31,9 +31,6 @@ class CNN_Bootstrapped_DQN_Agent:
                  K                = 10,
                  mask_p           = 1.0,
                  gamma            = 0.99,
-                 eps_init         = 1.0,
-                 eps_final        = 0.1,
-                 eps_decay_steps  = 100000,
                  n_steps          = 1,
                  tgt_update_freq  = 1000,
                  lr               = 0.00025,
@@ -100,14 +97,6 @@ class CNN_Bootstrapped_DQN_Agent:
         self.gamma            = gamma
         self.K                = K
         self.mask_p           = mask_p
-
-        # linear epsilon schedule
-        self.eps_init         = eps_init
-        self.epsilon          = eps_init
-        self.eps_final        = eps_final
-        self.eps_decay_steps  = eps_decay_steps
-        self.eps_inc          = (eps_final - eps_init) / eps_decay_steps
-        self.eps_t            = 0
 
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
@@ -193,45 +182,34 @@ class CNN_Bootstrapped_DQN_Agent:
 
     @torch.no_grad()
     def select_action(self, s, active_head):
-        """Epsilon-greedy based action selection for a given state.
+        """Greedy action selection using the active head for a given state.
         s:           np.array with shape (in_channels, height, width)
         active_head: int 
 
         returns: int for the action
         """
-        # random action
-        if (np.random.binomial(1, self.epsilon) == 1) and (self.mode == "train"):
-            a = np.random.randint(low=0, high=self.num_actions, size=1, dtype=int).item()
+        # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
+        s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
-        # greedy action
+        # forward pass
+        if active_head is not None:
+            q = self.DQN(s, active_head).to(self.device)
+
+            # greedy
+            a = torch.argmax(q).item()
+        
+        # majority vote
         else:
-            # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
-            s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
-            # forward pass
-            if active_head is not None:
-                q = self.DQN(s, active_head).to(self.device)
+            # push through all heads
+            q = self.DQN(s)
 
-                # greedy
-                a = torch.argmax(q).item()
-            
-            # majority vote
-            else:
+            # get favoured action of each head
+            actions = [torch.argmax(head_q).item() for head_q in q]
 
-                # push through all heads
-                q = self.DQN(s)
-
-                # get favoured action of each head
-                actions = [torch.argmax(head_q).item() for head_q in q]
-
-                # choose majority vote
-                actions = Counter(actions)
-                a = actions.most_common(1)[0][0]
-
-        # anneal epsilon linearly
-        if self.mode == "train":
-            self.eps_t += 1
-            self.epsilon = max(self.eps_inc * self.eps_t + self.eps_init, self.eps_final)
+            # choose majority vote
+            actions = Counter(actions)
+            a = actions.most_common(1)[0][0]
 
         return a
 
