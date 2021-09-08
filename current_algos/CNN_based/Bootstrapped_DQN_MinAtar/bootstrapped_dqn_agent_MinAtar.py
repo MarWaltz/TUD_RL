@@ -4,6 +4,7 @@ import pickle
 from collections import Counter
 
 import numpy as np
+import scipy.stats
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,7 +25,9 @@ class CNN_Bootstrapped_DQN_Agent:
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double           = True,
+                 double           = False,
+                 our_estimator    = True,
+                 our_alpha        = 0.1,
                  K                = 10,
                  mask_p           = 1.0,
                  gamma            = 0.99,
@@ -85,7 +88,15 @@ class CNN_Bootstrapped_DQN_Agent:
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
-        self.double           = double
+
+        assert not (double and our_estimator), "Can pick either the double or our estimator, not both."
+
+        self.double        = double
+        self.our_estimator = our_estimator
+
+        if self.our_estimator:
+            self.critical_value = scipy.stats.norm().ppf(our_alpha)
+
         self.gamma            = gamma
         self.K                = K
         self.mask_p           = mask_p
@@ -167,6 +178,19 @@ class CNN_Bootstrapped_DQN_Agent:
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
 
+    def _mean_test(self, mean1, mean2, var_mean1, var_mean2):
+        """Returns True if the H_0: mu1 >= mu2 was not rejected, else False. 
+        Note: mean2 should be the ME.
+
+        Args:
+            mean1: mean of X1
+            mean2: mean of X2
+            var_mean1: variance estimate of mean1 
+            var_mean2: variance estimate of mean2
+        """
+        T = (mean1 - mean2) / torch.sqrt(var_mean1 + var_mean2)
+        return T >= self.critical_value
+
     @torch.no_grad()
     def select_action(self, s, active_head):
         """Epsilon-greedy based action selection for a given state.
@@ -233,6 +257,14 @@ class CNN_Bootstrapped_DQN_Agent:
 
         if self.double:
             Q_v2_all_main = self.DQN(s2)
+        
+        if self.our_estimator:
+
+            # stack list into torch.Size([K, batch_size, num_actions])
+            Q_v_all_stacked = torch.stack(Q_v_all)
+
+            # compute variances over the K heads, gives torch.Size([batch_size, num_actions])
+            Q_v_var = torch.var(Q_v_all_stacked, dim=0, unbiased=True)
 
         # set up losses
         losses = []
@@ -250,6 +282,31 @@ class CNN_Bootstrapped_DQN_Agent:
                 if self.double:
                     a2 = torch.argmax(Q_v2_all_main[k], dim=1).reshape(self.batch_size, 1)
                     target_Q_next = torch.gather(input=Q_v2_all_tgt[k], dim=1, index=a2)
+
+                elif self.our_estimator:
+
+                    # get easy access to relevant target Q
+                    Q_tgt = Q_v2_all_tgt[k]
+
+                    # get values and action indices for ME
+                    ME_values, ME_a_indices = torch.max(Q_tgt, dim=1)
+
+                    # reshape indices
+                    ME_a_indices = ME_a_indices.reshape(self.batch_size, 1)
+
+                    # get variance of ME
+                    ME_var = torch.gather(Q_v_var, dim=1, index=ME_a_indices)[0]   # torch.Size([batch_size])
+
+                    # perform pairwise tests
+                    keep = torch.empty((self.batch_size, self.num_actions))
+
+                    for a_idx in range(self.num_actions):
+                        keep[:, a_idx] = self._mean_test(mean1=Q_tgt[:, a_idx], mean2=ME_values, var_mean1=Q_v_var[:, a_idx], var_mean2=ME_var)
+
+                    # compute mean of kept Qs
+                    target_Q_next = torch.sum(Q_tgt * keep, dim=1) / torch.sum(keep, dim = 1)
+                    target_Q_next = target_Q_next.reshape(self.batch_size, 1)
+
                 else:
                     target_Q_next = torch.max(Q_v2_all_tgt[k], dim=1).values.reshape(self.batch_size, 1)
 
