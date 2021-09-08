@@ -75,7 +75,7 @@ class CNN_Bootstrapped_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_DQN_Agent"
+        self.name        = "CNN_Bootstrapped_DQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
