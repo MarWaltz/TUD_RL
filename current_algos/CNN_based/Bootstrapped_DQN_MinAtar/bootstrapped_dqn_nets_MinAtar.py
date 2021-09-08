@@ -75,7 +75,7 @@ class CNN_Bootstrapped_DQN(nn.Module):
         s: torch.Size([batch_size, in_channels, height, width])
 
         returns:
-        torch.Size([batch_size, num_actions, K]) if head is None,
+        list of length K with each element being torch.Size([batch_size, num_actions]) if head is None,
         torch.Size([batch_size, num_actions]) else."""
 
         # CNN part
@@ -83,12 +83,6 @@ class CNN_Bootstrapped_DQN(nn.Module):
 
         # K heads
         if head is None:
-            
-            # shape is (K, batch_size, num_actions)
-            q = torch.stack([head_net(x) for head_net in self.heads])
-
-            # shape should be (batch_size, num_actions, K)
-            return torch.moveaxis(q, 0, 2)
-
+            return [head_net(x) for head_net in self.heads]
         else:
             return self.heads[head](x)

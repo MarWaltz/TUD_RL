@@ -1,6 +1,7 @@
 import copy
 import math
 import pickle
+from collections import Counter
 
 import numpy as np
 import torch
@@ -23,9 +24,9 @@ class CNN_Bootstrapped_DQN_Agent:
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
-                 double           = False,
+                 double           = True,
                  K                = 10,
-                 mask_p           = 0.5,
+                 mask_p           = 1.0,
                  gamma            = 0.99,
                  eps_init         = 1.0,
                  eps_final        = 0.1,
@@ -194,13 +195,14 @@ class CNN_Bootstrapped_DQN_Agent:
             else:
 
                 # push through all heads
-                q = self.DQN(s).to(self.device)
+                q = self.DQN(s)
 
                 # get favoured action of each head
-                q = torch.argmax(q, dim=1)
+                actions = [torch.argmax(head_q).item() for head_q in q]
 
                 # choose majority vote
-                a = torch.mode(q.flatten()).values.item()
+                actions = Counter(actions)
+                a = actions.most_common(1)[0][0]
 
         # anneal epsilon linearly
         if self.mode == "train":
@@ -239,27 +241,29 @@ class CNN_Bootstrapped_DQN_Agent:
         for k in range(self.K):
             
             # gather actions
-            Q_v = torch.gather(input=Q_v_all[:, :, k], dim=1, index=a)
+            Q_v = torch.gather(input=Q_v_all[k], dim=1, index=a)
 
             # calculate targets
             with torch.no_grad():
 
                 # Q-value of next state-action pair
                 if self.double:
-                    a2 = torch.argmax(Q_v2_all_main[:, :, k], dim=1).reshape(self.batch_size, 1)
-                    target_Q_next = torch.gather(input=Q_v2_all_tgt[:, :, k], dim=1, index=a2)
+                    a2 = torch.argmax(Q_v2_all_main[k], dim=1).reshape(self.batch_size, 1)
+                    target_Q_next = torch.gather(input=Q_v2_all_tgt[k], dim=1, index=a2)
                 else:
-                    target_Q_next = torch.max(Q_v2_all_tgt[:, :, k], dim=1).values.reshape(self.batch_size, 1)
+                    target_Q_next = torch.max(Q_v2_all_tgt[k], dim=1).values.reshape(self.batch_size, 1)
 
                 # target
                 target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
 
-            # gather active head from masks
-            Q_v      = Q_v * m[:, k].unsqueeze(1)
-            target_Q = target_Q * m[:, k].unsqueeze(1)
+            # calculate (Q - y)**2
+            loss_k = F.mse_loss(Q_v, target_Q, reduction="none")
 
-            # calculate loss
-            losses.append(F.mse_loss(Q_v, target_Q))
+            # use only relevant samples for given head
+            loss_k = loss_k * m[:, k].unsqueeze(1)
+
+            # append loss
+            losses.append(torch.sum(loss_k) / torch.sum(m[:, k]))
        
         # compute gradients
         loss = sum(losses)
