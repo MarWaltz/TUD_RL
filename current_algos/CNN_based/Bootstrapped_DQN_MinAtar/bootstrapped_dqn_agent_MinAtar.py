@@ -239,10 +239,10 @@ class CNN_Bootstrapped_DQN_Agent:
         if self.our_estimator:
 
             # stack list into torch.Size([K, batch_size, num_actions])
-            Q_v_all_stacked = torch.stack(Q_v_all)
+            Q_v2_all_stacked = torch.stack(Q_v2_all_tgt)
 
             # compute variances over the K heads, gives torch.Size([batch_size, num_actions])
-            Q_v_var = torch.var(Q_v_all_stacked, dim=0, unbiased=True)
+            Q_v2_var = torch.var(Q_v2_all_stacked, dim=0, unbiased=True)
 
         # set up losses
         losses = []
@@ -273,13 +273,13 @@ class CNN_Bootstrapped_DQN_Agent:
                     ME_a_indices = ME_a_indices.reshape(self.batch_size, 1)
 
                     # get variance of ME
-                    ME_var = torch.gather(Q_v_var, dim=1, index=ME_a_indices)[0]   # torch.Size([batch_size])
+                    ME_var = torch.gather(Q_v2_var, dim=1, index=ME_a_indices)[0]   # torch.Size([batch_size])
 
                     # perform pairwise tests
                     keep = torch.empty((self.batch_size, self.num_actions))
 
                     for a_idx in range(self.num_actions):
-                        keep[:, a_idx] = self._mean_test(mean1=Q_tgt[:, a_idx], mean2=ME_values, var_mean1=Q_v_var[:, a_idx], var_mean2=ME_var)
+                        keep[:, a_idx] = self._mean_test(mean1=Q_tgt[:, a_idx], mean2=ME_values, var_mean1=Q_v2_var[:, a_idx], var_mean2=ME_var)
 
                     # compute mean of kept Qs
                     target_Q_next = torch.sum(Q_tgt * keep, dim=1) / torch.sum(keep, dim = 1)
