@@ -1,6 +1,4 @@
-This is an implementation of reinforcement learning algorithms in PyTorch.
-
-Contains currently:
+This is an implementation of reinforcement learning algorithms in PyTorch. Contains currently:
 
 (Double) DQN
 
