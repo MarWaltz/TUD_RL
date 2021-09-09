@@ -93,5 +93,5 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,1].legend()
 
     # safe figure and close
-    plt.savefig(f"{dir}/{alg}_{env_str}.png")
+    plt.savefig(f"{dir}/{alg}_{env_str}.pdf")
     plt.close()
