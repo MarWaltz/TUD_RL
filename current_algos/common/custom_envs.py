@@ -529,7 +529,7 @@ class ObstacleAvoidance_Env(gym.Env):
         if self.POMDP_type in ["MDP", "FL"]:
             self.state = np.append(self.state, (self.agent_vx - vx)/(2*self.vx_max))
             self.state = np.append(self.state, (self.agent_vy - vy)/(2*self.vy_max))
-        elif self.POMDP_type == "FL" and np.random.binomial(1, self.FL_prob) == 1:
+        if self.POMDP_type == "FL" and np.random.binomial(1, self.FL_prob) == 1:
             self.state = np.zeros_like(self.state)
 
         # order delta based on the euclidean distance and get state
