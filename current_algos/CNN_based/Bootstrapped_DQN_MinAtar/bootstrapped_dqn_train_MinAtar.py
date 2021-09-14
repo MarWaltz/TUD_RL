@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--our_estimator", type=str2bool, default=True)
-    parser.add_argument("--our_alpha", type=float, default=0.01)
+    parser.add_argument("--our_alpha", type=float, default=0.05)
     args = parser.parse_args()
 
     # set number of torch threads

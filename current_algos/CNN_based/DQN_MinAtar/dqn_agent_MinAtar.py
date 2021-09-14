@@ -73,7 +73,7 @@ class CNN_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_DQN_Agent"
+        self.name        = "CNN_DQN_Agent" if double == False else "CNN_DDQN_Agent"
         self.num_actions = num_actions
  
         # CNN shape
@@ -123,9 +123,9 @@ class CNN_DQN_Agent:
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-        
+
         # init logger and save config
-        self.logger = EpochLogger()
+        self.logger = EpochLogger(output_dir=f"experiments_{self.name}/{int(time.time())}")
         self.logger.save_config(locals())
         
         # init replay buffer and noise

@@ -33,7 +33,11 @@ class CNN_Bootstrapped_DQN_Agent:
                  gamma            = 0.99,
                  n_steps          = 1,
                  tgt_update_freq  = 1000,
+                 optimizer        = "RMSprop",
                  lr               = 0.00025,
+                 grad_momentum    = 0.95,
+                 sq_grad_momentum = 0.95,
+                 min_sq_grad      = 0.01,
                  l2_reg           = 0.0,
                  buffer_length    = int(10e5),
                  grad_clip        = False,
@@ -75,7 +79,7 @@ class CNN_Bootstrapped_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_Bootstrapped_DQN_Agent"
+        self.name        = "CNN_Bootstrapped_DQN_Agent" if our_estimator == False else f"CNN_OurBootstrapped_DQN_Agent_{our_alpha}"
         self.num_actions = num_actions
  
         # CNN shape
@@ -100,7 +104,13 @@ class CNN_Bootstrapped_DQN_Agent:
 
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
+        self.optimizer        = optimizer
+
+        assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
         self.lr               = lr
+        self.grad_momentum    = grad_momentum
+        self.sq_grad_momentum = sq_grad_momentum
+        self.min_sq_grad      = min_sq_grad
         self.l2_reg           = l2_reg
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
@@ -123,7 +133,7 @@ class CNN_Bootstrapped_DQN_Agent:
             print("Using GPU support.")
         
         # init logger and save config
-        self.logger = EpochLogger()
+        self.logger = EpochLogger(output_dir=f"experiments_{self.name}/{int(time.time())}")
         self.logger.save_config(locals())
         
         # init replay buffer and noise
@@ -162,7 +172,10 @@ class CNN_Bootstrapped_DQN_Agent:
             p.requires_grad = False
 
         # define optimizer
-        self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
+        if self.optimizer == "Adam":
+            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
+        else:
+            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=lr, momentum=grad_momentum, alpha=sq_grad_momentum, centered=True, eps=min_sq_grad)
 
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])

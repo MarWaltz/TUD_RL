@@ -11,11 +11,11 @@ import numpy as np
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import MountainCar
-from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
+from current_algos.CNN_based.Bootstrapped_DQN_MinAtar.bootstrapped_dqn_agent_MinAtar import *
 
 # training config
 TIMESTEPS = 5000000     # overall number of training interaction steps
-EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
+EPOCH_LENGTH = 1100     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
 
@@ -40,7 +40,7 @@ def evaluate_policy(test_env, test_agent):
         while not d:
 
             # select action
-            a = test_agent.select_action(s)
+            a = test_agent.select_action(s, active_head=None)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -55,13 +55,13 @@ def evaluate_policy(test_env, test_agent):
             # s becomes s2
             s = s2
             cur_ret += r
-        
+
         # compute average return and append it
         rets.append(cur_ret)
     
     return rets
 
-def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -88,14 +88,19 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = CNN_DQN_Agent(mode        = "train",
-                          num_actions = env.action_space.n, 
-                          state_shape = state_shape,
-                          double      = double,
-                          lr          = lr,
-                          dqn_weights = dqn_weights,
-                          device      = device)
+    agent = CNN_Bootstrapped_DQN_Agent(mode          = "train",
+                                       num_actions   = env.action_space.n, 
+                                       state_shape   = state_shape,
+                                       double        = double,
+                                       our_estimator = our_estimator,
+                                       our_alpha     = our_alpha,
+                                       lr            = lr,
+                                       dqn_weights   = dqn_weights,
+                                       device        = device)
     
+    # init the active head for action selection
+    active_head = np.random.choice(agent.K)
+
     # get initial state and normalize it
     s = env.reset()
     if agent.input_norm:
@@ -119,7 +124,7 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
         if total_steps < agent.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
-            a = agent.select_action(s)
+            a = agent.select_action(s, active_head)
         
         # perform step
         s2, r, d, _ = env.step(a)
@@ -151,6 +156,9 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
         # end of episode handling
         if d or (epi_steps == max_episode_steps):
  
+            # reset active head for action selection
+            active_head = np.random.choice(agent.K)
+
             # reset to initial state and normalize it
             s = env.reset()
             if agent.input_norm:
@@ -161,7 +169,7 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
 
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
-            
+
             # append episode return list
             epi_ret_list.append(epi_ret)
             epi_ret_step_list.append(total_steps)
@@ -204,7 +212,7 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
             if agent.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
-    
+
 if __name__ == "__main__":
     
     # helper function for parser
@@ -221,12 +229,14 @@ if __name__ == "__main__":
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
-    parser.add_argument("--double", type=str2bool, default=True)
+    parser.add_argument("--double", type=str2bool, default=False)
+    parser.add_argument("--our_estimator", type=str2bool, default=True)
+    parser.add_argument("--our_alpha", type=float, default=0.05)
+    parser.add_argument("--lr", type=float, default=0.001)
     args = parser.parse_args()
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
-    # run main loop for all lr
-    for exp in [-5.0, -4.5, -4.0, -3.5, -3.0]:
-        train(env_str=args.env_str, double=args.double, lr=10**exp, seed=1)
+    # run main loop
+    train(env_str=args.env_str, double=args.double, our_estimator=args.our_estimator, our_alpha=args.our_alpha, lr=args.lr, seed=1)
