@@ -344,14 +344,13 @@ class ObstacleAvoidance_Env(gym.Env):
         self.vx_max = 6
         self.vy_max = 1
         self.ax_max = 0
-        self.ay_max = 0.01
+        self.ay_max = 0.1
 
         # time step, max episode steps and length of river
         self.delta_t = 5
         self.current_timestep = 0 
         self._max_episode_steps = 500
         
-
         # rendering
         self.plot_delay = 0.001
         self.agent_color = "red"
@@ -416,8 +415,7 @@ class ObstacleAvoidance_Env(gym.Env):
             self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(400))
 
         # smooth data
-        self.AR1 = savgol_filter(self.AR1,125,2)    
-
+        self.AR1 = savgol_filter(self.AR1,125,2)
 
     def _set_dynamics(self):
         """Initializes positions, velocity and acceleration of agent and vessels."""
@@ -440,12 +438,10 @@ class ObstacleAvoidance_Env(gym.Env):
         self._place_vessel(True,-1)
         self._place_vessel(True, 1)
 
-
         for i in range(int(self.n_vessels/2-1)):
             self._place_vessel(False,-1)
             self._place_vessel(False, 1)
 
-    
     def _place_vessel(self, initial_placement, vessel_direction):
         if vessel_direction == -1:
             ttc = self.vessel_ttc[:self.n_vessels_half].copy()
@@ -499,7 +495,6 @@ class ObstacleAvoidance_Env(gym.Env):
             self.vessel_y[self.n_vessels_half:] = y
             self.vessel_vx[self.n_vessels_half:] = vx
             self.vessel_vy[self.n_vessels_half:] = vy
-    
     
     def _set_state(self):
         """Sets state which is flattened, ordered with ascending TTC, normalized and clipped to [-1, 1]"""
@@ -561,7 +556,6 @@ class ObstacleAvoidance_Env(gym.Env):
             self.vessel_x[i] = self.vessel_x[i] + self.vessel_vx[i] * self.delta_t
             self.vessel_ttc[i] -= self.delta_t
             
-            
             # replace vessel if necessary       
             while self.vessel_ttc[1] < 0:
                 self._place_vessel(False,-1)
@@ -595,7 +589,8 @@ class ObstacleAvoidance_Env(gym.Env):
     def _calculate_reward(self):
         """Returns reward of the current state."""   
         # compute jerk reward
-        jerk_reward = -40 * (((self.agent_ay_old - self.agent_ay)/0.1)**2)/3600
+        #jerk_reward = -40 * (((self.agent_ay_old - self.agent_ay)/0.1)**2)/3600
+        jerk_reward = 0
 
         if self.polygon_reward:                
         
@@ -616,9 +611,7 @@ class ObstacleAvoidance_Env(gym.Env):
                 vess_reward2 = -1
             else:
                 vess_reward2 = -norm.pdf(delta_y2,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
-        
 
-            
             # final reward
             if vess_reward1 == -1 and vess_reward2 == -1:
                 self.reward = jerk_reward
@@ -654,11 +647,14 @@ class ObstacleAvoidance_Env(gym.Env):
             if len(plt.get_fignums()) == 0:
                 self.fig = plt.figure(figsize=(17, 10))
                 self.gs  = self.fig.add_gridspec(2, 2)
-                self.ax0 = self.fig.add_subplot(self.gs[0, :]) # ship
+                self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
                 self.ax1 = self.fig.add_subplot(self.gs[1, 0]) # state
                 self.ax2 = self.fig.add_subplot(self.gs[1, 1]) # reward
+                self.ax3 = self.fig.add_subplot(self.gs[0, 1]) # action
                 self.ax2.old_time = 0
                 self.ax2.old_reward = 0
+                self.ax3.old_time = 0
+                self.ax3.old_action = 0
                 plt.ion()
                 plt.show()
             
@@ -703,6 +699,19 @@ class ObstacleAvoidance_Env(gym.Env):
             self.ax2.plot([self.ax2.old_time, self.current_timestep], [self.ax2.old_reward, self.reward], color = self.line_color)
             self.ax2.old_time = self.current_timestep
             self.ax2.old_reward = self.reward
+
+            # ---- ACTION PLOT ----
+            if self.current_timestep == 0:
+                self.ax3.clear()
+                self.ax3.old_time = 0
+                self.ax3.old_action = 0
+            self.ax3.set_xlim(1, self.x_max / (self.agent_vx * self.delta_t))
+            self.ax3.set_ylim(-self.ay_max, self.ay_max)
+            self.ax3.set_xlabel("Timestep in episode")
+            self.ax3.set_ylabel("Action")
+            self.ax3.plot([self.ax3.old_time, self.current_timestep], [self.ax3.old_action, self.agent_ay], color = self.line_color)
+            self.ax3.old_time = self.current_timestep
+            self.ax3.old_action = self.agent_ay
             
             # delay plotting for ease of user
             plt.pause(self.plot_delay)
