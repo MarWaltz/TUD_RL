@@ -10,7 +10,7 @@ import numpy as np
 #import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import LCP_Environment
+#from current_algos.common.custom_envs import LCP_Environment
 from current_algos.common.custom_envs import ObstacleAvoidance_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.TD3.td3_agent import *

@@ -23,7 +23,7 @@ class LSTM_Actor(nn.Module):
         self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1 = nn.Linear(64 + 64, 64)
+        #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
         self.post_comb_dense2 = nn.Linear(64, action_dim)
 
 
@@ -77,7 +77,7 @@ class LSTM_Actor(nn.Module):
         x = torch.cat([curr_fe, hidden_mem], dim=1)
 
         # final dense layers
-        x = F.relu(self.post_comb_dense1(x))
+        #x = F.relu(self.post_comb_dense1(x))
         x = torch.tanh(self.post_comb_dense2(x))
         
         # create dict for logging
@@ -108,7 +108,7 @@ class LSTM_Critic(nn.Module):
         self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1 = nn.Linear(64 + 64, 64)
+        #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
         self.post_comb_dense2 = nn.Linear(64, 1)
         
 
@@ -165,7 +165,7 @@ class LSTM_Critic(nn.Module):
         x = torch.cat([curr_fe, hidden_mem], dim=1)
         
         # final dense layers
-        x = F.relu(self.post_comb_dense1(x))
+        #x = F.relu(self.post_comb_dense1(x))
         x = self.post_comb_dense2(x)
 
         # create dict for logging
@@ -196,7 +196,7 @@ class LSTM_Double_Critic(nn.Module):
         self.mem_LSTM_q1 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1_q1 = nn.Linear(64 + 64, 64)
+        #self.post_comb_dense1_q1 = nn.Linear(64 + 64, 64)
         self.post_comb_dense2_q1 = nn.Linear(64, 1)
         
         # ----------------------- Q2 ---------------------------
@@ -212,7 +212,7 @@ class LSTM_Double_Critic(nn.Module):
         self.mem_LSTM_q2 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
         
         # post combination
-        self.post_comb_dense1_q2 = nn.Linear(64 + 64, 64)
+        #self.post_comb_dense1_q2 = nn.Linear(64 + 64, 64)
         self.post_comb_dense2_q2 = nn.Linear(64, 1)
         
 
@@ -271,7 +271,7 @@ class LSTM_Double_Critic(nn.Module):
         q1 = torch.cat([curr_fe_q1, hidden_mem_q1], dim=1)
         
         # final dense layers
-        q1 = F.relu(self.post_comb_dense1_q1(q1))
+        #q1 = F.relu(self.post_comb_dense1_q1(q1))
         q1 = self.post_comb_dense2_q1(q1)
         
         #-------------------- Q2 ------------------------
@@ -309,7 +309,7 @@ class LSTM_Double_Critic(nn.Module):
         q2 = torch.cat([curr_fe_q2, hidden_mem_q2], dim=1)
         
         # final dense layers
-        q2 = F.relu(self.post_comb_dense1_q2(q2))
+        #q2 = F.relu(self.post_comb_dense1_q2(q2))
         q2 = self.post_comb_dense2_q2(q2)
 
         #--------------- return output -----------------
@@ -358,7 +358,7 @@ class LSTM_Double_Critic(nn.Module):
         q1 = torch.cat([curr_fe_q1, hidden_mem_q1], dim=1)
         
         # final dense layers
-        q1 = F.relu(self.post_comb_dense1_q1(q1))
+        #q1 = F.relu(self.post_comb_dense1_q1(q1))
         q1 = self.post_comb_dense2_q1(q1)
 
         # return output
