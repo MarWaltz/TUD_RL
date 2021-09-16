@@ -19,9 +19,9 @@ from current_algos.TD3.td3_agent import *
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
 
-def visualize_policy(hide_velocity, actor_weights, critic_weights):
+def visualize_policy(POMDP_type, actor_weights, critic_weights):
 
-    test_env = ObstacleAvoidance_Env(hide_velocity=hide_velocity)
+    test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
     test_agent = TD3_Agent(mode      = "test",
                       action_dim     = test_env.action_space.shape[0], 
                       state_dim      = test_env.observation_space.shape[0], 
@@ -73,4 +73,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    visualize_policy(hide_velocity=True, critic_weights="TD3_Agent_critic_weights.pth", actor_weights="TD3_Agent_actor_weights.pth")
+    visualize_policy(POMDP_type="MDP", critic_weights="TD3_Agent_critic_weights.pth", actor_weights="TD3_Agent_actor_weights.pth")
