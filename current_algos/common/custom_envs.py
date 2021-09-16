@@ -273,7 +273,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self.agent_ay_old = self.agent_ay
 
         # update lateral dynamics
-        self.agent_ay = self.ay_max * action
+        self.agent_ay = self.ay_max * action.item()
 
         agent_vy_new = np.clip(self.agent_vy + self.agent_ay * self.delta_t,-self.vy_max, self.vy_max)
 
@@ -328,6 +328,7 @@ class ObstacleAvoidance_Env(gym.Env):
                                         norm.pdf(self.vessel_ttc[self.n_vessels_half+i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
                                         norm.pdf(np.maximum(0,self.vessel_y[self.n_vessels_half+i]-self.agent_y),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
             self.reward = jerk_reward - (np.maximum(-vess_reward1,-vess_reward2) - np.minimum(-vess_reward1,-vess_reward2))/(np.maximum(-vess_reward1,-vess_reward2)+1)
+            self.reward = self.reward.item()
 
         #if self.crash_flag: 
             # self.reward -=6
