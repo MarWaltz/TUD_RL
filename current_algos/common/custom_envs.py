@@ -205,8 +205,10 @@ class ObstacleAvoidance_Env(gym.Env):
             vy = self.vessel_vy.copy()
         else:
             # compute sorting index array for asceding euclidean distance
-            idx = np.concatenate([np.argsort(self.vessel_x[:self.n_vessels_half]**2 + self.vessel_y[:self.n_vessels_half]**2),\
-                np.argsort(self.vessel_x[self.n_vessels_half:]**2 + self.vessel_y[self.n_vessels_half:]**2) + self.n_vessels_half])
+            eucl_dist = (self.vessel_x - self.agent_x)**2 + (self.vessel_y - self.agent_y)**2
+            idx1 = np.argsort(eucl_dist[:self.n_vessels_half])
+            idx2 = np.argsort(eucl_dist[self.n_vessels_half:]) + self.n_vessels_half
+            idx = np.concatenate([idx1, idx2])
 
             x = self.vessel_x[idx].copy()
             y = self.vessel_y[idx].copy()
