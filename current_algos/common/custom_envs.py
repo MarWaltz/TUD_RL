@@ -288,8 +288,8 @@ class ObstacleAvoidance_Env(gym.Env):
     def _calculate_reward(self):
         """Returns reward of the current state."""   
         # compute jerk reward
-        #jerk_reward = -40 * (((self.agent_ay_old - self.agent_ay)/0.1)**2)/3600
-        jerk_reward = 0
+        jerk_reward = -10*(self.agent_ay_old - self.agent_ay)**2
+        #jerk_reward = 0
 
         if self.polygon_reward:                
         
