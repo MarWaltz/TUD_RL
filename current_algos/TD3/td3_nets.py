@@ -6,9 +6,9 @@ class Actor(nn.Module):
     """Defines deterministic actor."""
     def __init__(self, action_dim, state_dim):
         super(Actor, self).__init__()
-        self.linear1 = nn.Linear(state_dim, 128)
-        self.linear2 = nn.Linear(128, 128)
-        self.linear3 = nn.Linear(128, action_dim)
+        self.linear1 = nn.Linear(state_dim, 64)
+        self.linear2 = nn.Linear(64, 64)
+        self.linear3 = nn.Linear(64, action_dim)
         
     def forward(self, s):
         """s is a torch tensor. Shapes:
@@ -24,9 +24,9 @@ class Critic(nn.Module):
     """Defines critic network to compute Q-values."""
     def __init__(self, action_dim, state_dim):
         super(Critic, self).__init__()
-        self.linear1 = nn.Linear(state_dim + action_dim, 256)
-        self.linear2 = nn.Linear(256, 256)
-        self.linear3 = nn.Linear(256, 1)
+        self.linear1 = nn.Linear(state_dim + action_dim, 64)
+        self.linear2 = nn.Linear(64, 64)
+        self.linear3 = nn.Linear(64, 1)
 
     def forward(self, s, a):
         """s is a torch tensor. Shapes:
@@ -46,14 +46,14 @@ class Double_Critic(nn.Module):
         super(Double_Critic, self).__init__()
         
         # Q1 architecture
-        self.l1 = nn.Linear(state_dim + action_dim, 128)
-        self.l2 = nn.Linear(128, 128)
-        self.l3 = nn.Linear(128, 1)
+        self.l1 = nn.Linear(state_dim + action_dim, 64)
+        self.l2 = nn.Linear(64, 64)
+        self.l3 = nn.Linear(64, 1)
 
 		# Q2 architecture
-        self.l4 = nn.Linear(state_dim + action_dim, 128)
-        self.l5 = nn.Linear(128, 128)
-        self.l6 = nn.Linear(128, 1)
+        self.l4 = nn.Linear(state_dim + action_dim, 64)
+        self.l5 = nn.Linear(64, 64)
+        self.l6 = nn.Linear(64, 1)
 
     def forward(self, s, a):
         """s and a are torch tensors. Shapes:
