@@ -206,7 +206,7 @@ class CNN_Bootstrapped_DQN_Agent:
 
         # forward pass
         if active_head is not None:
-            q = self.DQN(s, active_head).to(self.device)
+            q = self.DQN(s, active_head)
 
             # greedy
             a = torch.argmax(q).item()
@@ -277,7 +277,7 @@ class CNN_Bootstrapped_DQN_Agent:
                 elif self.our_estimator:
 
                     # get easy access to relevant target Q
-                    Q_tgt = Q_v2_all_tgt[k]
+                    Q_tgt = Q_v2_all_tgt[k].to(self.device)
 
                     # get values and action indices for ME
                     ME_values, ME_a_indices = torch.max(Q_tgt, dim=1)
@@ -289,7 +289,7 @@ class CNN_Bootstrapped_DQN_Agent:
                     ME_var = torch.gather(Q_v2_var, dim=1, index=ME_a_indices)[0]   # torch.Size([batch_size])
 
                     # perform pairwise tests
-                    keep = torch.empty((self.batch_size, self.num_actions))
+                    keep = torch.empty((self.batch_size, self.num_actions)).to(self.device)
 
                     for a_idx in range(self.num_actions):
                         keep[:, a_idx] = self._mean_test(mean1=Q_tgt[:, a_idx], mean2=ME_values, var_mean1=Q_v2_var[:, a_idx], var_mean2=ME_var)

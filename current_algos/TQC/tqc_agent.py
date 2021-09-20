@@ -34,7 +34,6 @@ class TQC_Agent:
             lr_critic = 0.0003,
             buffer_length = 1000000,
             batch_size = 256,
-            temperature = 0.2,
             device = "cpu") -> None:
 
         # store attributes and hyperparameters
@@ -70,14 +69,14 @@ class TQC_Agent:
         self.logger.save_config(locals())
 
         # Init replay buffer
-        self.replay_buffer = UniformReplayBuffer(state_dim, action_dim, buffer_length, device)
+        self.replay_buffer = UniformReplayBuffer(state_dim, action_dim, buffer_length, self.device)
 
         # Action Normalizer
         self.action_normalizer = Action_Normalizer(action_high, action_low)
 
         # Init Actor and Quantile Critics
-        self.actor = Actor(action_dim, state_dim)
-        self.critic = Critic(state_dim,action_dim,n_quantiles,n_critics)
+        self.actor = Actor(action_dim, state_dim).to(self.device)
+        self.critic = Critic(state_dim,action_dim,n_quantiles,n_critics).to(self.device)
 
         # Calculate the total number of quantiles to be used
         self.total_quantiles = self.critic.n_critics * self.critic.n_quantiles

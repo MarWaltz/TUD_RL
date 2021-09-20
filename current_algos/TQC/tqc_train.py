@@ -11,7 +11,6 @@ import pybulletgym
 import torch
 
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import LCP_Environment
 from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.TQC.tqc_agent import *
 
@@ -62,11 +61,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     start_time = time.time()
     
     # init env
-    if env_str == "LCP":
-        env = LCP_Environment()
-        test_env = LCP_Environment()
-        max_episode_steps = env._max_episode_steps
-    elif pomdp:
+    if pomdp:
         env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
         test_env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
         max_episode_steps = gym.make(env_str)._max_episode_steps
@@ -184,7 +179,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HopperPyBulletEnv-v0")
+    parser.add_argument("--env_str", type=str, default="HumanoidPyBulletEnv-v0")
     args = parser.parse_args()
     
     # set number of torch threads
