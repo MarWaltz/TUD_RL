@@ -24,7 +24,7 @@ class LSTM_Actor(nn.Module):
         
         # post combination
         #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2 = nn.Linear(64, action_dim)
+        self.post_comb_dense2 = nn.Linear(64 + 64, action_dim)
 
 
     def forward(self, o, o_hist, a_hist, hist_len) -> tuple:
@@ -109,7 +109,7 @@ class LSTM_Critic(nn.Module):
         
         # post combination
         #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2 = nn.Linear(64, 1)
+        self.post_comb_dense2 = nn.Linear(64 + 64, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
@@ -197,7 +197,7 @@ class LSTM_Double_Critic(nn.Module):
         
         # post combination
         #self.post_comb_dense1_q1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2_q1 = nn.Linear(64, 1)
+        self.post_comb_dense2_q1 = nn.Linear(64 + 64, 1)
         
         # ----------------------- Q2 ---------------------------
         # current feature extraction
@@ -213,7 +213,7 @@ class LSTM_Double_Critic(nn.Module):
         
         # post combination
         #self.post_comb_dense1_q2 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2_q2 = nn.Linear(64, 1)
+        self.post_comb_dense2_q2 = nn.Linear(64 + 64, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
