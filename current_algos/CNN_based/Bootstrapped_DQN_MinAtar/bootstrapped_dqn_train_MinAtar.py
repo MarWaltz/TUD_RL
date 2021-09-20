@@ -227,4 +227,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, our_estimator=args.our_estimator, our_alpha=args.our_alpha, dqn_weights=None, seed=1, device="cuda")
+    train(env_str=args.env_str, double=args.double, our_estimator=args.our_estimator, our_alpha=args.our_alpha, dqn_weights=None, seed=1, device="cpu")

@@ -187,5 +187,5 @@ if __name__ == "__main__":
 
     # run main loop
     # torch.autograd.set_detect_anomaly(True)
-    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=69, device="cuda")
+    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=69, device="cpu")
 

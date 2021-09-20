@@ -264,4 +264,4 @@ if __name__ == "__main__":
 
     # run main loop
     train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, history_length=args.history_length,
-          use_past_actions=args.use_past_actions, critic_weights=None, actor_weights=None, seed=10, device="cuda")
+          use_past_actions=args.use_past_actions, critic_weights=None, actor_weights=None, seed=10, device="cpu")

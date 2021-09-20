@@ -211,4 +211,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=10, device="cuda")
+    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=10, device="cpu")
