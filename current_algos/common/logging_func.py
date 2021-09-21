@@ -7,6 +7,7 @@ import joblib
 import shutil
 import numpy as np
 import torch
+from datetime import date
 import os.path as osp
 import time
 import atexit
@@ -99,7 +100,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, output_dir=None, output_fname='progress.txt', exp_name=None):
+    def __init__(self, alg_str, output_dir=None, output_fname='progress.txt', exp_name=None) :
         """
         Initialize a Logger.
         Args:
@@ -115,16 +116,35 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
-        # create output directory
+        def max_number(dir_list):
+            numbers = []
+            if not dir_list:
+                return 0
+            else:
+                for dir in dir_list:
+                    numbers.append(int(dir[len(dir)-1:]))
+            return max(numbers)
+
+         # create output directory
         if output_dir is not None:
             self.output_dir = output_dir
         else:
-            self.output_dir = f"experiments/{int(time.time())}"
 
-        if osp.exists(self.output_dir):
-            raise Exception(f"Warning: Log dir {self.output_dir} already exists! Better specify carefully.")
-        else:
-            os.makedirs(self.output_dir)
+            if not osp.exists("experiments"):
+                os.makedirs("experiments")
+
+            today = date.today().strftime("%Y-%m-%d_") # Get date from today and format to "yyyy-mm-dd_"
+            folder_names = [f.name for f in os.scandir("experiments") if f.is_dir()] # Get folder names in experiments folder
+            folder_from_today = [name for name in folder_names if name.startswith(alg_str + "_" + today)] # Folders starting with todays date
+            count = max_number(folder_from_today)
+            count += 1
+
+            self.output_dir = "experiments/" + alg_str + "_" + today + str(count)
+
+
+
+        os.makedirs(self.output_dir)
+
 
         # create output file and automated closing when file terminates 
         self.output_file = open(osp.join(self.output_dir, output_fname), 'w')

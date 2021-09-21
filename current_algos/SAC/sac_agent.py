@@ -121,7 +121,7 @@ class SAC_Agent:
             self.temperature = temperature
 
         # init logger and save config
-        self.logger = EpochLogger()
+        self.logger = EpochLogger(alg_str = self.name)
         self.logger.save_config(locals())
         
         # init replay buffer
