@@ -8,6 +8,7 @@ import shutil
 import numpy as np
 import torch
 from datetime import date
+from random import randint
 import os.path as osp
 import time
 import atexit
@@ -138,8 +139,9 @@ class Logger:
             folder_from_today = [name for name in folder_names if name.startswith(alg_str + "_" + today)] # Folders starting with todays date
             count = max_number(folder_from_today)
             count += 1
+            random_int = str(time.time())[-4:-1]
 
-            self.output_dir = "experiments/" + alg_str + "_" + today + str(count)
+            self.output_dir = "experiments/" + today + alg_str + "_" + str(count) + "_" + random_int
 
 
 
