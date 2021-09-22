@@ -65,7 +65,7 @@ class TQC_Agent:
         self.device           = device
 
         # Logging
-        self.logger = EpochLogger()
+        self.logger = EpochLogger(alg_str = self.name)
         self.logger.save_config(locals())
 
         # Init replay buffer

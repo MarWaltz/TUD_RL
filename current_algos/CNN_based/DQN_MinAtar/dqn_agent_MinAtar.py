@@ -125,7 +125,7 @@ class CNN_DQN_Agent:
             print("Using GPU support.")
 
         # init logger and save config
-        self.logger = EpochLogger(output_dir=f"experiments_{self.name}/{int(time.time())}")
+        self.logger = EpochLogger(alg_str = self.name)
         self.logger.save_config(locals())
         
         # init replay buffer and noise

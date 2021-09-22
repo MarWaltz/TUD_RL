@@ -106,7 +106,7 @@ class LC_DQN_Agent:
             print("Using GPU support.")
         
         # init logger and save config
-        self.logger = EpochLogger()
+        self.logger = EpochLogger(alg_str = self.name)
         self.logger.save_config(locals())
         
         # init replay buffer and noise
