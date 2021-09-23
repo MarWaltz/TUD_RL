@@ -148,7 +148,7 @@ class ObstacleAvoidance_Env(gym.Env):
         y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(40, np.random.normal(100,50))
         new_vx = np.random.uniform(-self.vx_max, self.vx_max)
         new_x = (self.agent_vx - new_vx) * new_ttc + self.agent_x
-        new_vy = np.random.uniform(-self.vy_max, self.vy_max)
+        new_vy = np.abs(new_vx/1) * np.random.uniform(-1,1)
         new_y = y_future - new_vy * new_ttc
 
         # rotate dynamic arrays to place new vessel at the end
@@ -273,8 +273,8 @@ class ObstacleAvoidance_Env(gym.Env):
     def _calculate_reward(self):
         """Returns reward of the current state."""   
         # compute jerk reward
-        jerk_reward = -10*(self.agent_ay_old - self.agent_ay)**2
-        #jerk_reward = 0
+        #jerk_reward = -1*(self.agent_ay_old - self.agent_ay)**2
+        jerk_reward = 0
 
         if self.polygon_reward:                
         
