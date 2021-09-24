@@ -141,10 +141,7 @@ class Logger:
 
             self.output_dir = "experiments/" + alg_str + "_" + today + str(count)
 
-
-
         os.makedirs(self.output_dir)
-
 
         # create output file and automated closing when file terminates 
         self.output_file = open(osp.join(self.output_dir, output_fname), 'w')
