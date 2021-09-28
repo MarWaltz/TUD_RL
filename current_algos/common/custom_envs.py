@@ -25,7 +25,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self.y_max = 500 # only for plotting
         self.n_vessels  = 12
         self.n_vessels_half  = int(self.n_vessels/2)
-        self.max_temporal_dist = 400 # maximal temporal distance when placing new vessel
+        self.max_temporal_dist = 300 # maximal temporal distance when placing new vessel
 
         # maximum sight of agent
         self.delta_x_max = 3000
@@ -44,7 +44,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self.vy_max = 5
         self.ax_max = 0
         self.ay_max = 0.01
-        self.jerk_max = 0.001
+        self.jerk_max = 0.002
 
         # time step, max episode steps and length of river
         self.delta_t = 5
@@ -95,7 +95,7 @@ class ObstacleAvoidance_Env(gym.Env):
         """Sets the AR1 Array containing the desired lateral trajectory for all episode steps"""
         self.AR1 = np.zeros(self._max_episode_steps+2000, dtype=np.float32) 
         for i in range(self.AR1.size-1):
-            self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(800))
+            self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(400))
 
         # smooth data
         self.AR1 = savgol_filter(self.AR1,125,2)
@@ -146,7 +146,7 @@ class ObstacleAvoidance_Env(gym.Env):
             new_ttc = np.maximum(1,ttc[-1] +  np.random.uniform(0,self.max_temporal_dist))
 
         # compute new vessel dynamics
-        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(20, np.random.normal(50,50))
+        y_future = self.AR1[abs(int(self.current_timestep + new_ttc/self.delta_t))] + vessel_direction * np.maximum(40, np.random.normal(100,50))
         new_vx = np.random.uniform(-self.vx_max, self.vx_max)
         new_x = (self.agent_vx - new_vx) * new_ttc + self.agent_x
         new_vy = np.abs(new_vx/1) * np.random.uniform(-1,1)
