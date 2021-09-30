@@ -44,7 +44,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self.vy_max = 5
         self.ax_max = 0
         self.ay_max = 0.01
-        self.jerk_max = 0.002
+        self.jerk_max = 0.001
 
         # time step, max episode steps and length of river
         self.delta_t = 5
