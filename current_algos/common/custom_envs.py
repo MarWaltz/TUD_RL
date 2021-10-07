@@ -95,7 +95,7 @@ class ObstacleAvoidance_Env(gym.Env):
         """Sets the AR1 Array containing the desired lateral trajectory for all episode steps"""
         self.AR1 = np.zeros(self._max_episode_steps+2000, dtype=np.float32) 
         for i in range(self.AR1.size-1):
-            self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(400))
+            self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(800))
 
         # smooth data
         self.AR1 = savgol_filter(self.AR1,125,2)
