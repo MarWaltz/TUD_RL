@@ -6,18 +6,18 @@ import time
 
 import gym
 import gym_minatar
+import matplotlib.pyplot as plt
 import numpy as np
-
 import torch
-from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import MountainCar
 from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
+from current_algos.common.custom_envs import MountainCar
+from current_algos.common.eval_plot import plot_from_progress
 
 # training config
-TIMESTEPS = 5000000     # overall number of training interaction steps
+TIMESTEPS = 50000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
-
+RUNS = 1                # number of runs to repeat the experiment
 
 def evaluate_policy(test_env, test_agent):
     test_agent.mode = "test"
@@ -60,6 +60,7 @@ def evaluate_policy(test_env, test_agent):
         rets.append(cur_ret)
     
     return rets
+
 
 def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
@@ -176,8 +177,8 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
             # save epi ret list and the corresponding time steps
-            np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array([epi_ret_list]))
-            np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array([epi_ret_step_list]))
+            np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array(epi_ret_list))
+            np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array(epi_ret_step_list))
 
             # evaluate agent with deterministic policy
             eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent))
@@ -205,6 +206,34 @@ def train(env_str, double, lr, dqn_weights=None, seed=0, device="cpu"):
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
     
+    # return G and t
+    return np.array(epi_ret_list), np.array(epi_ret_step_list)
+
+
+def exponential_smoothing(x, alpha=0.05):
+    s = np.zeros_like(x)
+
+    for idx, x_val in enumerate(x):
+        if idx == 0:
+            s[idx] = x[idx]
+        else:
+            s[idx] = alpha * x_val + (1-alpha) * s[idx-1]
+
+    return s
+
+
+def get_MA(x, n):
+    """Calculates the moving average. Return size identical to input size.
+
+    Args:
+        x (np.array): Time series
+        n (int): Number of points to average
+    """
+    start = np.cumsum(x[:n-1]) / np.arange(1, n)
+    rest  = np.convolve(x, np.ones(n)/n, mode="valid")
+    return np.append(start, rest)
+
+
 if __name__ == "__main__":
     
     # helper function for parser
@@ -227,6 +256,52 @@ if __name__ == "__main__":
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
-    # run main loop for all lr
-    for exp in [-5.0, -4.5, -4.0, -3.5, -3.0]:
-        train(env_str=args.env_str, double=args.double, lr=10**exp, seed=1)
+    # learning rates
+    LRS = [10**exp for exp in [-5.0, -4.0, -3.0]]
+
+    # empty G array
+    G_array = np.empty((RUNS, len(LRS), TIMESTEPS))
+
+    # run main loop for all runs and lrs
+    for run_id in range(RUNS):
+        
+        for lr_id, lr in enumerate(LRS):
+        
+            G, t = train(env_str=args.env_str, double=args.double, lr=lr, seed=int(100+lr))
+
+            # average and smoothed G array
+            G = exponential_smoothing(get_MA(G, 100), 0.05)
+
+            # need to fill G for all time steps
+            G_filled = np.zeros(TIMESTEPS)
+            G_filled[0] = G[0]
+            G_filled[t] = G
+
+            # replace zeros with last non-zero element
+            for g_idx, g in enumerate(G_filled):
+                if g == 0:
+                    G_filled[g_idx] = G_filled[g_idx-1]
+
+            G_array[run_id, lr_id, :] = G_filled
+
+
+    # --------------- create two plots ---------------
+    fig = plt.figure(figsize=(17, 10))
+
+    gs  = fig.add_gridspec(1, 2)
+    ax0 = fig.add_subplot(gs[0, 0])   
+    ax1 = fig.add_subplot(gs[0, 1])   
+
+    # 1. whole time series
+    G_mean = np.mean(G_array, axis=0)
+    G_error = np.std(G_array, axis=0) / np.sqrt(RUNS)
+
+    for lr_id, lr in enumerate(LRS):
+        ax0.plot(np.arange(TIMESTEPS), G_mean[lr_id], label=lr)
+        ax0.fill_between(np.arange(TIMESTEPS), G_mean[lr_id] - 0.5*G_error[lr_id], G_mean[lr_id] + 0.5*G_error[lr_id])
+    ax0.legend()
+
+    # 2. final performance
+    ax1.plot(LRS, G_mean[:, -1])
+
+    plt.show()

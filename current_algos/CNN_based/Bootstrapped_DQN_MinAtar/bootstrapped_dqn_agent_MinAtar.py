@@ -33,7 +33,7 @@ class CNN_Bootstrapped_DQN_Agent:
                  gamma            = 0.99,
                  n_steps          = 1,
                  tgt_update_freq  = 1000,
-                 optimizer        = "RMSprop",
+                 optimizer        = "Adam",
                  lr               = 0.00025,
                  grad_momentum    = 0.95,
                  sq_grad_momentum = 0.95,
