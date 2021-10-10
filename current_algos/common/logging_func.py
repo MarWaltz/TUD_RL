@@ -3,17 +3,12 @@ Some simple logging functionality, inspired by rllab's logging.
 Logs to a tab-separated-values file (path/to/output_directory/progress.txt)
 """
 import json
-import joblib
-import shutil
 import numpy as np
-import torch
 from datetime import date
-import re
 import os.path as osp
 import time
 import atexit
 import os
-import warnings
 from mpi4py import MPI
 import numpy as np
 
