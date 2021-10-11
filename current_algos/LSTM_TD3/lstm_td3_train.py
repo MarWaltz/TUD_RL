@@ -7,11 +7,11 @@ import time
 
 import gym
 import numpy as np
-import pybulletgym
+#import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import ObstacleAvoidance_Env
-from current_algos.common.POMDP_wrapper import POMDP_Wrapper
+#from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
 
 # training config

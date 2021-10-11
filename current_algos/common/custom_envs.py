@@ -17,7 +17,7 @@ class ObstacleAvoidance_Env(gym.Env):
         assert POMDP_type in ["MDP", "RV", "FL"], "Unknown MDP/POMDP specification."
 
         self.POMDP_type     = POMDP_type
-        self.FL_prob        = 0.2
+        self.FL_prob        = 0.1
         self.sort_obs_ttc   = False
         self.polygon_reward = False
 

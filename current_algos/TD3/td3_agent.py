@@ -32,7 +32,7 @@ class TD3_Agent:
                  tgt_noise        = 0.2,
                  tgt_noise_clip   = 0.5,
                  pol_upd_delay    = 2,
-                 gamma            = 0.95,
+                 gamma            = 0.99,
                  n_steps          = 1,
                  tau              = 0.001,
                  lr_actor         = 0.001,

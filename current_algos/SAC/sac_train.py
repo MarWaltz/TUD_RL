@@ -7,14 +7,15 @@ import time
 
 import gym
 import numpy as np
-import pybulletgym
+#import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.POMDP_wrapper import POMDP_Wrapper
+from current_algos.common.custom_envs import ObstacleAvoidance_Env
+#from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.SAC.sac_agent import *
 
 # training config
-TIMESTEPS = 1000000     # overall number of training interaction steps
+TIMESTEPS = 25000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -53,17 +54,17 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, POMDP_type="MDP", lr_critic=0.001, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
     start_time = time.time()
     
     # init env
-    if pomdp:
-        env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
-        test_env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
-        max_episode_steps = gym.make(env_str)._max_episode_steps
+    if env_str == "LCP":
+        env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
+        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
+        max_episode_steps = env._max_episode_steps
     else:
         env = gym.make(env_str)
         test_env = gym.make(env_str)
@@ -83,7 +84,8 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
                       action_high    = env.action_space.high[0],
                       action_low     = env.action_space.low[0], 
                       actor_weights  = actor_weights, 
-                      critic_weights = critic_weights, 
+                      critic_weights = critic_weights,
+                      lr_critic      = lr_critic, 
                       device         = device)
     
     # get initial state and normalize it
@@ -168,7 +170,7 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=None)
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=POMDP_type)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
@@ -181,13 +183,26 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
         
 if __name__ == "__main__":
 
+    # helper function for parser
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="HalfCheetahPyBulletEnv-v0")
+    parser.add_argument("--env_str", type=str, default="LCP")
+    parser.add_argument("--POMDP_type", type=str, default="MDP")
+    parser.add_argument("--lr_critic", type=float, default=0.0001)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, pomdp=False, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=10, device="cpu")

@@ -7,11 +7,11 @@ import time
 
 import gym
 import numpy as np
-import pybulletgym
+#import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
 from current_algos.common.custom_envs import ObstacleAvoidance_Env
-from current_algos.common.POMDP_wrapper import POMDP_Wrapper
+#from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.TD3.td3_agent import *
 
 # training config
@@ -23,7 +23,7 @@ def evaluate_policy(test_env, test_agent):
     test_agent.mode = "test"
     rets = []
     
-    for i in range(EVAL_EPISODES):
+    for _ in range(EVAL_EPISODES):
         # get initial state
         s = test_env.reset()
 
