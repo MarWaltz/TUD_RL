@@ -26,8 +26,8 @@ class CNN_Bootstrapped_DQN_Agent:
                  input_norm       = False,
                  input_norm_prior = None,
                  double           = False,
-                 our_estimator    = True,
-                 our_alpha        = 0.1,
+                 kernel           = None,
+                 kernel_param     = None,
                  K                = 10,
                  mask_p           = 1.0,
                  gamma            = 0.99,
@@ -79,7 +79,7 @@ class CNN_Bootstrapped_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_Bootstrapped_DQN_Agent" if our_estimator == False else f"CNN_OurBootstrapped_DQN_Agent_{our_alpha}"
+        self.name        = "CNN_Bootstrapped_DQN_Agent" if kernel is None else f"CNN_OurBootstrapped_DQN_Agent_{kernel}"
         self.num_actions = num_actions
  
         # CNN shape
@@ -90,14 +90,22 @@ class CNN_Bootstrapped_DQN_Agent:
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
 
-        assert not (double and our_estimator), "Can pick either the double or our estimator, not both."
+        # estimator
+        assert not (double and kernel is not None), "Can pick either the double or a kernel estimator, not both."
+        self.double = double
+        
+        assert kernel in [None, "test", "gaussian_cdf"], "Unknown kernel."
+        self.kernel = kernel
+        self.kernel_param = kernel_param
 
-        self.double        = double
-        self.our_estimator = our_estimator
+        if kernel == "test":
+            self.critical_value = scipy.stats.norm().ppf(kernel_param)
+            self.g = lambda u: u >= self.critical_value
 
-        if self.our_estimator:
-            self.critical_value = scipy.stats.norm().ppf(our_alpha)
+        elif kernel == "gaussian_cdf":
+            self.g = scipy.stats.norm(scale=kernel_param).cdf
 
+        # further params
         self.gamma            = gamma
         self.K                = K
         self.mask_p           = mask_p
@@ -180,19 +188,6 @@ class CNN_Bootstrapped_DQN_Agent:
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
 
-    def _mean_test(self, mean1, mean2, var_mean1, var_mean2):
-        """Returns True if the H_0: mu1 >= mu2 was not rejected, else False. 
-        Note: mean2 should be the ME.
-
-        Args:
-            mean1: mean of X1
-            mean2: mean of X2
-            var_mean1: variance estimate of mean1 
-            var_mean2: variance estimate of mean2
-        """
-        T = (mean1 - mean2) / torch.sqrt(var_mean1 + var_mean2)
-        return T >= self.critical_value
-
     @torch.no_grad()
     def select_action(self, s, active_head):
         """Greedy action selection using the active head for a given state.
@@ -249,7 +244,7 @@ class CNN_Bootstrapped_DQN_Agent:
         if self.double:
             Q_v2_all_main = self.DQN(s2)
         
-        if self.our_estimator:
+        if self.kernel is not None:
 
             # stack list into torch.Size([K, batch_size, num_actions])
             Q_v2_all_stacked = torch.stack(Q_v2_all_tgt)
@@ -274,7 +269,7 @@ class CNN_Bootstrapped_DQN_Agent:
                     a2 = torch.argmax(Q_v2_all_main[k], dim=1).reshape(self.batch_size, 1)
                     target_Q_next = torch.gather(input=Q_v2_all_tgt[k], dim=1, index=a2)
 
-                elif self.our_estimator:
+                elif self.kernel is not None:
 
                     # get easy access to relevant target Q
                     Q_tgt = Q_v2_all_tgt[k].to(self.device)
@@ -286,16 +281,17 @@ class CNN_Bootstrapped_DQN_Agent:
                     ME_a_indices = ME_a_indices.reshape(self.batch_size, 1)
 
                     # get variance of ME
-                    ME_var = torch.gather(Q_v2_var, dim=1, index=ME_a_indices)[0]   # torch.Size([batch_size])
+                    ME_var = torch.gather(Q_v2_var, dim=1, index=ME_a_indices)[1]   # torch.Size([batch_size])
 
-                    # perform pairwise tests
-                    keep = torch.empty((self.batch_size, self.num_actions)).to(self.device)
+                    # compute weights
+                    w = torch.empty((self.batch_size, self.num_actions)).to(self.device)
 
                     for a_idx in range(self.num_actions):
-                        keep[:, a_idx] = self._mean_test(mean1=Q_tgt[:, a_idx], mean2=ME_values, var_mean1=Q_v2_var[:, a_idx], var_mean2=ME_var)
+                        u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_v2_var[:, a_idx] + ME_var)
+                        w[:, a_idx] = torch.tensor(self.g(u))
 
-                    # compute mean of kept Qs
-                    target_Q_next = torch.sum(Q_tgt * keep, dim=1) / torch.sum(keep, dim = 1)
+                    # compute weighted mean
+                    target_Q_next = torch.sum(Q_tgt * w, dim=1) / torch.sum(w, dim=1)
                     target_Q_next = target_Q_next.reshape(self.batch_size, 1)
 
                 else:

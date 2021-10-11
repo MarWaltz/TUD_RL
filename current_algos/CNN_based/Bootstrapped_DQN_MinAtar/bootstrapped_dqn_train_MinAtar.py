@@ -61,7 +61,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, double, our_estimator, our_alpha, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, double, kernel, kernel_param, dqn_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -88,14 +88,14 @@ def train(env_str, double, our_estimator, our_alpha, dqn_weights=None, seed=0, d
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = CNN_Bootstrapped_DQN_Agent(mode          = "train",
-                                       num_actions   = env.action_space.n, 
-                                       state_shape   = state_shape,
-                                       double        = double,
-                                       our_estimator = our_estimator,
-                                       our_alpha     = our_alpha,
-                                       dqn_weights   = dqn_weights,
-                                       device        = device)
+    agent = CNN_Bootstrapped_DQN_Agent(mode         = "train",
+                                       num_actions  = env.action_space.n, 
+                                       state_shape  = state_shape,
+                                       double       = double,
+                                       kernel       = kernel,
+                                       kernel_param = kernel_param,
+                                       dqn_weights  = dqn_weights,
+                                       device       = device)
     
     # init the active head for action selection
     active_head = np.random.choice(agent.K)
@@ -219,12 +219,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
-    parser.add_argument("--our_estimator", type=str2bool, default=True)
-    parser.add_argument("--our_alpha", type=float, default=0.05)
+    parser.add_argument("--kernel", type=str, default="gaussian_cdf")
+    parser.add_argument("--kernel_param", type=float, default=1.0)
     args = parser.parse_args()
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, our_estimator=args.our_estimator, our_alpha=args.our_alpha, dqn_weights=None, seed=1, device="cpu")
+    train(env_str=args.env_str, double=args.double, kernel=args.kernel, kernel_param=args.kernel_param, dqn_weights=None, seed=1, device="cpu")
