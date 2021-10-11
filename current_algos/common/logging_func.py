@@ -3,16 +3,12 @@ Some simple logging functionality, inspired by rllab's logging.
 Logs to a tab-separated-values file (path/to/output_directory/progress.txt)
 """
 import json
-import joblib
-import shutil
 import numpy as np
-import torch
 from datetime import date
 import os.path as osp
 import time
 import atexit
 import os
-import warnings
 from mpi4py import MPI
 import numpy as np
 
@@ -20,9 +16,11 @@ import numpy as np
 def allreduce(*args, **kwargs):
     return MPI.COMM_WORLD.Allreduce(*args, **kwargs)
 
+
 def num_procs():
     """Count active MPI processes."""
     return MPI.COMM_WORLD.Get_size()
+
 
 def mpi_op(x, op):
     x, scalar = ([x], True) if np.isscalar(x) else (x, False)
@@ -31,13 +29,16 @@ def mpi_op(x, op):
     allreduce(x, buff, op=op)
     return buff[0] if scalar else buff
 
+
 def mpi_sum(x):
     return mpi_op(x, MPI.SUM)
+
 
 def mpi_avg(x):
     """Average a scalar or vector over MPI processes."""
     return mpi_sum(x) / num_procs()
-    
+
+
 def mpi_statistics_scalar(x, with_min_and_max=False):
     """
     Get mean/std and optional min/max of scalar x across MPI processes.
@@ -60,6 +61,7 @@ def mpi_statistics_scalar(x, with_min_and_max=False):
         return mean, std, global_min, global_max
     return mean, std
 
+
 def is_json_serializable(v):
     try:
         json.dumps(v)
@@ -67,14 +69,15 @@ def is_json_serializable(v):
     except:
         return False
 
+
 def convert_json(obj):
     """ Convert obj to a version which can be serialized with JSON. """
     if is_json_serializable(obj):
         return obj
     else:
         if isinstance(obj, dict):
-            return {convert_json(k): convert_json(v) 
-                    for k,v in obj.items()}
+            return {convert_json(k): convert_json(v)
+                    for k, v in obj.items()}
 
         elif isinstance(obj, tuple):
             return (convert_json(x) for x in obj)
@@ -82,12 +85,12 @@ def convert_json(obj):
         elif isinstance(obj, list):
             return [convert_json(x) for x in obj]
 
-        elif hasattr(obj,'__name__') and not('lambda' in obj.__name__):
+        elif hasattr(obj, '__name__') and not('lambda' in obj.__name__):
             return convert_json(obj.__name__)
 
-        elif hasattr(obj,'__dict__') and obj.__dict__:
-            obj_dict = {convert_json(k): convert_json(v) 
-                        for k,v in obj.__dict__.items()}
+        elif hasattr(obj, '__dict__') and obj.__dict__:
+            obj_dict = {convert_json(k): convert_json(v)
+                        for k, v in obj.__dict__.items()}
             return {str(obj): obj_dict}
 
         return str(obj)
@@ -100,7 +103,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, alg_str, output_dir=None, output_fname='progress.txt', exp_name=None) :
+    def __init__(self, alg_str, output_dir=None, output_fname='progress.txt', exp_name=None):
         """
         Initialize a Logger.
         Args:
@@ -116,13 +119,15 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
+
+        # Scan through a list of dir strings to strip the ascending number
         def max_number(dir_list):
             numbers = []
             if not dir_list:
                 return 0
             else:
                 for dir in dir_list:
-                    numbers.append(int(dir[len(dir)-1:]))
+                    numbers.append(int(dir.split("_")[-1]))
             return max(numbers)
 
          # create output directory
@@ -133,17 +138,22 @@ class Logger:
             if not osp.exists("experiments"):
                 os.makedirs("experiments")
 
-            today = date.today().strftime("%Y-%m-%d_") # Get date from today and format to "yyyy-mm-dd_"
-            folder_names = [f.name for f in os.scandir("experiments") if f.is_dir()] # Get folder names in experiments folder
-            folder_from_today = [name for name in folder_names if name.startswith(alg_str + "_" + today)] # Folders starting with todays date
+            # Get date from today and format to "yyyy-mm-dd_"
+            today = date.today().strftime("%Y-%m-%d_")
+            # Get folder names in experiments folder
+            folder_names = [f.name for f in os.scandir(
+                "experiments") if f.is_dir()]
+            folder_from_today = [name for name in folder_names if name.startswith(alg_str + "_" + today)]  # Folders starting with todays date
             count = max_number(folder_from_today)
             count += 1
+            random_str = str(time.time())[-3:]
 
-            self.output_dir = "experiments/" + alg_str + "_" + today + str(count)
+            self.output_dir = "experiments/" + alg_str + \
+                "_" + today + random_str + "_" + str(count)
 
         os.makedirs(self.output_dir)
 
-        # create output file and automated closing when file terminates 
+        # create output file and automated closing when file terminates
         self.output_file = open(osp.join(self.output_dir, output_fname), 'w')
         print(f"Logging data to {self.output_file.name}")
         atexit.register(self.output_file.close)
@@ -281,6 +291,8 @@ class EpochLogger(Logger):
                 super().log_tabular('Max_' + key, stats[3])
                 super().log_tabular('Min_' + key, stats[2])
         self.epoch_dict[key] = []
+
+
 """
 x = 5
 a = 3

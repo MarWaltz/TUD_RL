@@ -2,7 +2,6 @@ import csv
 
 import numpy as np
 import pandas as pd
-import matplotlib
 #matplotlib.use("agg")
 import matplotlib.pyplot as plt
 
