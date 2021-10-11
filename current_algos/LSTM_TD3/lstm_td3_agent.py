@@ -44,7 +44,7 @@ class LSTM_TD3_Agent:
                  upd_start_step   = 1000,
                  upd_every        = 1,
                  batch_size       = 32,
-                 history_length   = 5,
+                 history_length   = 2,
                  use_past_actions = False,
                  device           = "cpu"):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
