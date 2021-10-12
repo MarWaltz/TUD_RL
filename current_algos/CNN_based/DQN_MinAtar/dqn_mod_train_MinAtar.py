@@ -247,7 +247,7 @@ if __name__ == "__main__":
         for char in out:
             seed_str = seed_str.replace(char, "")
         
-        seed_str = seed_str[:8]
+        seed_str = seed_str[:8][::-1]
         seed_str += str(run)
 
         return int(seed_str)
