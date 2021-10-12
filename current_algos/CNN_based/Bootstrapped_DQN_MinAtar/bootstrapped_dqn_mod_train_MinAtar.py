@@ -251,5 +251,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    seed = int(args.lr * 100000 + args.run**3)
+    seed = int(str(args.lr * 100000).replace(".", "") + str(args.run))
     train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=seed, kernel=args.kernel, kernel_param=args.kernel_param)
