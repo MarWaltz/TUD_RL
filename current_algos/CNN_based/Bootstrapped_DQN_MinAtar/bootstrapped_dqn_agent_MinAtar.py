@@ -46,7 +46,8 @@ class CNN_Bootstrapped_DQN_Agent:
                  upd_start_step   = 5000,
                  upd_every        = 1,
                  batch_size       = 32,
-                 device           = "cpu"):
+                 device           = "cpu",
+                 env_str          = None):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -141,7 +142,7 @@ class CNN_Bootstrapped_DQN_Agent:
             print("Using GPU support.")
         
         # init logger and save config
-        self.logger = EpochLogger(alg_str = self.name)
+        self.logger = EpochLogger(alg_str = self.name, env_str = env_str)
         self.logger.save_config(locals())
         
         # init replay buffer and noise

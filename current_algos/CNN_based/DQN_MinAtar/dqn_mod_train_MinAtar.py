@@ -14,7 +14,7 @@ from current_algos.common.custom_envs import MountainCar
 from current_algos.common.eval_plot import plot_from_progress
 
 # training config
-TIMESTEPS = 11000     # overall number of training interaction steps
+TIMESTEPS = 5000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
@@ -94,7 +94,8 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
                           double      = double,
                           lr          = lr,
                           dqn_weights = dqn_weights,
-                          device      = device)
+                          device      = device,
+                          env_str     = env_str)
 
     # save json file with run number
     with open(f"{agent.logger.output_dir}/run.json", "w") as outfile:

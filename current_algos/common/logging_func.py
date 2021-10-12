@@ -2,15 +2,15 @@
 Some simple logging functionality, inspired by rllab's logging.
 Logs to a tab-separated-values file (path/to/output_directory/progress.txt)
 """
-import json
-import numpy as np
-from datetime import date
-import os.path as osp
-import time
 import atexit
+import json
 import os
-from mpi4py import MPI
+import os.path as osp
+import random
+from datetime import date
+
 import numpy as np
+from mpi4py import MPI
 
 
 def allreduce(*args, **kwargs):
@@ -103,7 +103,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, alg_str, output_dir=None, output_fname='progress.txt', exp_name=None):
+    def __init__(self, alg_str, env_str=None, output_dir=None, output_fname='progress.txt', exp_name=None):
         """
         Initialize a Logger.
         Args:
@@ -119,18 +119,8 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
-
-        # Scan through a list of dir strings to strip the ascending number
-        def max_number(dir_list):
-            numbers = []
-            if not dir_list:
-                return 0
-            else:
-                for dir in dir_list:
-                    numbers.append(int(dir.split("_")[-1]))
-            return max(numbers)
-
-         # create output directory
+        
+        # create output directory
         if output_dir is not None:
             self.output_dir = output_dir
         else:
@@ -140,16 +130,15 @@ class Logger:
 
             # Get date from today and format to "yyyy-mm-dd_"
             today = date.today().strftime("%Y-%m-%d_")
-            # Get folder names in experiments folder
-            folder_names = [f.name for f in os.scandir(
-                "experiments") if f.is_dir()]
-            folder_from_today = [name for name in folder_names if name.startswith(alg_str + "_" + today)]  # Folders starting with todays date
-            count = max_number(folder_from_today)
-            count += 1
-            random_str = str(time.time())[-3:]
 
-            self.output_dir = "experiments/" + alg_str + \
-                "_" + today + random_str + "_" + str(count)
+            # Get folder names in experiments folder
+            #random_str = str(time.time())[-3:]
+            random_str = str(random.randint(10000, 99999))
+
+            if env_str is None:
+                self.output_dir = "experiments/" + alg_str + "_" + today + random_str
+            else:
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + random_str
 
         os.makedirs(self.output_dir)
 

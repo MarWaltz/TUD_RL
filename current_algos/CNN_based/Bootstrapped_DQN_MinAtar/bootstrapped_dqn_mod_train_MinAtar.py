@@ -1,5 +1,6 @@
 import argparse
 import copy
+import json
 import pickle
 import random
 import time
@@ -15,7 +16,7 @@ from current_algos.CNN_based.Bootstrapped_DQN_MinAtar.bootstrapped_dqn_agent_Min
 
 # training config
 TIMESTEPS = 5000000     # overall number of training interaction steps
-EPOCH_LENGTH = 1100     # number of time steps between evaluation/logging events
+EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
 
@@ -61,7 +62,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=0, device="cpu"):
+def train(env_str, double, lr, run, kernel, kernel_param, seed=0, dqn_weights=None, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -88,16 +89,21 @@ def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=
     state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
 
     # init agent
-    agent = CNN_Bootstrapped_DQN_Agent(mode          = "train",
-                                       num_actions   = env.action_space.n, 
-                                       state_shape   = state_shape,
-                                       double        = double,
-                                       our_estimator = our_estimator,
-                                       our_alpha     = our_alpha,
-                                       lr            = lr,
-                                       dqn_weights   = dqn_weights,
-                                       device        = device)
-    
+    agent = CNN_Bootstrapped_DQN_Agent(mode         = "train",
+                                       num_actions  = env.action_space.n, 
+                                       state_shape  = state_shape,
+                                       double       = double,
+                                       lr           = lr,
+                                       kernel       = kernel,
+                                       kernel_param = kernel_param,
+                                       dqn_weights  = dqn_weights,
+                                       device       = device,
+                                       env_str      = env_str)
+
+    # save json file with run number
+    with open(f"{agent.logger.output_dir}/run.json", "w") as outfile:
+        json.dump(dict({"run" : run}), outfile)
+
     # init the active head for action selection
     active_head = np.random.choice(agent.K)
 
@@ -112,8 +118,8 @@ def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-    epi_ret_list = []
-    epi_ret_step_list = []
+    G_list = []
+    G_step_list = []
     
     # main loop    
     for total_steps in range(TIMESTEPS):
@@ -171,8 +177,8 @@ def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=
             agent.logger.store(Epi_Ret=epi_ret)
 
             # append episode return list
-            epi_ret_list.append(epi_ret)
-            epi_ret_step_list.append(total_steps)
+            G_list.append(epi_ret)
+            G_step_list.append(total_steps)
 
             # reset epi steps and epi ret
             epi_steps = 0
@@ -183,9 +189,9 @@ def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=
 
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
-            # save epi ret list and the corresponding time steps
-            np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array([epi_ret_list]))
-            np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array([epi_ret_step_list]))
+            # save G list and the corresponding time steps
+            np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array(G_list))
+            np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array(G_step_list))
 
             # evaluate agent with deterministic policy
             eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent))
@@ -213,6 +219,11 @@ def train(env_str, double, our_estimator, our_alpha, lr, dqn_weights=None, seed=
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
+    # save G list and the corresponding time steps
+    np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array(G_list))
+    np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array(G_step_list))
+
+
 if __name__ == "__main__":
     
     # helper function for parser
@@ -230,13 +241,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
-    parser.add_argument("--our_estimator", type=str2bool, default=True)
-    parser.add_argument("--our_alpha", type=float, default=0.05)
-    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--run", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--kernel", type=str, default="gaussian_cdf")
+    parser.add_argument("--kernel_param", type=float, default=1.0)
     args = parser.parse_args()
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, our_estimator=args.our_estimator, our_alpha=args.our_alpha, lr=args.lr, seed=1)
+    seed = int(args.lr * 100000 + args.run**3)
+    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=seed, kernel=args.kernel, kernel_param=args.kernel_param)
