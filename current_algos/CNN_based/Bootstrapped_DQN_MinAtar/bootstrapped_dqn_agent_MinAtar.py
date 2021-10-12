@@ -238,19 +238,19 @@ class CNN_Bootstrapped_DQN_Agent:
         self.DQN_optimizer.zero_grad()
         
         # calculate current estimated Q-values and next Q-values
-        Q_v_all      = self.DQN(s)
-        Q_v2_all_tgt = self.target_DQN(s2)
+        Q_s_main = self.DQN(s)
+        Q_s2_tgt = self.target_DQN(s2)
 
         if self.double:
-            Q_v2_all_main = self.DQN(s2)
+            Q_s2_main = self.DQN(s2)
         
         if self.kernel is not None:
 
             # stack list into torch.Size([K, batch_size, num_actions])
-            Q_v2_all_stacked = torch.stack(Q_v2_all_tgt)
+            Q_s2_tgt_stacked = torch.stack(Q_s2_tgt)
 
             # compute variances over the K heads, gives torch.Size([batch_size, num_actions])
-            Q_v2_var = torch.var(Q_v2_all_stacked, dim=0, unbiased=True)
+            Q_s2_var = torch.var(Q_s2_tgt_stacked, dim=0, unbiased=True)
 
         # set up losses
         losses = []
@@ -259,20 +259,20 @@ class CNN_Bootstrapped_DQN_Agent:
         for k in range(self.K):
             
             # gather actions
-            Q_v = torch.gather(input=Q_v_all[k], dim=1, index=a)
+            Q_s = torch.gather(input=Q_s_main[k], dim=1, index=a)
 
             # calculate targets
             with torch.no_grad():
 
                 # Q-value of next state-action pair
                 if self.double:
-                    a2 = torch.argmax(Q_v2_all_main[k], dim=1).reshape(self.batch_size, 1)
-                    target_Q_next = torch.gather(input=Q_v2_all_tgt[k], dim=1, index=a2)
+                    a2 = torch.argmax(Q_s2_main[k], dim=1).reshape(self.batch_size, 1)
+                    target_Q_next = torch.gather(input=Q_s2_tgt[k], dim=1, index=a2)
 
                 elif self.kernel is not None:
 
                     # get easy access to relevant target Q
-                    Q_tgt = Q_v2_all_tgt[k].to(self.device)
+                    Q_tgt = Q_s2_tgt[k].to(self.device)
 
                     # get values and action indices for ME
                     ME_values, ME_a_indices = torch.max(Q_tgt, dim=1)
@@ -281,13 +281,13 @@ class CNN_Bootstrapped_DQN_Agent:
                     ME_a_indices = ME_a_indices.reshape(self.batch_size, 1)
 
                     # get variance of ME
-                    ME_var = torch.gather(Q_v2_var, dim=1, index=ME_a_indices)[1]   # torch.Size([batch_size])
+                    ME_var = torch.gather(Q_s2_var, dim=1, index=ME_a_indices).reshape(self.batch_size)
 
                     # compute weights
                     w = torch.empty((self.batch_size, self.num_actions)).to(self.device)
 
                     for a_idx in range(self.num_actions):
-                        u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_v2_var[:, a_idx] + ME_var)
+                        u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_s2_var[:, a_idx] + ME_var)
                         w[:, a_idx] = torch.tensor(self.g(u))
 
                     # compute weighted mean
@@ -295,13 +295,13 @@ class CNN_Bootstrapped_DQN_Agent:
                     target_Q_next = target_Q_next.reshape(self.batch_size, 1)
 
                 else:
-                    target_Q_next = torch.max(Q_v2_all_tgt[k], dim=1).values.reshape(self.batch_size, 1)
+                    target_Q_next = torch.max(Q_s2_tgt[k], dim=1).values.reshape(self.batch_size, 1)
 
                 # target
                 target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
 
             # calculate (Q - y)**2
-            loss_k = F.mse_loss(Q_v, target_Q, reduction="none")
+            loss_k = F.mse_loss(Q_s, target_Q, reduction="none")
 
             # use only relevant samples for given head
             loss_k = loss_k * m[:, k].unsqueeze(1)
@@ -325,7 +325,7 @@ class CNN_Bootstrapped_DQN_Agent:
         
         # log critic training
         self.logger.store(Loss=loss.detach().cpu().numpy().item())
-        self.logger.store(Q_val=Q_v.detach().mean().cpu().numpy().item())
+        self.logger.store(Q_val=Q_s.detach().mean().cpu().numpy().item())
 
         #------- Update target networks -------
         if self.tgt_up_cnt % self.tgt_update_freq == 0:
