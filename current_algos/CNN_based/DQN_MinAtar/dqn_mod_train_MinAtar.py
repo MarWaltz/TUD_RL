@@ -14,7 +14,7 @@ from current_algos.common.custom_envs import MountainCar
 from current_algos.common.eval_plot import plot_from_progress
 
 # training config
-TIMESTEPS = 5000     # overall number of training interaction steps
+TIMESTEPS = 11000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
