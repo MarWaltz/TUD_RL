@@ -240,5 +240,16 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    seed = int(str(args.lr * 100000).replace(".", "") + str(args.run))
-    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=seed)
+    def get_seed(lr, run):
+        out = (".", "e", "-")
+        seed_str = str(lr)
+
+        for char in out:
+            seed_str = seed_str.replace(char, "")
+        
+        seed_str = seed_str[:8]
+        seed_str += str(run)
+
+        return int(seed_str)
+
+    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=get_seed(args.lr, args.run))
