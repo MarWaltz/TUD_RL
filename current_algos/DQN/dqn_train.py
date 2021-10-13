@@ -177,10 +177,11 @@ if __name__ == "__main__":
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="CartPole-v1")
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, dqn_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, dqn_weights=None, seed=args.seed, device="cpu")

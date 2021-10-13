@@ -210,10 +210,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=1, device="cpu")
+    train(env_str=args.env_str, double=args.double, dqn_weights=None, seed=args.seed, device="cpu")

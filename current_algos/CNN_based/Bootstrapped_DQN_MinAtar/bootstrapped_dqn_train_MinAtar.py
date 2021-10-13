@@ -221,10 +221,12 @@ if __name__ == "__main__":
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--kernel", type=str, default="gaussian_cdf")
     parser.add_argument("--kernel_param", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, double=args.double, kernel=args.kernel, kernel_param=args.kernel_param, dqn_weights=None, seed=1, device="cpu")
+    train(env_str=args.env_str, double=args.double, kernel=args.kernel, kernel_param=args.kernel_param, 
+          dqn_weights=None, seed=args.seed, device="cpu")

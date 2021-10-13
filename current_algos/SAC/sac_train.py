@@ -199,10 +199,12 @@ if __name__ == "__main__":
     parser.add_argument("--env_str", type=str, default="LCP")
     parser.add_argument("--POMDP_type", type=str, default="MDP")
     parser.add_argument("--lr_critic", type=float, default=0.0001)
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
     
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None,
+          actor_weights=None, seed=args.seed, device="cpu")

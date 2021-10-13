@@ -257,6 +257,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr_critic", type=float, default=0.0001)
     parser.add_argument("--history_length", type=int, default=2)
     parser.add_argument("--use_past_actions", type=str2bool, default=False)
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
     
     # set number of torch threads
@@ -264,4 +265,4 @@ if __name__ == "__main__":
 
     # run main loop
     train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, history_length=args.history_length,
-          use_past_actions=args.use_past_actions, critic_weights=None, actor_weights=None, seed=10, device="cpu")
+          use_past_actions=args.use_past_actions, critic_weights=None, actor_weights=None, seed=args.seed, device="cpu")
