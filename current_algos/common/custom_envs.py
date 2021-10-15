@@ -1,6 +1,5 @@
 import numpy as np
-from scipy.stats import norm 
-from scipy.signal import savgol_filter
+from scipy.stats import norm
 from matplotlib import pyplot as plt
 from matplotlib.patches import Ellipse
 import gym
@@ -91,6 +90,17 @@ class ObstacleAvoidance_Env(gym.Env):
         self._set_state()
         return self.state
     
+    def _exponential_smoothing(self, x, alpha=0.03):
+        s = np.zeros_like(x)
+
+        for idx, x_val in enumerate(x):
+            if idx == 0:
+                s[idx] = x[idx]
+            else:
+                s[idx] = alpha * x_val + (1-alpha) * s[idx-1]
+
+        return s
+
     def _set_AR1(self):
         """Sets the AR1 Array containing the desired lateral trajectory for all episode steps"""
         self.AR1 = np.zeros(self._max_episode_steps+2000, dtype=np.float32) 
@@ -98,7 +108,7 @@ class ObstacleAvoidance_Env(gym.Env):
             self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(800))
 
         # smooth data
-        self.AR1 = savgol_filter(self.AR1,125,2)
+        self.AR1 = self._exponential_smoothing(self.AR1, 125, 2)
 
     def _set_dynamics(self):
         """Initializes positions, velocity and acceleration of agent and vessels."""
