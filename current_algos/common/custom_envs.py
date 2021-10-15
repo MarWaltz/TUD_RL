@@ -108,7 +108,7 @@ class ObstacleAvoidance_Env(gym.Env):
             self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(800))
 
         # smooth data
-        self.AR1 = self._exponential_smoothing(self.AR1, 125, 2)
+        self.AR1 = self._exponential_smoothing(self.AR1)
 
     def _set_dynamics(self):
         """Initializes positions, velocity and acceleration of agent and vessels."""
