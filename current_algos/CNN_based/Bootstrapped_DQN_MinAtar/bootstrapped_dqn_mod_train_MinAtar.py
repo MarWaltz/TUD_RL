@@ -237,13 +237,23 @@ if __name__ == "__main__":
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
+    def str2None(v):
+        if v is None:
+            return v
+        elif v == "None":
+            return None
+        elif isinstance(v, str):
+            return v
+        else:
+            raise argparse.ArgumentTypeError("Expected 'None' or a string.")
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--run", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.0001)
-    parser.add_argument("--kernel", type=str, default="gaussian_cdf")
+    parser.add_argument("--kernel", type=str2None, default=None)
     parser.add_argument("--kernel_param", type=float, default=1.0)
     args = parser.parse_args()
 
