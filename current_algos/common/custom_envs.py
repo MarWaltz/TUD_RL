@@ -9,13 +9,15 @@ from gym import spaces
 class ObstacleAvoidance_Env(gym.Env):
     """Class environment with initializer, step, reset and render method."""
     
-    def __init__(self, POMDP_type="MDP"):
+    def __init__(self, POMDP_type="MDP", frame_stack=3):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
 
         assert POMDP_type in ["MDP", "RV", "FL"], "Unknown MDP/POMDP specification."
+        assert frame_stack >= 1, "Frame stacking must be positive."
 
         self.POMDP_type     = POMDP_type
+        self.frame_stack    = frame_stack
         self.FL_prob        = 0.1
         self.sort_obs_ttc   = False
         self.polygon_reward = False
@@ -73,20 +75,26 @@ class ObstacleAvoidance_Env(gym.Env):
             num_vessel_obs = 2
         else:
             num_vessel_obs = 4
+
         super(ObstacleAvoidance_Env, self).__init__()
-        self.observation_space = spaces.Box(low=np.full((1, num_vessel_obs * self.n_vessels + 2), -1, dtype=np.float32)[0],
-                                            high=np.full((1, num_vessel_obs * self.n_vessels + 2), 1, dtype=np.float32)[0])
+        self.observation_space = spaces.Box(low=np.full((1, self.frame_stack * (num_vessel_obs * self.n_vessels + 2)), -1, dtype=np.float32)[0],
+                                            high=np.full((1, self.frame_stack * (num_vessel_obs * self.n_vessels + 2)), 1, dtype=np.float32)[0])
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
         
         # --------------------------------- custom inits ---------------------------------------------------
-         
+
     def reset(self):
         """Resets environment to initial state."""
         self.current_timestep = 0
         self.reward = 0
         self._set_AR1()
         self._set_dynamics()
+
+        if self.frame_stack > 1:
+            self.frame_hist_cnt = 0
+            self.frame_array    = np.zeros((self.frame_stack, int(self.observation_space.shape[0] / self.frame_stack)))
+
         self._set_state()
         return self.state
     
@@ -102,7 +110,7 @@ class ObstacleAvoidance_Env(gym.Env):
         return s
 
     def _set_AR1(self):
-        """Sets the AR1 Array containing the desired lateral trajectory for all episode steps"""
+        """Sets the AR1 Array containing the desired lateral trajectory for all episode steps."""
         self.AR1 = np.zeros(self._max_episode_steps+2000, dtype=np.float32) 
         for i in range(self.AR1.size-1):
             self.AR1[i+1] = self.AR1[i] * 0.99 + np.random.normal(0,np.sqrt(800))
@@ -209,22 +217,31 @@ class ObstacleAvoidance_Env(gym.Env):
             vx = self.vessel_vx[idx].copy()
             vy = self.vessel_vy[idx].copy()
 
+        # state definition
         self.state = np.empty(0, dtype=np.float32)
         self.state = np.append(self.state, self.agent_ay/self.ay_max)
         self.state = np.append(self.state, self.agent_vy/self.vy_max)
         self.state = np.append(self.state, (self.agent_x  - x)/self.delta_x_max)
-        #self.state = np.append(self.state, self.vessel_ttc/1200)
         self.state = np.append(self.state, (self.agent_y  - y)/self.delta_y_max)
 
+        # POMDP specs
         if self.POMDP_type in ["MDP", "FL"]:
             self.state = np.append(self.state, (self.agent_vx - vx)/(2*self.vx_max))
             self.state = np.append(self.state, (self.agent_vy - vy)/(2*self.vy_max))
         if self.POMDP_type == "FL" and np.random.binomial(1, self.FL_prob) == 1:
             self.state = np.zeros_like(self.state)
 
-        # order delta based on the euclidean distance and get state
-        #eucl_dist = np.apply_along_axis(lambda x: np.sqrt(x[0]**2 + x[1]**2), 1, delta_normalized)
-        #idx = np.argsort(eucl_dist)
+        # frame stacking
+        if self.frame_stack > 1:
+            
+            if self.frame_hist_cnt == self.frame_stack:
+                self.frame_array = np.roll(self.frame_array, shift = -1, axis = 0)
+                self.frame_array[self.frame_stack - 1, :] = self.state
+            else:
+                self.frame_array[self.frame_hist_cnt] = self.state
+                self.frame_hist_cnt += 1
+            
+            self.state = self.frame_array.flatten()
 
     def step(self, action):
         """Takes an action and performs one step in the environment.

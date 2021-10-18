@@ -54,7 +54,7 @@ def evaluate_policy(test_env, test_agent):
     
     return rets
 
-def train(env_str, POMDP_type="MDP", lr_critic=0.001, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
+def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weights=None, critic_weights=None, seed=0, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -62,8 +62,8 @@ def train(env_str, POMDP_type="MDP", lr_critic=0.001, actor_weights=None, critic
     
     # init env
     if env_str == "LCP":
-        env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
-        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
+        env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
     else:
         env = gym.make(env_str)
@@ -198,6 +198,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_str", type=str, default="LCP")
     parser.add_argument("--POMDP_type", type=str, default="MDP")
+    parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--lr_critic", type=float, default=0.0001)
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
@@ -206,5 +207,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(env_str=args.env_str, POMDP_type=args.POMDP_type, lr_critic=args.lr_critic, critic_weights=None,
-          actor_weights=None, seed=args.seed, device="cpu")
+    train(env_str=args.env_str, POMDP_type=args.POMDP_type, frame_stack=args.frame_stack,
+          lr_critic=args.lr_critic, critic_weights=None, actor_weights=None, seed=args.seed, device="cpu")
