@@ -37,8 +37,14 @@ def evaluate_policy(test_env, test_agent):
 
         cur_ret = 0
         d = False
+
+        if test_env.game_name == "seaquest":
+            eval_epi_steps = 0
         
         while not d:
+
+            if test_env.game_name == "seaquest":
+                eval_epi_steps += 1
 
             # select action
             a = test_agent.select_action(s, active_head=None)
@@ -56,6 +62,10 @@ def evaluate_policy(test_env, test_agent):
             # s becomes s2
             s = s2
             cur_ret += r
+
+            # break option for seaquest-env
+            if test_env.game_name == "seaquest" and eval_epi_steps == 100000:
+                break
 
         # compute average return and append it
         rets.append(cur_ret)

@@ -80,7 +80,13 @@ class CNN_Bootstrapped_DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name        = "CNN_Bootstrapped_DQN_Agent" if kernel is None else f"CNN_OurBootstrapped_DQN_Agent_{kernel}"
+        if kernel is not None:
+            self.name = f"CNN_OurBootDQN_Agent_{kernel}"
+        elif double:
+            self.name = "CNN_BootDDQN_Agent"
+        else:
+            self.name = "CNN_BootDQN_Agent"
+
         self.num_actions = num_actions
  
         # CNN shape
