@@ -10,7 +10,6 @@ import numpy as np
 
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import MountainCar
 from current_algos.CNN_based.Bootstrapped_DQN_MinAtar.bootstrapped_dqn_agent_MinAtar import *
 
 # training config
@@ -78,14 +77,9 @@ def train(env_str, double, kernel, kernel_param, dqn_weights=None, seed=0, devic
     start_time = time.time()
     
     # init env
-    if env_str == "MountainCar":
-        env = MountainCar(rewardStd=0)
-        test_env = MountainCar(rewardStd=0)
-        max_episode_steps = env._max_episode_steps
-    else:
-        env = gym.make(env_str)
-        test_env = gym.make(env_str)
-        max_episode_steps = np.inf if "MinAtar" in env_str else env._max_episode_steps
+    env = gym.make(env_str)
+    test_env = gym.make(env_str)
+    max_episode_steps = np.inf if "MinAtar" in env_str else env._max_episode_steps
 
     # seeding
     env.seed(seed)

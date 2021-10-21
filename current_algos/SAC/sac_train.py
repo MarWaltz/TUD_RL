@@ -10,7 +10,8 @@ import numpy as np
 #import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import ObstacleAvoidance_Env
+from current_algos.common.envs.ObstacleAvoidance import ObstacleAvoidance_Env
+from current_algos.common.envs.Ski import Ski_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.SAC.sac_agent import *
 
@@ -65,6 +66,12 @@ def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weigh
         env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
         test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
+
+    elif env_str == "Ski":
+        env = Ski_Env(POMDP_type=POMDP_type)
+        test_env = Ski_Env(POMDP_type=POMDP_type)
+        max_episode_steps = env._max_episode_steps
+    
     else:
         env = gym.make(env_str)
         test_env = gym.make(env_str)
@@ -196,7 +203,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="LCP")
+    parser.add_argument("--env_str", type=str, default="Ski")
     parser.add_argument("--POMDP_type", type=str, default="MDP")
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--lr_critic", type=float, default=0.0001)

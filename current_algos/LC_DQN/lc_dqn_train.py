@@ -9,7 +9,7 @@ import numpy as np
 
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import MountainCar
+from current_algos.common.envs.MountainCar import MountainCar
 from current_algos.LC_DQN.lc_dqn_agent import *
 
 # training config

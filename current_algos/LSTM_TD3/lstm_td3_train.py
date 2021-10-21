@@ -10,7 +10,8 @@ import numpy as np
 #import pybulletgym
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.custom_envs import ObstacleAvoidance_Env
+from current_algos.common.envs.ObstacleAvoidance import ObstacleAvoidance_Env
+from current_algos.common.envs.Ski import Ski_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
 
@@ -83,6 +84,12 @@ def train(env_str, POMDP_type="MDP", lr_critic=0.0001, history_length=2, use_pas
         env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
         test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
         max_episode_steps = env._max_episode_steps
+
+    elif env_str == "Ski":
+        env = Ski_Env(POMDP_type=POMDP_type)
+        test_env = Ski_Env(POMDP_type=POMDP_type)
+        max_episode_steps = env._max_episode_steps
+    
     else:
         env = gym.make(env_str)
         test_env = gym.make(env_str)

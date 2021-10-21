@@ -9,9 +9,8 @@ import gym
 import numpy as np
 #import pybulletgym
 import torch
-from current_algos.common.eval_plot import plot_from_progress
-#from current_algos.common.custom_envs import LCP_Environment
-from current_algos.common.custom_envs import ObstacleAvoidance_Env
+from current_algos.common.envs.ObstacleAvoidance import ObstacleAvoidance_Env
+from current_algos.common.envs.Ski import Ski_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
 
@@ -19,9 +18,14 @@ from current_algos.LSTM_TD3.lstm_td3_agent import *
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
 
-def visualize_policy(POMDP_type, actor_weights, critic_weights):
+def visualize_policy(env_str, POMDP_type, actor_weights, critic_weights):
+    
+    if env_str == "LCP":
+        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
+    
+    elif env_str == "Ski":
+        test_env = Ski_Env(POMDP_type=POMDP_type)
 
-    test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
     test_agent = LSTM_TD3_Agent(mode      = "test",
                       action_dim     = test_env.action_space.shape[0], 
                       obs_dim      = test_env.observation_space.shape[0], 
@@ -91,4 +95,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    visualize_policy(POMDP_type="MDP", critic_weights="LSTM_TD3_Agent_critic_weights.pth", actor_weights="LSTM_TD3_Agent_actor_weights.pth")
+    visualize_policy(env_str="Ski", POMDP_type="MDP", critic_weights="LSTM_TD3_Agent_critic_weights.pth", 
+                     actor_weights="LSTM_TD3_Agent_actor_weights.pth")

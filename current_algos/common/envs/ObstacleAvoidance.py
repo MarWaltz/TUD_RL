@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.stats import norm
 from matplotlib import pyplot as plt
-from matplotlib.patches import Ellipse
 import gym
 from gym import spaces
 
@@ -9,7 +8,7 @@ from gym import spaces
 class ObstacleAvoidance_Env(gym.Env):
     """Class environment with initializer, step, reset and render method."""
     
-    def __init__(self, POMDP_type="MDP", frame_stack=3):
+    def __init__(self, POMDP_type="MDP", frame_stack=1):
         
         # ----------------------------- settings and hyperparameter -----------------------------------------
 
@@ -20,7 +19,6 @@ class ObstacleAvoidance_Env(gym.Env):
         self.frame_stack    = frame_stack
         self.FL_prob        = 0.1
         self.sort_obs_ttc   = False
-        self.polygon_reward = False
 
         # river size and vessel characteristics   
         self.y_max = 500 # only for plotting
@@ -53,10 +51,9 @@ class ObstacleAvoidance_Env(gym.Env):
         self._max_episode_steps = 500
         
         # rendering
-        self.plot_delay = 0.001
-        self.agent_color = "red"
-        #self.vessel_color = ["purple", "blue", "green", "green", "orange", "purple", "blue", "green", "green", "orange"][0:self.n_vessels]
-        self.vessel_color =  np.full(self.n_vessels,"green")
+        self.plot_delay   = 0.001
+        self.agent_color  = "red"
+        self.vessel_color = np.full(self.n_vessels,"green")
         self.vessel_color[0:self.n_vessels_half] = "blue"
         self.line_color = "black"
 
@@ -64,11 +61,6 @@ class ObstacleAvoidance_Env(gym.Env):
         self.variance_x = 12000
         self.variance_y = 25
         self.variance_ttc = 25
-        
-        # for rendering only
-        # self.reward_lines   = [0.5, 0.1, 0.001] 
-        # self.ellipse_width  = [2 * np.sqrt(-2 * self.variance_x * np.log(reward)) for reward in self.reward_lines]
-        # self.ellipse_height = [2 * np.sqrt(-2 * self.variance_y * np.log(reward)) for reward in self.reward_lines]
         
         # --------------------------------  gym inherits ---------------------------------------------------
         if self.POMDP_type == "RV":
@@ -139,7 +131,7 @@ class ObstacleAvoidance_Env(gym.Env):
         self._place_vessel(True,-1)
         self._place_vessel(True, 1)
 
-        for i in range(int(self.n_vessels/2-1)):
+        for _ in range(int(self.n_vessels/2-1)):
             self._place_vessel(False,-1)
             self._place_vessel(False, 1)
 
@@ -259,7 +251,9 @@ class ObstacleAvoidance_Env(gym.Env):
     def _move_vessel(self):
         """Updates positions, velocities and accelerations of vessels. For now accelerations are constant.
         Used approximation: Euler-Cromer method, that is v_(n+1) = v_n + a_n * t and x_(n+1) = x_n + v_(n+1) * t."""
+
         for i in range(self.n_vessels):
+
             # lateral dynamics for ships with positive TTC
             if self.vessel_ttc[i] > 0:
                 self.vessel_y[i] = self.vessel_y[i] + self.vessel_vy[i] * self.delta_t
@@ -271,15 +265,9 @@ class ObstacleAvoidance_Env(gym.Env):
             # replace vessel if necessary       
             while self.vessel_ttc[1] < 0:
                 self._place_vessel(False,-1)
-                #if self.agent_y < self.vessel_y[0]:
-                #    self.agent_y = self.vessel_y[0] # agent crahsed! 
-                #    self.crash_flag = True
 
             while self.vessel_ttc[self.n_vessels_half+1] < 0:
                 self._place_vessel(False, 1)           
-                #if self.agent_y > self.vessel_y[self.n_vessels_half]:
-                #    self.agent_y = self.vessel_y[self.n_vessels_half] # agent crahsed! 
-                #    self.crash_flag = True
     
     def _move_agent(self, action):
         """Update self.agent_pos using a given action. For now: a_x = 0."""
@@ -287,10 +275,8 @@ class ObstacleAvoidance_Env(gym.Env):
 
         # update lateral dynamics
         self.agent_ay = np.clip(self.agent_ay + action.item() * self.jerk_max, -self.ay_max, self.ay_max)
-        #self.agent_ay = self.ay_max * action.item()
 
         agent_vy_new = np.clip(self.agent_vy + self.agent_ay * self.delta_t,-self.vy_max, self.vy_max)
-
         agent_y_new = self.agent_y + 0.5 * (self.agent_vy + agent_vy_new) * self.delta_t
 
         self.agent_vy = agent_vy_new
@@ -300,52 +286,21 @@ class ObstacleAvoidance_Env(gym.Env):
         self.agent_x= self.agent_x + self.agent_vx * self.delta_t
         
     def _calculate_reward(self):
-        """Returns reward of the current state."""   
-        # compute jerk reward
-        #jerk_reward = -1*(self.agent_ay_old - self.agent_ay)**2
-        jerk_reward = 0
+        """Returns reward of the current state."""
 
-        if self.polygon_reward:                
-        
-            # create vertices between closest upper and lower vessels
-            alpha1 = -self.vessel_ttc[0]/(self.vessel_ttc[1] - self.vessel_ttc[0]) 
-            alpha2 = -self.vessel_ttc[self.n_vessels_half]/(self.vessel_ttc[self.n_vessels_half+1] - self.vessel_ttc[self.n_vessels_half])
-            
-            delta_y1 = self.vessel_y[0] + alpha1 * (self.vessel_y[1] - self.vessel_y[0]) - self.agent_y
-            delta_y2 = self.agent_y - (self.vessel_y[self.n_vessels_half] + alpha2 * (self.vessel_y[self.n_vessels_half+1] - self.vessel_y[self.n_vessels_half]))
+        vess_reward1 = 0
+        vess_reward2 = 0
 
-            # compute vessel reward based on distance to vertices
-            if delta_y1 > 0: 
-                vess_reward1 = -1
-            else:
-                vess_reward1 = -norm.pdf(delta_y1,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
-
-            if delta_y2 > 0: 
-                vess_reward2 = -1
-            else:
-                vess_reward2 = -norm.pdf(delta_y2,0,self.variance_y)/norm.pdf(0,0,self.variance_y)
-
-            # final reward
-            if vess_reward1 == -1 and vess_reward2 == -1:
-                self.reward = jerk_reward
-            else:
-                self.reward = jerk_reward - (np.maximum(vess_reward1,vess_reward2) - np.minimum(vess_reward1,vess_reward2))/(np.maximum(vess_reward1,vess_reward2)+1)
-
-        else: # point reward for all vessels            
-            vess_reward1 = 0
-            vess_reward2 = 0
-            for i in range(self.n_vessels_half):
-                vess_reward1 = np.maximum(vess_reward1, 
-                                        norm.pdf(self.vessel_ttc[i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
-                                        norm.pdf(np.maximum(0,self.agent_y-self.vessel_y[i]),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
-                vess_reward2 = np.maximum(vess_reward2, 
-                                        norm.pdf(self.vessel_ttc[self.n_vessels_half+i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
-                                        norm.pdf(np.maximum(0,self.vessel_y[self.n_vessels_half+i]-self.agent_y),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
-            self.reward = jerk_reward - (np.maximum(-vess_reward1,-vess_reward2) - np.minimum(-vess_reward1,-vess_reward2))/(np.maximum(-vess_reward1,-vess_reward2)+1)
-            self.reward = self.reward.item()
-
-        #if self.crash_flag: 
-            # self.reward -=6
+        for i in range(self.n_vessels_half):
+            vess_reward1 = np.maximum(vess_reward1, 
+                                      norm.pdf(self.vessel_ttc[i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
+                                      norm.pdf(np.maximum(0,self.agent_y-self.vessel_y[i]),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
+            vess_reward2 = np.maximum(vess_reward2, 
+                                      norm.pdf(self.vessel_ttc[self.n_vessels_half+i],0,self.variance_ttc)/norm.pdf(0,0,self.variance_ttc) *
+                                      norm.pdf(np.maximum(0,self.vessel_y[self.n_vessels_half+i]-self.agent_y),0,self.variance_y)/norm.pdf(0,0,self.variance_y))
+        #self.reward = - (np.abs(vess_reward1-vess_reward2))/(np.maximum(-vess_reward1,-vess_reward2)+1)
+        self.reward = - np.maximum(vess_reward1, vess_reward2)
+        self.reward = self.reward.item()
     
     def _done(self):
         """Returns boolean flag whether episode is over."""
@@ -429,60 +384,3 @@ class ObstacleAvoidance_Env(gym.Env):
             
             # delay plotting for ease of user
             plt.pause(self.plot_delay)
-        
-
-
-class MountainCar(gym.Env):
-    """The MountainCar environment following the description of p.245 in Sutton & Barto (2018).
-    Methods: __init__, step, reset. State consists of [position, velocity]."""
-
-    def __init__(self, rewardStd):
-        # gym inherits
-        super(MountainCar, self).__init__()
-        self.observation_space = spaces.Box(low=np.array([-1.2, -0.07], dtype=np.float32),
-                                            high=np.array([0.5, 0.07], dtype=np.float32))
-        self.action_space = spaces.Discrete(3)
-        self._max_episode_steps = 500
-
-        # reward
-        self.rewardStd = rewardStd
-
-        # step cnt
-        self.made_steps = 0
-
-    def reset(self):
-        self.made_steps = 0
-        self.position   = -0.6 + np.random.random()*0.2
-        self.velocity   = 0.0
-        return np.array([self.position, self.velocity])
-
-    def step(self, a):
-        """Updates internal state for given action and returns tuple (s2, r, d, None)."""
-
-        assert a in [0, 1, 2], "Invalid action."
-        
-        # increment step cnt
-        self.made_steps += 1
-
-        # update velocity
-        self.velocity += 0.001*(a-1) - 0.0025*np.cos(3*self.position)
-
-        if self.velocity < -0.07:
-            self.velocity = -0.07
-        elif self.velocity >= 0.07:
-            self.velocity = 0.06999999
-        
-        # update position
-        self.position += self.velocity
-        if self.position < -1.2:
-            self.position = -1.2
-            self.velocity = 0.0
-        
-        # calculate done flag and sample reward
-        done = True if (self.position >= 0.5 or self.made_steps == self._max_episode_steps) else False
-        r = np.random.normal(-1.0, self.rewardStd)
- 
-        return np.array([self.position, self.velocity]), r, done, None
-    
-    def seed(self, seed):
-        pass

@@ -12,7 +12,7 @@ import torch
 from current_algos.common.envs.ObstacleAvoidance import ObstacleAvoidance_Env
 from current_algos.common.envs.Ski import Ski_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
-from current_algos.TD3.td3_agent import *
+from current_algos.SAC.sac_agent import *
 
 # training config
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
@@ -26,13 +26,13 @@ def visualize_policy(env_str, POMDP_type, actor_weights, critic_weights):
     elif env_str == "Ski":
         test_env = Ski_Env(POMDP_type=POMDP_type)
     
-    test_agent = TD3_Agent(mode      = "test",
-                      action_dim     = test_env.action_space.shape[0], 
-                      state_dim      = test_env.observation_space.shape[0], 
-                      action_high    = test_env.action_space.high[0],
-                      action_low     = test_env.action_space.low[0], 
-                      actor_weights  = actor_weights, 
-                      critic_weights = critic_weights)
+    test_agent = SAC_Agent(mode           = "test",
+                           action_dim     = test_env.action_space.shape[0], 
+                           state_dim      = test_env.observation_space.shape[0], 
+                           action_high    = test_env.action_space.high[0],
+                           action_low     = test_env.action_space.low[0], 
+                           actor_weights  = actor_weights, 
+                           critic_weights = critic_weights)
 
     rets = []
     
@@ -77,5 +77,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    visualize_policy(env_str="Ski", POMDP_type="MDP", critic_weights="TD3_Agent_critic_weights.pth", 
-                     actor_weights="TD3_Agent_actor_weights.pth")
+    visualize_policy(env_str="Ski", POMDP_type="MDP", critic_weights="SAC_Agent_critic_weights.pth", 
+                     actor_weights="SAC_Agent_actor_weights.pth")
