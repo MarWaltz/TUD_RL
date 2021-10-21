@@ -6,11 +6,10 @@ import time
 
 import gym
 import numpy as np
-
 import torch
 from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.envs.MountainCar import MountainCar
 from current_algos.DQN.dqn_agent import *
+from envs.MountainCar import MountainCar
 
 # training config
 TIMESTEPS = 1000000     # overall number of training interaction steps

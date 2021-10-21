@@ -9,10 +9,10 @@ import gym
 import numpy as np
 #import pybulletgym
 import torch
-from current_algos.common.envs.ObstacleAvoidance import ObstacleAvoidance_Env
-from current_algos.common.envs.Ski import Ski_Env
 #from current_algos.common.POMDP_wrapper import POMDP_Wrapper
 from current_algos.LSTM_TD3.lstm_td3_agent import *
+from envs.ObstacleAvoidance import ObstacleAvoidance_Env
+from envs.Ski import Ski_Env
 
 # training config
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
