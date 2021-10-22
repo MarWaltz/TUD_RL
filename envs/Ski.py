@@ -140,7 +140,7 @@ class Ski_Env(gym.Env):
         #self.agent_ay = np.clip(self.agent_ay + action.item() * self.jerk_max, -self.ay_max, self.ay_max)
         #self.agent_ay = np.clip(self.agent_ay  -1              * self.jerk_max, -self.ay_max, self.ay_max)
 
-        self.agent_ay = action * self.ay_max
+        self.agent_ay = action.item() * self.ay_max
         agent_vy_new = np.clip(self.agent_vy + self.agent_ay * self.delta_t,-self.vy_max, self.vy_max)
 
         agent_y_new = self.agent_y + 0.5 * (self.agent_vy + agent_vy_new) * self.delta_t

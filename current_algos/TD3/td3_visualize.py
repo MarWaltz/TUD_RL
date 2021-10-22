@@ -18,21 +18,21 @@ from envs.Ski import Ski_Env
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
 
-def visualize_policy(env_str, POMDP_type, actor_weights, critic_weights):
+def visualize_policy(env_str, frame_stack, POMDP_type, actor_weights, critic_weights):
 
     if env_str == "LCP":
-        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type)
+        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
     
     elif env_str == "Ski":
-        test_env = Ski_Env(POMDP_type=POMDP_type)
+        test_env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
     
     test_agent = TD3_Agent(mode      = "test",
-                      action_dim     = test_env.action_space.shape[0], 
-                      state_dim      = test_env.observation_space.shape[0], 
-                      action_high    = test_env.action_space.high[0],
-                      action_low     = test_env.action_space.low[0], 
-                      actor_weights  = actor_weights, 
-                      critic_weights = critic_weights)
+                           action_dim     = test_env.action_space.shape[0], 
+                           state_dim      = test_env.observation_space.shape[0], 
+                           action_high    = test_env.action_space.high[0],
+                           action_low     = test_env.action_space.low[0], 
+                           actor_weights  = actor_weights, 
+                           critic_weights = critic_weights)
 
     rets = []
     
@@ -77,5 +77,5 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    visualize_policy(env_str="Ski", POMDP_type="MDP", critic_weights="TD3_Agent_critic_weights.pth", 
+    visualize_policy(env_str="Ski", frame_stack=3, POMDP_type="MDP", critic_weights="TD3_Agent_critic_weights.pth", 
                      actor_weights="TD3_Agent_actor_weights.pth")
