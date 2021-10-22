@@ -68,8 +68,8 @@ def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weigh
         max_episode_steps = env._max_episode_steps
 
     elif env_str == "Ski":
-        env = Ski_Env(POMDP_type=POMDP_type)
-        test_env = Ski_Env(POMDP_type=POMDP_type)
+        env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        test_env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
     
     else:
@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="LCP")
+    parser.add_argument("--env_str", type=str, default="Ski")
     parser.add_argument("--POMDP_type", type=str, default="MDP")
     parser.add_argument("--frame_stack", type=int, default=1)
     parser.add_argument("--lr_critic", type=float, default=0.0001)

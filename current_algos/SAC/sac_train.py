@@ -68,8 +68,8 @@ def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weigh
         max_episode_steps = env._max_episode_steps
 
     elif env_str == "Ski":
-        env = Ski_Env(POMDP_type=POMDP_type)
-        test_env = Ski_Env(POMDP_type=POMDP_type)
+        env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        test_env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
     
     else:
