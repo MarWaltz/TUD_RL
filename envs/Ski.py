@@ -22,7 +22,7 @@ class Ski_Env(gym.Env):
 
         # speed and acceleration of vessels
         self.vx_max = 5
-        self.vy_max = 2
+        self.vy_max = 1
         self.ax_max = 0
         self.ay_max = 0.01
         self.jerk_max = 0.001
