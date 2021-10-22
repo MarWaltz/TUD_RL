@@ -39,7 +39,7 @@ class CNN_Bootstrapped_DQN_Agent:
                  sq_grad_momentum = 0.95,
                  min_sq_grad      = 0.01,
                  l2_reg           = 0.0,
-                 buffer_length    = int(10e5),
+                 buffer_length    = int(1e5),
                  grad_clip        = False,
                  grad_rescale     = True,
                  act_start_step   = 5000,

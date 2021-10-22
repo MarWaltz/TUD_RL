@@ -15,7 +15,7 @@ from current_algos.common.eval_plot import plot_from_progress
 # training config
 TIMESTEPS = 5000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
-EVAL_EPISODES = 10      # number of episodes to average per evaluation
+EVAL_EPISODES = 100     # number of episodes to average per evaluation
 
 def evaluate_policy(test_env, test_agent):
     test_agent.mode = "test"
@@ -43,8 +43,11 @@ def evaluate_policy(test_env, test_agent):
             if test_env.game_name == "seaquest":
                 eval_epi_steps += 1
 
-            # select action
-            a = test_agent.select_action(s)
+            # select action: in the MinAtar case with 0.01-greedy
+            if "MinAtar" in test_env.spec._env_name and (np.random.binomial(1, 0.01) == 1):
+                a = np.random.randint(low=0, high=test_agent.num_actions, size=1, dtype=int).item()
+            else:
+                a = test_agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -116,8 +119,6 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-    G_list = []
-    G_step_list = []
     
     # main loop    
     for total_steps in range(TIMESTEPS):
@@ -171,10 +172,6 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
             
-            # append episode return list
-            G_list.append(epi_ret)
-            G_step_list.append(total_steps)
-
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
@@ -183,10 +180,6 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
         if (total_steps + 1) % EPOCH_LENGTH == 0 and (total_steps + 1) > agent.upd_start_step:
 
             epoch = (total_steps + 1) // EPOCH_LENGTH
-
-            # save G list and the corresponding time steps
-            np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array(G_list))
-            np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array(G_step_list))
 
             # evaluate agent with deterministic policy
             eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent))
@@ -213,11 +206,6 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
             if agent.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
-
-    # save G list and the corresponding time steps
-    np.save(file=f"{agent.logger.output_dir}/G_list.npy", arr=np.array(G_list))
-    np.save(file=f"{agent.logger.output_dir}/G_step_list.npy", arr=np.array(G_step_list))
-
 
 if __name__ == "__main__":
     
