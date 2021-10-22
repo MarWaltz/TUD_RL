@@ -66,7 +66,7 @@ def evaluate_policy(test_env, test_agent):
             cur_ret += r
 
             # break option for seaquest-env
-            if test_env.game_name == "seaquest" and eval_epi_steps == 100000:
+            if test_env.game_name == "seaquest" and eval_epi_steps == 10000:
                 break
 
         # compute average return and append it
