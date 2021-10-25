@@ -66,7 +66,7 @@ def evaluate_policy(test_env, test_agent):
             cur_ret += r
 
             # break option for seaquest-env
-            if test_env.game_name == "seaquest" and eval_epi_steps == 10000:
+            if test_env.game_name == "seaquest" and eval_epi_steps == test_env._max_episode_steps:
                 break
 
         # compute average return and append it
@@ -83,7 +83,14 @@ def train(env_str, double, lr, run, kernel, kernel_param, seed=0, dqn_weights=No
     # init env
     env = gym.make(env_str)
     test_env = gym.make(env_str)
-    max_episode_steps = np.inf if "MinAtar" in env_str else env._max_episode_steps
+
+    if "MinAtar" in env_str:
+        if "Seaquest" in env_str:
+            env._max_episode_steps = 1e4
+            test_env._max_episode_steps = 1e4
+        else:
+            env._max_episode_steps = np.inf
+            test_env._max_episode_steps = np.inf
 
     # seeding
     env.seed(seed)
@@ -141,7 +148,7 @@ def train(env_str, double, lr, run, kernel, kernel_param, seed=0, dqn_weights=No
         s2, r, d, _ = env.step(a)
         
         # Ignore "done" if it comes from hitting the time horizon of the environment
-        d = False if epi_steps == max_episode_steps else d
+        d = False if epi_steps == env._max_episode_steps else d
 
         # potentially normalize s2
         if agent.input_norm:
@@ -165,7 +172,7 @@ def train(env_str, double, lr, run, kernel, kernel_param, seed=0, dqn_weights=No
         s = s2
 
         # end of episode handling
-        if d or (epi_steps == max_episode_steps):
+        if d or (epi_steps == env._max_episode_steps):
  
             # reset active head for action selection
             active_head = np.random.choice(agent.K)

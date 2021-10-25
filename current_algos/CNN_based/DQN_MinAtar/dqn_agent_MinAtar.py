@@ -29,10 +29,8 @@ class CNN_DQN_Agent:
                  n_steps          = 1,
                  tgt_update_freq  = 1000,
                  optimizer        = "Adam",
+                 loss             = "SmoothL1Loss",
                  lr               = 0.00025,
-                 grad_momentum    = 0.95,
-                 sq_grad_momentum = 0.95,
-                 min_sq_grad      = 0.01,
                  l2_reg           = 0.0,
                  buffer_length    = int(1e5),
                  grad_clip        = False,
@@ -98,12 +96,12 @@ class CNN_DQN_Agent:
         self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
         self.optimizer        = optimizer
+        self.loss             = loss
 
+        assert self.loss in ["SmoothL1Loss", "MSELoss"], "Pick 'SmoothL1Loss' or 'MSELoss', please."
         assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
+        
         self.lr               = lr
-        self.grad_momentum    = grad_momentum
-        self.sq_grad_momentum = sq_grad_momentum
-        self.min_sq_grad      = min_sq_grad
         self.l2_reg           = l2_reg
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
@@ -168,7 +166,7 @@ class CNN_DQN_Agent:
         if self.optimizer == "Adam":
             self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
         else:
-            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=lr, momentum=grad_momentum, alpha=sq_grad_momentum, centered=True, eps=min_sq_grad)
+            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=lr, alpha=0.95, centered=True, eps=0.01)
 
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
@@ -236,7 +234,10 @@ class CNN_DQN_Agent:
             target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
 
         # calculate loss
-        loss = F.mse_loss(Q_v, target_Q)
+        if self.loss == "MSELoss":
+            loss = F.mse_loss(Q_v, target_Q)
+        elif self.loss == "SmoothL1Loss":
+            loss = F.smooth_l1_loss(Q_v, target_Q)
         
         # compute gradients
         loss.backward()
