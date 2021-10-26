@@ -7,6 +7,7 @@ import time
 
 import gym
 import gym_minatar
+import gym_pygame
 import numpy as np
 import torch
 from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
@@ -229,7 +230,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
+    parser.add_argument("--env_str", type=str, default="Catcher-PLE-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--run", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.0001)
