@@ -9,59 +9,65 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from current_algos.DQN.dqn_buffer import UniformReplayBuffer
-from current_algos.DQN.dqn_nets import DQN
-from current_algos.common.normalizer import Input_Normalizer
-from current_algos.common.logging_func import *
+from current_algos.DQN.dqn_nets import DQN, CNN_DQN
+from common.normalizer import Input_Normalizer
+from common.logging_func import *
 
 class DQN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
-                 state_dim,
+                 state_shape,
+                 state_type       = "Image",
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
                  double           = False,
-                 act_softmax      = False,
                  gamma            = 0.99,
-                 eps_decay        = 0.99995,
-                 eps_final        = 0.001,
-                 n_steps          = 1,
-                 tgt_update_freq  = 256,
-                 lr               = 0.001,
-                 l2_reg           = 0.0,
-                 buffer_length    = 10000,
+                 eps_init         = 1.0,
+                 eps_final        = 0.1,
+                 eps_decay_steps  = 100000,
+                 tgt_update_freq  = 1000,
+                 optimizer        = "RMSprop",
+                 loss             = "SmoothL1Loss",
+                 lr               = 0.00025,
+                 buffer_length    = int(1e5),
                  grad_clip        = False,
                  grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
+                 act_start_step   = 5000,
+                 upd_start_step   = 5000,
                  upd_every        = 1,
-                 batch_size       = 128,
-                 device           = "cpu"):
+                 batch_size       = 32,
+                 device           = "cpu",
+                 env_str          = None):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
             mode ([type]): [description]
             num_actions ([type]): [description]
-            state_dim ([type]): [description]
-            action_high ([type]): [description]
-            action_low ([type]): [description]
-            actor_weights ([type], optional): [description]. Defaults to None.
-            critic_weights ([type], optional): [description]. Defaults to None.
+            state_shape ([type]): [description]
+            state_type (str, optional): [description]. Defaults to "Image".
+            dqn_weights ([type], optional): [description]. Defaults to None.
             input_norm (bool, optional): [description]. Defaults to False.
             input_norm_prior ([type], optional): [description]. Defaults to None.
+            double (bool, optional): [description]. Defaults to False.
             gamma (float, optional): [description]. Defaults to 0.99.
-            tau (float, optional): [description]. Defaults to 0.005.
-            lr_actor (float, optional): [description]. Defaults to 0.001.
-            lr_critic (float, optional): [description]. Defaults to 0.001.
-            buffer_length (int, optional): [description]. Defaults to 1000000.
+            eps_init (float, optional): [description]. Defaults to 1.0.
+            eps_final (float, optional): [description]. Defaults to 0.1.
+            eps_decay_steps (int, optional): [description]. Defaults to 100000.
+            tgt_update_freq (int, optional): [description]. Defaults to 1000.
+            optimizer (str, optional): [description]. Defaults to "RMSprop".
+            loss (str, optional): [description]. Defaults to "SmoothL1Loss".
+            lr (float, optional): [description]. Defaults to 0.00025.
+            buffer_length ([type], optional): [description]. Defaults to int(1e5).
             grad_clip (bool, optional): [description]. Defaults to False.
             grad_rescale (bool, optional): [description]. Defaults to False.
-            act_start_step (int, optional): Number of steps with random actions before using own decisions. Defaults to 10000.
-            upd_start_step (int, optional): Steps to perform in environment before starting updates. Defaults to 1000.
-            upd_every (int, optional): Frequency of performing updates. However, ratio between environment and gradient steps is always 1.
-            batch_size (int, optional): [description]. Defaults to 100.
+            act_start_step (int, optional): [description]. Defaults to 5000.
+            upd_start_step (int, optional): [description]. Defaults to 5000.
+            upd_every (int, optional): [description]. Defaults to 1.
+            batch_size (int, optional): [description]. Defaults to 32.
             device (str, optional): [description]. Defaults to "cpu".
+            env_str ([type], optional): [description]. Defaults to None.
         """
 
         # store attributes and hyperparameters
@@ -69,24 +75,40 @@ class DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        assert (act_softmax and double) == False, "Currently, softmax double-DQN is not implemented."
-        self.name             = "Softmax DQN_Agent" if act_softmax else "DQN_Agent"
+        self.name = "DQN_Agent" if double == False else "DDQN_Agent"
+        self.num_actions = num_actions
+ 
+        # state type and shape
+        self.state_type = state_type
+        self.state_shape = state_shape
 
-        self.num_actions      = num_actions
-        self.state_dim        = state_dim
+        assert self.state_type in ["Image", "Vector"], "'state_type' can be either 'Image' or 'Vector'."
+
+        if state_type == "Image":
+            assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width) for images."
+     
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.double           = double
-        self.act_softmax      = act_softmax
         self.gamma            = gamma
-        self.epsilon          = 1.0
-        self.eps_decay        = eps_decay
+
+        # linear epsilon schedule
+        self.eps_init         = eps_init
+        self.epsilon          = eps_init
         self.eps_final        = eps_final
-        self.n_steps          = n_steps
+        self.eps_decay_steps  = eps_decay_steps
+        self.eps_inc          = (eps_final - eps_init) / eps_decay_steps
+        self.eps_t            = 0
+
         self.tgt_update_freq  = tgt_update_freq
+        self.optimizer        = optimizer
+        self.loss             = loss
+
+        assert self.loss in ["SmoothL1Loss", "MSELoss"], "Pick 'SmoothL1Loss' or 'MSELoss', please."
+        assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
+        
         self.lr               = lr
-        self.l2_reg           = l2_reg
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -94,9 +116,6 @@ class DQN_Agent:
         self.upd_start_step   = upd_start_step
         self.upd_every        = upd_every
         self.batch_size       = batch_size
-
-        # n_step
-        assert n_steps >= 1, "'n_steps' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -106,14 +125,14 @@ class DQN_Agent:
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-        
+
         # init logger and save config
-        self.logger = EpochLogger(alg_str = self.name)
+        self.logger = EpochLogger(alg_str = self.name, env_str = env_str)
         self.logger.save_config(locals())
         
         # init replay buffer and noise
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(state_dim=state_dim, n_steps=n_steps, gamma=gamma,
+            self.replay_buffer = UniformReplayBuffer(state_type=state_type, state_shape=state_shape, 
                                                      buffer_length=buffer_length, batch_size=batch_size, device=self.device)
 
         # init input normalizer
@@ -123,13 +142,17 @@ class DQN_Agent:
             if input_norm_prior is not None:
                 with open(input_norm_prior, "rb") as f:
                     prior = pickle.load(f)
-                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=prior)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=prior)
             else:
-                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=None)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
         
         # init DQN
-        self.DQN = DQN(num_actions=num_actions, state_dim=state_dim).to(self.device)
-        
+        if self.state_type == "Image":
+            self.DQN = CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device)
+
+        elif self.state_type == "Vector":
+            self.DQN = DQN(num_actions=num_actions, state_dim=state_shape).to(self.device)
+
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")
         print("--------------------------------------------")
@@ -147,7 +170,10 @@ class DQN_Agent:
             p.requires_grad = False
 
         # define optimizer
-        self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
+        if self.optimizer == "Adam":
+            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr)
+        else:
+            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=lr, alpha=0.95, centered=True, eps=0.01)
 
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
@@ -155,7 +181,7 @@ class DQN_Agent:
     @torch.no_grad()
     def select_action(self, s):
         """Epsilon-greedy based action selection for a given state.
-        Arg s:   np.array with shape (state_dim,)
+        Arg s:   np.array with shape (in_channels, height, width)
         returns: int for the action
         """
         # random action
@@ -164,8 +190,8 @@ class DQN_Agent:
             
         # greedy action
         else:
-            # reshape obs
-            s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
+            # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
+            s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
             # forward pass
             q = self.DQN(s).to(self.device)
@@ -173,17 +199,19 @@ class DQN_Agent:
             # greedy
             a = torch.argmax(q).item()
 
-        # decay epsilon
-        self.epsilon = max(self.epsilon * self.eps_decay, self.eps_final)
+        # anneal epsilon linearly
+        if self.mode == "train":
+            self.eps_t += 1
+            self.epsilon = max(self.eps_inc * self.eps_t + self.eps_init, self.eps_final)
 
         return a
-    
+
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
 
     def train(self):
-        """Samples from replay_buffer, updates actor, critic and their target networks."""        
+        """Samples from replay_buffer, updates critic and the target networks."""        
         # sample batch
         batch = self.replay_buffer.sample()
         
@@ -205,19 +233,19 @@ class DQN_Agent:
             if self.double:
                 a2 = torch.argmax(self.DQN(s2), dim=1).reshape(self.batch_size, 1)
                 target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
-            elif self.act_softmax:
-                target_Q_next = self.target_DQN(s2)
-                softmax = torch.sum(F.softmax(target_Q_next, dim=1) * target_Q_next, dim=1)
-                target_Q_next = softmax.reshape(self.batch_size, 1)
             else:
                 target_Q_next = self.target_DQN(s2)
                 target_Q_next = torch.max(target_Q_next, dim=1).values.reshape(self.batch_size, 1)
 
             # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+            target_Q = r + self.gamma * target_Q_next * (1 - d)
 
         # calculate loss
-        loss = F.mse_loss(Q_v, target_Q)
+        if self.loss == "MSELoss":
+            loss = F.mse_loss(Q_v, target_Q)
+
+        elif self.loss == "SmoothL1Loss":
+            loss = F.smooth_l1_loss(Q_v, target_Q)
         
         # compute gradients
         loss.backward()

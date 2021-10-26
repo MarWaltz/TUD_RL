@@ -12,9 +12,9 @@ import torch.optim as optim
 
 from current_algos.TD3.td3_buffer import UniformReplayBuffer
 from current_algos.TD3.td3_nets import Actor, Critic, Double_Critic
-from current_algos.common.noise import Gaussian_Noise
-from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
-from current_algos.common.logging_func import *
+from common.noise import Gaussian_Noise
+from common.normalizer import Action_Normalizer, Input_Normalizer
+from common.logging_func import *
 
 class TD3_Agent:
     def __init__(self, 

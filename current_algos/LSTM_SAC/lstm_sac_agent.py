@@ -12,8 +12,8 @@ import torch.optim as optim
 
 from current_algos.LSTM_SAC.lstm_sac_buffer import UniformReplayBuffer
 from current_algos.LSTM_SAC.lstm_sac_nets import LSTM_GaussianActor, LSTM_Double_Critic
-from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
-from current_algos.common.logging_func import *
+from common.normalizer import Action_Normalizer, Input_Normalizer
+from common.logging_func import *
 
 class LSTM_SAC_Agent:
     def __init__(self, 

@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class CoreNet(nn.Module):
+class CNN_CoreNet(nn.Module):
     """Defines the CNN part of a Bootstrapped DQN. Suitable, e.g., for MinAtar games."""
     def __init__(self, in_channels, height, width):
-        super(CoreNet, self).__init__()
+        super(CNN_CoreNet, self).__init__()
 
         # CNN hyperparams
         self.out_channels = 16
@@ -67,7 +67,7 @@ class CNN_Bootstrapped_DQN(nn.Module):
     def __init__(self, in_channels, height, width, num_actions, K):
         super().__init__()
         
-        self.core = CoreNet(in_channels=in_channels, height=height, width=width)
+        self.core = CNN_CoreNet(in_channels=in_channels, height=height, width=width)
         self.heads = nn.ModuleList([HeadNet(in_size_FC=self.core.in_size_FC, num_actions=num_actions) for _ in range(K)])
 
     def forward(self, s, head=None):
@@ -79,6 +79,51 @@ class CNN_Bootstrapped_DQN(nn.Module):
         torch.Size([batch_size, num_actions]) else."""
 
         # CNN part
+        x = self.core(s)
+
+        # K heads
+        if head is None:
+            return [head_net(x) for head_net in self.heads]
+        else:
+            return self.heads[head](x)
+
+
+class CoreNet(nn.Module):
+    """Defines the core for the Bootstrapped DQN architecture."""
+    def __init__(self, state_dim, out_size):
+        super().__init__()
+
+        self.linear1 = nn.Linear(state_dim, 128)
+        self.linear2 = nn.Linear(128, out_size)
+
+    def forward(self, x):
+        """x : torch.Size([batch_size, state_dim])
+        
+        returns: torch.Size([batch_size, out_size])"""
+
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.linear2(x))
+
+        return x
+
+
+class Bootstrapped_DQN(nn.Module):
+    """Defines the Bootstrapped DQN consisting of a common part and K different heads."""
+    def __init__(self, state_dim, num_actions, K):
+        super().__init__()
+        
+        self.core = CoreNet(state_dim=state_dim, out_size=128)
+        self.heads = nn.ModuleList([HeadNet(in_size_FC=128, num_actions=num_actions) for _ in range(K)])
+
+    def forward(self, s, head=None):
+        """Returns for a state s all Q(s,a) for each k. Args:
+        s: torch.Size([batch_size, state_dim])
+
+        returns:
+        list of length K with each element being torch.Size([batch_size, num_actions]) if head is None,
+        torch.Size([batch_size, num_actions]) else."""
+
+        # common part
         x = self.core(s)
 
         # K heads

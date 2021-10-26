@@ -7,18 +7,19 @@ import time
 
 import gym
 import gym_minatar
-import gym_pygame
 import numpy as np
 import torch
-from current_algos.CNN_based.DQN_MinAtar.dqn_agent_MinAtar import *
-from current_algos.common.eval_plot import plot_from_progress
+from common.eval_plot import plot_from_progress
+from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
+from envs.wrappers import MinAtari_Wrapper
 
 # training config
 TIMESTEPS = 5000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 100     # number of episodes to average per evaluation
 
-def evaluate_policy(test_env, test_agent):
+
+def evaluate_policy(test_env, test_agent, max_episode_steps):
     test_agent.mode = "test"
     rets = []
     
@@ -30,25 +31,19 @@ def evaluate_policy(test_env, test_agent):
         if test_agent.input_norm:
             s = test_agent.inp_normalizer.normalize(s, mode="test")
 
-        # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
-        s = np.moveaxis(s, -1, 0)
-
         cur_ret = 0
         d = False
-
-        if test_env.game_name == "seaquest":
-            eval_epi_steps = 0
-
+        eval_epi_steps = 0
+        
         while not d:
 
-            if test_env.game_name == "seaquest":
-                eval_epi_steps += 1
+            eval_epi_steps += 1
 
             # select action: in the MinAtar case with 0.01-greedy
             if "MinAtar" in test_env.spec._env_name and (np.random.binomial(1, 0.01) == 1):
                 a = np.random.randint(low=0, high=test_agent.num_actions, size=1, dtype=int).item()
             else:
-                a = test_agent.select_action(s)
+                a = test_agent.select_action(s, active_head=None)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -57,24 +52,21 @@ def evaluate_policy(test_env, test_agent):
             if test_agent.input_norm:
                 s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
 
-            # change s2 to be of shape (in_channels, height, width) instead of (height, width, in_channels)
-            s2 = np.moveaxis(s2, -1, 0)
-
             # s becomes s2
             s = s2
             cur_ret += r
 
-            # break option for seaquest-env
-            if test_env.game_name == "seaquest" and eval_epi_steps == test_env._max_episode_steps:
+            # break option
+            if eval_epi_steps == max_episode_steps:
                 break
-        
+
         # compute average return and append it
         rets.append(cur_ret)
     
     return rets
 
 
-def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
+def train(env_str, double, lr, run, kernel, kernel_param, state_type="Image", seed=0, dqn_weights=None, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -83,14 +75,27 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
     # init env
     env = gym.make(env_str)
     test_env = gym.make(env_str)
-    
+
+    # MinAtari observation wrapper
     if "MinAtar" in env_str:
-        if "Seaquest" in env_str:
-            env._max_episode_steps = 1e4
-            test_env._max_episode_steps = 1e4
-        else:
-            env._max_episode_steps = np.inf
-            test_env._max_episode_steps = np.inf
+        env = MinAtari_Wrapper(env)
+        test_env = MinAtari_Wrapper(test_env)
+
+    # maximum episode steps
+    if "MinAtar" in env_str:
+        max_episode_steps = 1e4 if "Seaquest" in env_str else np.inf
+    else:
+        max_episode_steps = env._max_episode_steps
+            
+    # get state_shape
+    if state_type == "Image":
+        assert "MinAtar" in env_str, "Only MinAtar-interface available for images."
+
+        # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
+        state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+    
+    elif state_type == "Vector":
+        state_shape = env.observation_space.shape[0]
 
     # seeding
     env.seed(seed)
@@ -99,35 +104,35 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
     np.random.seed(seed)
     random.seed(seed)
 
-    # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-    state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
-
     # init agent
-    agent = CNN_DQN_Agent(mode        = "train",
-                          num_actions = env.action_space.n, 
-                          state_shape = state_shape,
-                          double      = double,
-                          lr          = lr,
-                          dqn_weights = dqn_weights,
-                          device      = device,
-                          env_str     = env_str)
+    agent = Bootstrapped_DQN_Agent(mode         = "train",
+                                   num_actions  = env.action_space.n, 
+                                   state_type   = state_type,
+                                   state_shape  = state_shape,
+                                   double       = double,
+                                   lr           = lr,
+                                   kernel       = kernel,
+                                   kernel_param = kernel_param,
+                                   dqn_weights  = dqn_weights,
+                                   device       = device,
+                                   env_str      = env_str)
 
     # save json file with run number
     with open(f"{agent.logger.output_dir}/run.json", "w") as outfile:
         json.dump(dict({"run" : run}), outfile)
-    
+
+    # init the active head for action selection
+    active_head = np.random.choice(agent.K)
+
     # get initial state and normalize it
     s = env.reset()
     if agent.input_norm:
         s = agent.inp_normalizer.normalize(s, mode="train")
 
-    # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
-    s = np.moveaxis(s, -1, 0)
-
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-    
+
     # main loop    
     for total_steps in range(TIMESTEPS):
 
@@ -137,20 +142,17 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
         if total_steps < agent.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
-            a = agent.select_action(s)
+            a = agent.select_action(s, active_head)
         
         # perform step
         s2, r, d, _ = env.step(a)
         
         # Ignore "done" if it comes from hitting the time horizon of the environment
-        d = False if epi_steps == env._max_episode_steps else d
+        d = False if epi_steps == max_episode_steps else d
 
         # potentially normalize s2
         if agent.input_norm:
             s2 = agent.inp_normalizer.normalize(s2, mode="train")
-
-        # change s2 to be of shape (in_channels, height, width) instead of (height, width, in_channels)
-        s2 = np.moveaxis(s2, -1, 0)
 
         # add epi ret
         epi_ret += r
@@ -167,19 +169,19 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
         s = s2
 
         # end of episode handling
-        if d or (epi_steps == env._max_episode_steps):
+        if d or (epi_steps == max_episode_steps):
  
+            # reset active head for action selection
+            active_head = np.random.choice(agent.K)
+
             # reset to initial state and normalize it
             s = env.reset()
             if agent.input_norm:
                 s = agent.inp_normalizer.normalize(s, mode="train")
             
-            # change s to be of shape (in_channels, height, width) instead of (height, width, in_channels)
-            s = np.moveaxis(s, -1, 0)
-
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
-            
+
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
@@ -190,7 +192,7 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent))
+            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), max_episode_steps=max_episode_steps)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -215,6 +217,7 @@ def train(env_str, double, lr, run, seed=0, dqn_weights=None, device="cpu"):
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
+
 if __name__ == "__main__":
     
     # helper function for parser
@@ -228,12 +231,24 @@ if __name__ == "__main__":
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
+    def str2None(v):
+        if v is None:
+            return v
+        elif v == "None":
+            return None
+        elif isinstance(v, str):
+            return v
+        else:
+            raise argparse.ArgumentTypeError("Expected 'None' or a string.")
+
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Catcher-PLE-v0")
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--run", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--kernel", type=str2None, default=None)
+    parser.add_argument("--kernel_param", type=float, default=1.0)
     args = parser.parse_args()
 
     # set number of torch threads
@@ -252,4 +267,5 @@ if __name__ == "__main__":
 
         return int(seed_str)
 
-    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=get_seed(args.lr, args.run))
+    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=get_seed(args.lr, args.run), 
+          kernel=args.kernel, kernel_param=args.kernel_param)

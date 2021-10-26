@@ -9,18 +9,18 @@ import gym
 import numpy as np
 import pybulletgym
 import torch
-from current_algos.common.eval_plot import plot_from_progress
-from current_algos.common.POMDP_wrapper import POMDP_Wrapper
+from common.eval_plot import plot_from_progress
 from current_algos.TD3.td3_agent import *
 from envs.ObstacleAvoidance import ObstacleAvoidance_Env
 from envs.Ski import Ski_Env
+from envs.wrappers import POMDP_Wrapper
 
 # training config
 TIMESTEPS = 25000000     # overall number of training interaction steps
 EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
 EVAL_EPISODES = 10      # number of episodes to average per evaluation
 
-def evaluate_policy(test_env, test_agent):
+def evaluate_policy(test_env, test_agent, max_episode_steps):
     test_agent.mode = "test"
     rets = []
     
@@ -34,8 +34,12 @@ def evaluate_policy(test_env, test_agent):
         cur_ret = 0
 
         d = False
+        eval_epi_steps = 0
         
         while not d:
+
+            eval_epi_steps += 1
+
             # select action
             a = test_agent.select_action(s)
             
@@ -49,7 +53,11 @@ def evaluate_policy(test_env, test_agent):
             # s becomes s2
             s = s2
             cur_ret += r
-        
+
+            # break option
+            if eval_epi_steps == max_episode_steps:
+                break
+
         # compute average return and append it
         rets.append(cur_ret)
     
@@ -163,7 +171,7 @@ def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weigh
             epoch = (total_steps + 1) // EPOCH_LENGTH
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent))
+            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), max_episode_steps=max_episode_steps)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 

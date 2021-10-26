@@ -9,19 +9,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from current_algos.CNN_based.Bootstrapped_DQN_MinAtar.bootstrapped_dqn_buffer_MinAtar import \
-    UniformReplayBuffer_Bootstrap_CNN
-from current_algos.CNN_based.Bootstrapped_DQN_MinAtar.bootstrapped_dqn_nets_MinAtar import \
-    CNN_Bootstrapped_DQN
-from current_algos.common.logging_func import *
-from current_algos.common.normalizer import Input_Normalizer
+from current_algos.Bootstrapped_DQN.bootstrapped_dqn_buffer import UniformReplayBuffer_Bootstrapped_DQN
+from current_algos.Bootstrapped_DQN.bootstrapped_dqn_nets import Bootstrapped_DQN, CNN_Bootstrapped_DQN
+from common.logging_func import *
+from common.normalizer import Input_Normalizer
 
 
-class CNN_Bootstrapped_DQN_Agent:
+class Bootstrapped_DQN_Agent:
     def __init__(self, 
                  mode,
                  num_actions, 
                  state_shape,
+                 state_type       = "Image",
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
@@ -31,12 +30,10 @@ class CNN_Bootstrapped_DQN_Agent:
                  K                = 10,
                  mask_p           = 1.0,
                  gamma            = 0.99,
-                 n_steps          = 1,
                  tgt_update_freq  = 1000,
                  optimizer        = "RMSprop",
                  loss             = "SmoothL1Loss",
                  lr               = 0.00025,
-                 l2_reg           = 0.0,
                  buffer_length    = int(1e5),
                  grad_clip        = False,
                  grad_rescale     = True,
@@ -51,26 +48,30 @@ class CNN_Bootstrapped_DQN_Agent:
         Args:
             mode ([type]): [description]
             num_actions ([type]): [description]
-            state_dim ([type]): [description]
-            action_high ([type]): [description]
-            action_low ([type]): [description]
-            actor_weights ([type], optional): [description]. Defaults to None.
-            critic_weights ([type], optional): [description]. Defaults to None.
+            state_shape ([type]): [description]
+            state_type (str, optional): [description]. Defaults to "Image".
+            dqn_weights ([type], optional): [description]. Defaults to None.
             input_norm (bool, optional): [description]. Defaults to False.
             input_norm_prior ([type], optional): [description]. Defaults to None.
-            K (float, optional): Number of heads. Defaults to 5.
+            double (bool, optional): [description]. Defaults to False.
+            kernel ([type], optional): [description]. Defaults to None.
+            kernel_param ([type], optional): [description]. Defaults to None.
+            K (int, optional): [description]. Defaults to 10.
+            mask_p (float, optional): [description]. Defaults to 1.0.
             gamma (float, optional): [description]. Defaults to 0.99.
-            tau (float, optional): [description]. Defaults to 0.005.
-            lr_actor (float, optional): [description]. Defaults to 0.001.
-            lr_critic (float, optional): [description]. Defaults to 0.001.
-            buffer_length (int, optional): [description]. Defaults to 1000000.
+            tgt_update_freq (int, optional): [description]. Defaults to 1000.
+            optimizer (str, optional): [description]. Defaults to "RMSprop".
+            loss (str, optional): [description]. Defaults to "SmoothL1Loss".
+            lr (float, optional): [description]. Defaults to 0.00025.
+            buffer_length ([type], optional): [description]. Defaults to int(1e5).
             grad_clip (bool, optional): [description]. Defaults to False.
-            grad_rescale (bool, optional): [description]. Defaults to False.
-            act_start_step (int, optional): Number of steps with random actions before using own decisions. Defaults to 10000.
-            upd_start_step (int, optional): Steps to perform in environment before starting updates. Defaults to 1000.
-            upd_every (int, optional): Frequency of performing updates. However, ratio between environment and gradient steps is always 1.
-            batch_size (int, optional): [description]. Defaults to 100.
+            grad_rescale (bool, optional): [description]. Defaults to True.
+            act_start_step (int, optional): [description]. Defaults to 5000.
+            upd_start_step (int, optional): [description]. Defaults to 5000.
+            upd_every (int, optional): [description]. Defaults to 1.
+            batch_size (int, optional): [description]. Defaults to 32.
             device (str, optional): [description]. Defaults to "cpu".
+            env_str ([type], optional): [description]. Defaults to None.
         """
 
         # store attributes and hyperparameters
@@ -79,17 +80,22 @@ class CNN_Bootstrapped_DQN_Agent:
         self.mode = mode
         
         if kernel is not None:
-            self.name = f"CNN_OurBootDQN_Agent_{kernel}"
+            self.name = f"OurBootDQN_Agent_{kernel}"
         elif double:
-            self.name = "CNN_BootDDQN_Agent"
+            self.name = "BootDDQN_Agent"
         else:
-            self.name = "CNN_BootDQN_Agent"
+            self.name = "BootDQN_Agent"
 
         self.num_actions = num_actions
  
-        # CNN shape
-        assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width)."
+        # state type and shape
+        self.state_type = state_type
         self.state_shape = state_shape
+
+        assert self.state_type in ["Image", "Vector"], "'state_type' can be either 'Image' or 'Vector'."
+
+        if state_type == "Image":
+            assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width) for images."
 
         self.dqn_weights      = dqn_weights
         self.input_norm       = input_norm
@@ -115,7 +121,6 @@ class CNN_Bootstrapped_DQN_Agent:
         self.K                = K
         self.mask_p           = mask_p
 
-        self.n_steps          = n_steps
         self.tgt_update_freq  = tgt_update_freq
         self.optimizer        = optimizer
         self.loss             = loss
@@ -124,7 +129,6 @@ class CNN_Bootstrapped_DQN_Agent:
         assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
 
         self.lr               = lr
-        self.l2_reg           = l2_reg
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -132,9 +136,6 @@ class CNN_Bootstrapped_DQN_Agent:
         self.upd_start_step   = upd_start_step
         self.upd_every        = upd_every
         self.batch_size       = batch_size
-
-        # n_step
-        assert n_steps >= 1, "'n_steps' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -151,8 +152,8 @@ class CNN_Bootstrapped_DQN_Agent:
         
         # init replay buffer and noise
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer_Bootstrap_CNN(state_shape=state_shape, n_steps=n_steps, gamma=gamma, K=K, mask_p=mask_p,
-                                                                   buffer_length=buffer_length, batch_size=batch_size, device=self.device)
+            self.replay_buffer = UniformReplayBuffer_Bootstrapped_DQN(state_type=state_type, state_shape=state_shape, K=K, mask_p=mask_p,
+                                                                      buffer_length=buffer_length, batch_size=batch_size, device=self.device)
 
         # init input normalizer
         if input_norm:
@@ -165,9 +166,13 @@ class CNN_Bootstrapped_DQN_Agent:
             else:
                 self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
         
-        # init convolutional DQN
-        self.DQN = CNN_Bootstrapped_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions, K=K).to(self.device)
+        # init DQN
+        if self.state_type == "Image":
+            self.DQN = CNN_Bootstrapped_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions, K=K).to(self.device)
         
+        elif self.state_type == "Vector":
+            self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_actions=num_actions, K=K)
+
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")
         print("--------------------------------------------")
@@ -201,7 +206,7 @@ class CNN_Bootstrapped_DQN_Agent:
 
         returns: int for the action
         """
-        # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
+        # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
         s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
         # forward pass
@@ -303,11 +308,12 @@ class CNN_Bootstrapped_DQN_Agent:
                     target_Q_next = torch.max(Q_s2_tgt[k], dim=1).values.reshape(self.batch_size, 1)
 
                 # target
-                target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+                target_Q = r + self.gamma * target_Q_next * (1 - d)
 
             # calculate (Q - y)**2
             if self.loss == "MSELoss":
                 loss_k = F.mse_loss(Q_s, target_Q, reduction="none")
+
             elif self.loss == "SmoothL1Loss":
                 loss_k = F.smooth_l1_loss(Q_s, target_Q, reduction="none")
 

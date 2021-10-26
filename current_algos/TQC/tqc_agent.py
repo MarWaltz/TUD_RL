@@ -8,8 +8,8 @@ import torch.nn.functional as F
 
 from current_algos.TQC.tqc_buffer import UniformReplayBuffer
 from current_algos.TQC.tqc_nets import Actor, Critic
-from current_algos.common.normalizer import Action_Normalizer, Input_Normalizer
-from current_algos.common.logging_func import *
+from common.normalizer import Action_Normalizer, Input_Normalizer
+from common.logging_func import *
 
 # Implement TQC Agent after Kuznetsov et al. 2020
 # This is a minimal implementation. No gradient rescaling, target network
