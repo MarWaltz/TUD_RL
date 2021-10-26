@@ -65,7 +65,7 @@ def evaluate_policy(test_env, test_agent, max_episode_steps):
     return rets
 
 
-def train(env_str, double, lr, run, state_type="Image", seed=0, dqn_weights=None, device="cpu"):
+def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None, device="cpu"):
     """Main training loop."""
 
     # measure computation time
@@ -87,13 +87,13 @@ def train(env_str, double, lr, run, state_type="Image", seed=0, dqn_weights=None
         max_episode_steps = env._max_episode_steps
             
     # get state_shape
-    if state_type == "Image":
+    if state_type == "image":
         assert "MinAtar" in env_str, "Only MinAtar-interface available for images."
 
         # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
         state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
     
-    elif state_type == "Vector":
+    elif state_type == "feature":
         state_shape = env.observation_space.shape[0]
 
     # seeding

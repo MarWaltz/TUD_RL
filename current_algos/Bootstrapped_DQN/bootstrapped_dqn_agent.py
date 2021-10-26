@@ -20,7 +20,7 @@ class Bootstrapped_DQN_Agent:
                  mode,
                  num_actions, 
                  state_shape,
-                 state_type       = "Image",
+                 state_type       = "image",
                  dqn_weights      = None, 
                  input_norm       = False,
                  input_norm_prior = None,
@@ -49,7 +49,7 @@ class Bootstrapped_DQN_Agent:
             mode ([type]): [description]
             num_actions ([type]): [description]
             state_shape ([type]): [description]
-            state_type (str, optional): [description]. Defaults to "Image".
+            state_type (str, optional): [description]. Defaults to "image".
             dqn_weights ([type], optional): [description]. Defaults to None.
             input_norm (bool, optional): [description]. Defaults to False.
             input_norm_prior ([type], optional): [description]. Defaults to None.
@@ -92,9 +92,9 @@ class Bootstrapped_DQN_Agent:
         self.state_type = state_type
         self.state_shape = state_shape
 
-        assert self.state_type in ["Image", "Vector"], "'state_type' can be either 'Image' or 'Vector'."
+        assert self.state_type in ["image", "feature"], "'state_type' can be either 'Image' or 'Vector'."
 
-        if state_type == "Image":
+        if state_type == "image":
             assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width) for images."
 
         self.dqn_weights      = dqn_weights
@@ -167,10 +167,10 @@ class Bootstrapped_DQN_Agent:
                 self.inp_normalizer = Input_Normalizer(state_dim=state_shape, prior=None)
         
         # init DQN
-        if self.state_type == "Image":
+        if self.state_type == "image":
             self.DQN = CNN_Bootstrapped_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions, K=K).to(self.device)
         
-        elif self.state_type == "Vector":
+        elif self.state_type == "feature":
             self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_actions=num_actions, K=K)
 
         print("--------------------------------------------")

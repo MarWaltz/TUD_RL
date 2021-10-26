@@ -14,11 +14,11 @@ class UniformReplayBuffer_Bootstrapped_DQN:
         self.size       = 0
         self.device     = device
 
-        if state_type == "Image":
+        if state_type == "image":
             self.s  = np.zeros((self.max_size, *state_shape), dtype=np.float32)
             self.s2 = np.zeros((self.max_size, *state_shape), dtype=np.float32)
 
-        elif state_type == "Vector":
+        elif state_type == "feature":
             self.s  = np.zeros((self.max_size, state_shape), dtype=np.float32)
             self.s2 = np.zeros((self.max_size, state_shape), dtype=np.float32)
 
