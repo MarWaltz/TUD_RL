@@ -28,7 +28,7 @@ class CNN_DQN_Agent:
                  eps_decay_steps  = 100000,
                  n_steps          = 1,
                  tgt_update_freq  = 1000,
-                 optimizer        = "Adam",
+                 optimizer        = "RMSprop",
                  loss             = "SmoothL1Loss",
                  lr               = 0.00025,
                  l2_reg           = 0.0,
