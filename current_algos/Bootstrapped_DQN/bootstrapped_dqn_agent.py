@@ -20,29 +20,31 @@ class Bootstrapped_DQN_Agent:
                  mode,
                  num_actions, 
                  state_shape,
-                 state_type       = "image",
-                 dqn_weights      = None, 
-                 input_norm       = False,
-                 input_norm_prior = None,
-                 double           = False,
-                 kernel           = None,
-                 kernel_param     = None,
-                 K                = 10,
-                 mask_p           = 1.0,
-                 gamma            = 0.99,
-                 tgt_update_freq  = 1000,
-                 optimizer        = "Adam",
-                 loss             = "MSELoss",
-                 lr               = 0.00025,
-                 buffer_length    = int(1e5),
-                 grad_clip        = False,
-                 grad_rescale     = True,
-                 act_start_step   = 5000,
-                 upd_start_step   = 5000,
-                 upd_every        = 1,
-                 batch_size       = 32,
-                 device           = "cpu",
-                 env_str          = None):
+                 state_type,
+                 dqn_weights, 
+                 input_norm,
+                 input_norm_prior,
+                 double,
+                 kernel,
+                 kernel_param,
+                 K,
+                 mask_p,
+                 gamma,
+                 tgt_update_freq,
+                 num_hid_layers, 
+                 hid_size,
+                 optimizer,
+                 loss,
+                 lr,
+                 buffer_length,
+                 grad_clip,
+                 grad_rescale,
+                 act_start_step,
+                 upd_start_step,
+                 upd_every,
+                 batch_size,
+                 device,
+                 env_str):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -122,6 +124,8 @@ class Bootstrapped_DQN_Agent:
         self.mask_p           = mask_p
 
         self.tgt_update_freq  = tgt_update_freq
+        self.num_hid_layers   = num_hid_layers 
+        self.hid_size         = hid_size
         self.optimizer        = optimizer
         self.loss             = loss
 
@@ -171,7 +175,7 @@ class Bootstrapped_DQN_Agent:
             self.DQN = CNN_Bootstrapped_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions, K=K).to(self.device)
         
         elif self.state_type == "feature":
-            self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_actions=num_actions, K=K)
+            self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_hid_layers=num_hid_layers, hid_size=hid_size, num_actions=num_actions, K=K)
 
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")
@@ -191,7 +195,7 @@ class Bootstrapped_DQN_Agent:
 
         # define optimizer
         if self.optimizer == "Adam":
-            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr, weight_decay=l2_reg)
+            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=lr)
         else:
             self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=lr, alpha=0.95, centered=True, eps=0.01)
 

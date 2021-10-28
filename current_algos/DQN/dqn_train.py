@@ -7,6 +7,7 @@ import time
 
 import gym
 import gym_minatar
+import gym_pygame
 import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
@@ -106,6 +107,8 @@ def train(c, agent_name):
                       eps_final        = c["eps_final"],
                       eps_decay_steps  = c["eps_decay_steps"],
                       tgt_update_freq  = c["tgt_update_freq"],
+                      num_hid_layers   = c["num_hid_layers"],
+                      hid_size         = c["hid_size"],
                       optimizer        = c["optimizer"],
                       loss             = c["loss"],
                       lr               = c["lr"],

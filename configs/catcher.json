@@ -1,9 +1,9 @@
 {
    "env":
    {
-      "name"              : "Asterix-MinAtar-v0",
-      "max_episode_steps" : -1,
-      "state_type"        : "image"
+      "name"              : "Catcher-PLE-v0",
+      "max_episode_steps" : 2000,
+      "state_type"        : "feature"
    }
    ,
 
