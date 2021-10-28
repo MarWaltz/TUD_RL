@@ -223,7 +223,7 @@ if __name__ == "__main__":
 
     # init and prepare argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="CartPole-v0")
+    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
     parser.add_argument("--double", type=str2bool, default=False)
     parser.add_argument("--run", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.0001)
