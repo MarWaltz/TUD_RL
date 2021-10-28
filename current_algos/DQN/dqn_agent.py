@@ -18,28 +18,30 @@ class DQN_Agent:
                  mode,
                  num_actions, 
                  state_shape,
-                 state_type       = "image",
-                 dqn_weights      = None, 
-                 input_norm       = False,
-                 input_norm_prior = None,
-                 double           = False,
-                 gamma            = 0.99,
-                 eps_init         = 1.0,
-                 eps_final        = 0.1,
-                 eps_decay_steps  = 100000,
-                 tgt_update_freq  = 1000,
-                 optimizer        = "Adam",
-                 loss             = "MSELoss",
-                 lr               = 0.00025,
-                 buffer_length    = int(1e5),
-                 grad_clip        = False,
-                 grad_rescale     = False,
-                 act_start_step   = 5000,
-                 upd_start_step   = 5000,
-                 upd_every        = 1,
-                 batch_size       = 32,
-                 device           = "cpu",
-                 env_str          = None):
+                 state_type,
+                 dqn_weights, 
+                 input_norm,
+                 input_norm_prior,
+                 double,
+                 gamma,
+                 eps_init,
+                 eps_final,
+                 eps_decay_steps,
+                 tgt_update_freq,
+                 num_hid_layers, 
+                 hid_size,
+                 optimizer,
+                 loss,
+                 lr,
+                 buffer_length,
+                 grad_clip,
+                 grad_rescale,
+                 act_start_step,
+                 upd_start_step,
+                 upd_every,
+                 batch_size,
+                 device,
+                 env_str):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -75,7 +77,7 @@ class DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name = "DQN_Agent" if double == False else "DDQN_Agent"
+        self.name = "dqn_agent" if double == False else "ddqn_agent"
         self.num_actions = num_actions
  
         # state type and shape
@@ -102,6 +104,8 @@ class DQN_Agent:
         self.eps_t            = 0
 
         self.tgt_update_freq  = tgt_update_freq
+        self.num_hid_layers   = num_hid_layers 
+        self.hid_size         = hid_size
         self.optimizer        = optimizer
         self.loss             = loss
 
@@ -151,7 +155,7 @@ class DQN_Agent:
             self.DQN = CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device)
 
         elif self.state_type == "feature":
-            self.DQN = DQN(num_actions=num_actions, state_dim=state_shape).to(self.device)
+            self.DQN = DQN(num_actions=num_actions, state_dim=state_shape, num_hid_layers=num_hid_layers, hid_size=hid_size).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")

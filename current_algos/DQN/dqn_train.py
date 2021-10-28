@@ -10,24 +10,22 @@ import gym_minatar
 import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
+from configs import __path__
 from current_algos.DQN.dqn_agent import *
 from envs.wrappers import MinAtari_Wrapper
 
-# training config
-TIMESTEPS = 5000000     # overall number of training interaction steps
-EPOCH_LENGTH = 5000     # number of time steps between evaluation/logging events
-EVAL_EPISODES = 100     # number of episodes to average per evaluation
 
-def evaluate_policy(test_env, test_agent, max_episode_steps):
+def evaluate_policy(test_env, test_agent, c):
     test_agent.mode = "test"
     rets = []
     
-    for _ in range(EVAL_EPISODES):
+    for _ in range(c["eval_episodes"]):
+
         # get initial state
         s = test_env.reset()
 
         # potentially normalize it
-        if test_agent.input_norm:
+        if c["input_norm"]:
             s = test_agent.inp_normalizer.normalize(s, mode="test")
 
         cur_ret = 0
@@ -38,17 +36,14 @@ def evaluate_policy(test_env, test_agent, max_episode_steps):
 
             eval_epi_steps += 1
 
-            # select action: in the MinAtar case with 0.01-greedy
-            if "MinAtar" in test_env.spec._env_name and (np.random.binomial(1, 0.01) == 1):
-                a = np.random.randint(low=0, high=test_agent.num_actions, size=1, dtype=int).item()
-            else:
-                a = test_agent.select_action(s)
+            # select action
+            a = test_agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
 
             # potentially normalize s2
-            if test_agent.input_norm:
+            if c["input_norm"]:
                 s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
 
             # s becomes s2
@@ -56,7 +51,7 @@ def evaluate_policy(test_env, test_agent, max_episode_steps):
             cur_ret += r
 
             # break option
-            if eval_epi_steps == max_episode_steps:
+            if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
         
         # compute average return and append it
@@ -65,62 +60,68 @@ def evaluate_policy(test_env, test_agent, max_episode_steps):
     return rets
 
 
-def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None, device="cpu"):
+def train(c, agent_name):
     """Main training loop."""
 
     # measure computation time
     start_time = time.time()
     
     # init envs
-    env = gym.make(env_str)
-    test_env = gym.make(env_str)
+    env = gym.make(c["env"]["name"])
+    test_env = gym.make(c["env"]["name"])
 
     # MinAtari observation wrapper
-    if "MinAtar" in env_str:
+    if "MinAtar" in c["env"]["name"]:
         env = MinAtari_Wrapper(env)
         test_env = MinAtari_Wrapper(test_env)
 
-    # maximum episode steps
-    if "MinAtar" in env_str:
-        max_episode_steps = 1e4 if "Seaquest" in env_str else np.inf
-    else:
-        max_episode_steps = env._max_episode_steps
-            
     # get state_shape
-    if state_type == "image":
-        assert "MinAtar" in env_str, "Only MinAtar-interface available for images."
+    if c["env"]["state_type"] == "image":
+        assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
 
         # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
         state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
     
-    elif state_type == "feature":
+    elif c["env"]["state_type"] == "feature":
         state_shape = env.observation_space.shape[0]
 
     # seeding
-    env.seed(seed)
-    test_env.seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    env.seed(c["seed"])
+    test_env.seed(c["seed"])
+    torch.manual_seed(c["seed"])
+    np.random.seed(c["seed"])
+    random.seed(c["seed"])
 
     # init agent
-    agent = DQN_Agent(mode        = "train",
-                      num_actions = env.action_space.n, 
-                      state_type  = state_type,
-                      state_shape = state_shape,
-                      double      = double,
-                      lr          = lr,
-                      dqn_weights = dqn_weights,
-                      device      = device,
-                      env_str     = env_str)
+    agent = DQN_Agent(mode             = "train",
+                      num_actions      = env.action_space.n, 
+                      state_shape      = state_shape,
+                      state_type       = c["env"]["state_type"],
+                      dqn_weights      = c["dqn_weights"], 
+                      input_norm       = c["input_norm"],
+                      input_norm_prior = c["input_norm_prior"],
+                      double           = c["agent"][agent_name]["double"],
+                      gamma            = c["gamma"],
+                      eps_init         = c["eps_init"],
+                      eps_final        = c["eps_final"],
+                      eps_decay_steps  = c["eps_decay_steps"],
+                      tgt_update_freq  = c["tgt_update_freq"],
+                      optimizer        = c["optimizer"],
+                      loss             = c["loss"],
+                      lr               = c["lr"],
+                      buffer_length    = c["buffer_length"],
+                      grad_clip        = c["grad_clip"],
+                      grad_rescale     = c["grad_rescale"],
+                      act_start_step   = c["act_start_step"],
+                      upd_start_step   = c["upd_start_step"],
+                      upd_every        = c["upd_every"],
+                      batch_size       = c["batch_size"],
+                      device           = c["device"],
+                      env_str          = c["env"]["name"])
 
-    # save json file with run number
-    with open(f"{agent.logger.output_dir}/run.json", "w") as outfile:
-        json.dump(dict({"run" : run}), outfile)
-    
     # get initial state and normalize it
     s = env.reset()
-    if agent.input_norm:
+    if c["input_norm"]:
         s = agent.inp_normalizer.normalize(s, mode="train")
 
     # init epi step counter and epi return
@@ -128,12 +129,12 @@ def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None
     epi_ret = 0
     
     # main loop    
-    for total_steps in range(TIMESTEPS):
+    for total_steps in range(c["timesteps"]):
 
         epi_steps += 1
         
         # select action
-        if total_steps < agent.act_start_step:
+        if total_steps < c["act_start_step"]:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)
@@ -142,10 +143,10 @@ def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None
         s2, r, d, _ = env.step(a)
         
         # Ignore "done" if it comes from hitting the time horizon of the environment
-        d = False if epi_steps == max_episode_steps else d
+        d = False if epi_steps == c["env"]["max_episode_steps"] else d
 
         # potentially normalize s2
-        if agent.input_norm:
+        if c["input_norm"]:
             s2 = agent.inp_normalizer.normalize(s2, mode="train")
 
         # add epi ret
@@ -155,19 +156,19 @@ def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None
         agent.memorize(s, a, r, s2, d)
 
         # train
-        if (total_steps >= agent.upd_start_step) and (total_steps % agent.upd_every == 0):
-            for _ in range(agent.upd_every):
+        if (total_steps >= c["upd_start_step"]) and (total_steps % c["upd_every"] == 0):
+            for _ in range(c["upd_every"]):
                 agent.train()
 
         # s becomes s2
         s = s2
 
         # end of episode handling
-        if d or (epi_steps == max_episode_steps):
+        if d or (epi_steps == c["env"]["max_episode_steps"]):
  
             # reset to initial state and normalize it
             s = env.reset()
-            if agent.input_norm:
+            if c["input_norm"]:
                 s = agent.inp_normalizer.normalize(s, mode="train")
             
             # log episode return
@@ -178,12 +179,12 @@ def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None
             epi_ret = 0
 
         # end of epoch handling
-        if (total_steps + 1) % EPOCH_LENGTH == 0 and (total_steps + 1) > agent.upd_start_step:
+        if (total_steps + 1) % c["epoch_length"] == 0 and (total_steps + 1) > c["upd_start_step"]:
 
-            epoch = (total_steps + 1) // EPOCH_LENGTH
+            epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), max_episode_steps=max_episode_steps)
+            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -198,51 +199,47 @@ def train(env_str, double, lr, run, state_type="image", seed=0, dqn_weights=None
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=env_str, info=f"lr = {agent.lr}")
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
 
             # save weights
             torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
-            if agent.input_norm:
+            if c["input_norm"]:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
-if __name__ == "__main__":
-    
-    # helper function for parser
-    def str2bool(v):
-        if isinstance(v, bool):
-            return v
-        if v.lower() in ('yes', 'true', 't', 'y', '1'):
-            return True
-        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-            return False
-        else:
-            raise argparse.ArgumentTypeError('Boolean value expected.')
 
-    # init and prepare argument parser
+if __name__ == "__main__":
+
+    # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_str", type=str, default="Breakout-MinAtar-v0")
-    parser.add_argument("--double", type=str2bool, default=False)
-    parser.add_argument("--run", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--config_file", type=str, default="asterix.json")
+    parser.add_argument("--agent_name", type=str, default="dqn")
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
+
+    # read config file
+    with open(__path__._path[0] + "\\" + args.config_file) as f:
+        c = json.load(f)
+
+    # potentially overwrite lr and seed
+    if args.lr is not None:
+        c["lr"] = args.lr
+    if args.seed is not None:
+        c["seed"] = args.seed
+
+    # handle inf for maximum episode steps
+    if c["env"]["max_episode_steps"] == -1:
+        c["env"]["max_episode_steps"] = np.inf
+
+    # convert certain keys in integers
+    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",\
+        "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
+        c[key] = int(c[key])
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
-    # run main loop
-    def get_seed(lr, run):
-        out = (".", "e", "-")
-        seed_str = str(lr)
-
-        for char in out:
-            seed_str = seed_str.replace(char, "")
-        
-        seed_str = seed_str[:8][::-1]
-        seed_str += str(run)
-
-        return int(seed_str)
-
-    train(env_str=args.env_str, double=args.double, lr=args.lr, run=args.run, seed=get_seed(args.lr, args.run))
+    train(c, args.agent_name)

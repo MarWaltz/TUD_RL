@@ -1,0 +1,45 @@
+{
+   "env":
+   {
+      "name"              : "Asterix-MinAtar-v0",
+      "max_episode_steps" : -1,
+      "state_type"        : "image"
+   }
+   ,
+
+   "agent": 
+   {
+
+      "dqn"                  : {"double" : false},
+      "ddqn"                 : {"double" : true},
+      "bootstrapped_dqn"     : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : null, "mask_p" : null},
+      "our_bootstrapped_dqn" : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1}
+   }
+   ,
+
+  "seed"             : 0,
+  "timesteps"        : 5e6,
+  "epoch_length"     : 5e3,
+  "eval_episodes"    : 100,
+  "dqn_weights"      : null,
+  "input_norm"       : false,
+  "input_norm_prior" : null,
+  "gamma"            : 0.99,
+  "eps_init"         : 1.0,
+  "eps_final"        : 0.1,
+  "eps_decay_steps"  : 1e5,
+  "tgt_update_freq"  : 1e3,
+  "num_hid_layers"   : 2,
+  "hid_size"         : 64,
+  "optimizer"        : "Adam",
+  "loss"             : "MSELoss",
+  "lr"               : 0.0001,
+  "buffer_length"    : 1e5,
+  "grad_clip"        : false,
+  "grad_rescale"     : false,
+  "act_start_step"   : 5000,
+  "upd_start_step"   : 5000,
+  "upd_every"        : 1,
+  "batch_size"       : 32,
+  "device"           : "cpu"
+}

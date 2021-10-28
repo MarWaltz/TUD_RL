@@ -3,12 +3,22 @@ import torch.nn.functional as F
 
 class DQN(nn.Module):
     """Defines critic network to compute Q-values."""
-    def __init__(self, num_actions, state_dim):
+    def __init__(self, num_actions, state_dim, num_hid_layers, hid_size):
         super(DQN, self).__init__()
 
-        self.linear1 = nn.Linear(state_dim, 32)
-        self.linear2 = nn.Linear(32, 32)
-        self.linear3 = nn.Linear(32, num_actions)
+        assert num_hid_layers >= 1, "Please specify at least one hidden layer."
+        
+        self.layers = nn.ModuleList()
+
+        # create input-hidden_1
+        self.layers.append(nn.Linear(state_dim, hid_size))
+
+        # create hidden_1-...-hidden_n
+        for _ in range(num_hid_layers - 1):
+            self.layers.append(nn.Linear(hid_size, hid_size))
+
+        # create hidden_n-out
+        self.layers.append(nn.Linear(hid_size, num_actions))
 
     def forward(self, s):
         """s is a torch tensor. Shapes:
@@ -17,9 +27,10 @@ class DQN(nn.Module):
         returns: torch.Size([batch_size, num_actions])
         """
 
-        x = F.relu(self.linear1(s))
-        x = F.relu(self.linear2(x))
-        q = self.linear3(x)
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(s))
+        q = self.layers[-1](x)
+
         return q
 
 class CNN_DQN(nn.Module):
