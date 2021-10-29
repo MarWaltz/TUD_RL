@@ -5,8 +5,8 @@
       "max_episode_steps" : -1,
       "state_type"        : "feature",
       "wrappers"          : [],
-      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 3},
-      "plot_info"         : "RV"
+      "env_kwargs"        : {"POMDP_type" : "MDP", "frame_stack" : 1},
+      "plot_info"         : "MDP"
    }
    ,
 
@@ -18,7 +18,7 @@
    ,
 
   "seed"             : 0,
-  "timesteps"        : 5e6,
+  "timesteps"        : 1e7,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,

@@ -5,32 +5,34 @@
       "max_episode_steps" : -1,
       "state_type"        : "feature",
       "wrappers"          : [],
-      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 3},
+      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 1},
       "plot_info"         : "RV"
    }
    ,
 
    "agent": 
    {
-      "sac" : {}
+      "ddpg" : {"double_critic" : false, "tgt_pol_smooth" : false, "pol_upd_delay" : 1},
+      "td3"  : {"double_critic" : true, "tgt_pol_smooth" : true, "pol_upd_delay" : 2}
    }
    ,
 
   "seed"             : 0,
-  "timesteps"        : 5e6,
+  "timesteps"        : 1e7,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
   "critic_weights"   : null,
   "input_norm"       : false,
   "input_norm_prior" : null,
+  "tgt_noise"        : 0.2,
+  "tgt_noise_clip"   : 0.5,
   "gamma"            : 0.99,
   "tau"              : 0.001,
-  "net_struc_actor"  : null,
-  "net_struc_critic" : null,
-  "lr_actor"         : 0.001,
+  "net_struc_actor"  : [[64, "relu"], [64, "relu"], "tanh"],
+  "net_struc_critic" : [[64, "relu"], [64, "relu"], "identity"],
+  "lr_actor"         : 0.0001,
   "lr_critic"        : 0.0001,
-  "lr_temperature"   : 0.0001,
   "buffer_length"    : 1e5,
   "grad_clip"        : false,
   "grad_rescale"     : false,
@@ -38,7 +40,5 @@
   "upd_start_step"   : 5000,
   "upd_every"        : 1,
   "batch_size"       : 32,
-  "temp_tuning"      : true,
-  "temperature"      : 0.2,
   "device"           : "cpu"
 }

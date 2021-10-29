@@ -273,7 +273,7 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="ski_lstm_td3.json")
+    parser.add_argument("--config_file", type=str, default="ski_lstm_td3_rv.json")
     parser.add_argument("--agent_name", type=str, default="lstm_td3")
     args = parser.parse_args()
 
