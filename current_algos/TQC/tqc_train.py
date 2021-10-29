@@ -11,7 +11,8 @@ import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
 from current_algos.TQC.tqc_agent import *
-from envs.wrappers import POMDP_Wrapper
+from current_envs.envs import *
+from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 
 # training config
 TIMESTEPS = 5_000_000     # overall number of training interaction steps
@@ -22,7 +23,7 @@ def evaluate_policy(test_env, test_agent, max_episode_steps):
     test_agent.mode = "test"
     rets = []
     
-    for i in range(EVAL_EPISODES):
+    for _ in range(EVAL_EPISODES):
         # get initial state
         s = test_env.reset()
 
@@ -69,8 +70,8 @@ def train(env_str, pomdp=False, actor_weights=None, critic_weights=None, seed=0,
     
     # init env
     if pomdp:
-        env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
-        test_env = POMDP_Wrapper(env_str, pomdp_type="remove_velocity")
+        env = gym_POMDP_wrapper(env_str, pomdp_type="remove_velocity")
+        test_env = gym_POMDP_wrapper(env_str, pomdp_type="remove_velocity")
         max_episode_steps = gym.make(env_str)._max_episode_steps
     else:
         env = gym.make(env_str)

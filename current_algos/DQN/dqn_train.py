@@ -13,7 +13,8 @@ import torch
 from common.eval_plot import plot_from_progress
 from configs import __path__
 from current_algos.DQN.dqn_agent import *
-from envs.wrappers import MinAtari_Wrapper
+from current_envs.envs import *
+from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 
 
 def evaluate_policy(test_env, test_agent, c):
@@ -73,8 +74,8 @@ def train(c, agent_name):
 
     # MinAtari observation wrapper
     if "MinAtar" in c["env"]["name"]:
-        env = MinAtari_Wrapper(env)
-        test_env = MinAtari_Wrapper(test_env)
+        env = MinAtari_wrapper(env)
+        test_env = MinAtari_wrapper(test_env)
 
     # get state_shape
     if c["env"]["state_type"] == "image":

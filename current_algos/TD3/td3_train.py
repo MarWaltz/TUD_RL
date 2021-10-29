@@ -11,9 +11,8 @@ import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
 from current_algos.TD3.td3_agent import *
-from envs.ObstacleAvoidance import ObstacleAvoidance_Env
-from envs.Ski import Ski_Env
-from envs.wrappers import POMDP_Wrapper
+from current_envs.envs import *
+from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 
 # training config
 TIMESTEPS = 25000000     # overall number of training interaction steps
@@ -71,13 +70,13 @@ def train(env_str, POMDP_type="MDP", frame_stack=1, lr_critic=0.001, actor_weigh
     
     # init env
     if env_str == "LCP":
-        env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
-        test_env = ObstacleAvoidance_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        env = ObstacleAvoidance(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        test_env = ObstacleAvoidance(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
 
     elif env_str == "Ski":
-        env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
-        test_env = Ski_Env(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        env = Ski(POMDP_type=POMDP_type, frame_stack=frame_stack)
+        test_env = Ski(POMDP_type=POMDP_type, frame_stack=frame_stack)
         max_episode_steps = env._max_episode_steps
     
     else:

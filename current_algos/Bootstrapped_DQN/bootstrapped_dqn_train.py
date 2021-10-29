@@ -13,7 +13,8 @@ import torch
 from common.eval_plot import plot_from_progress
 from configs import __path__
 from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
-from envs.wrappers import MinAtari_Wrapper
+from current_envs.envs import *
+from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 
 
 def evaluate_policy(test_env, test_agent, c):
