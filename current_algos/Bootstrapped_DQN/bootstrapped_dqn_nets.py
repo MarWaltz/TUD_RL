@@ -156,5 +156,3 @@ class Bootstrapped_DQN(nn.Module):
             return [head_net(x) for head_net in self.heads]
         else:
             return self.heads[head](x)
-
-print(x)
