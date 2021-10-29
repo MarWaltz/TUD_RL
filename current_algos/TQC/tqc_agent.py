@@ -14,6 +14,7 @@ from common.logging_func import *
 # Implement TQC Agent after Kuznetsov et al. 2020
 # This is a minimal implementation. No gradient rescaling, target network
 # updates on every step, automatic temperature tuning.
+
 class TQC_Agent:
     def __init__(self, 
             mode,
@@ -94,7 +95,6 @@ class TQC_Agent:
         self.critic_optim = optim.Adam(self.critic.parameters(),self.lr_critic)
         self.temp_optim = optim.Adam([self.log_alpha],self.lr_critic)
 
-
     @torch.no_grad()
     def select_action(self,s):
 
@@ -147,8 +147,6 @@ class TQC_Agent:
 
         critic_loss = self.quantile_huber_loss(current_z,target)
         
-
-
         # Policy and alpha losses
         new_action, log_pi = self.actor(s)
         alpha_loss = -self.log_alpha * (log_pi + self.target_entropy).detach().mean() # Eq. 5
@@ -156,7 +154,6 @@ class TQC_Agent:
         actor_loss = (alpha * log_pi - current_mean_z).mean()
 
         # SGD for critic
-
         self.actor_optim.zero_grad()
         actor_loss.backward()
         self.actor_optim.step()
@@ -173,14 +170,11 @@ class TQC_Agent:
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.polyak_tau * param.data + (1 - self.polyak_tau) * target_param.data)
 
-
         # Log critic loss
         self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item())
 
-
         # Log actor loss
         self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())
-
 
     # Compute the quantile Huber loss to approximate the 1-Wasserstein distance between quantiles
     def quantile_huber_loss(self,quantiles, targets):

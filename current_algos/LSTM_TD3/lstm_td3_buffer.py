@@ -2,11 +2,10 @@ import numpy as np
 import torch
 
 class UniformReplayBuffer:
-    def __init__(self, action_dim, obs_dim, n_steps, gamma, history_length, buffer_length, batch_size, device) -> None:
+    def __init__(self, action_dim, obs_dim, gamma, history_length, buffer_length, batch_size, device) -> None:
 
         self.action_dim     = action_dim
         self.obs_dim        = obs_dim
-        self.n_steps        = n_steps
         self.gamma          = gamma
         self.history_length = history_length
         self.buffer_length  = buffer_length
@@ -60,228 +59,93 @@ class UniformReplayBuffer:
         
         E.g., hist_len says how long the actual history of the respective batch element of o_hist and a_hist is. Rest is filled with zeros.
         """
-        if self.n_steps == 1:
 
-            # sample indices
-            bat_indices = np.random.randint(low = self.history_length, high = self.size, size = self.batch_size)
+        # sample indices
+        bat_indices = np.random.randint(low = self.history_length, high = self.size, size = self.batch_size)
+        
+        # ---------- direct extraction ---------
+
+        o  = self.o_buff[bat_indices]
+        a  = self.a_buff[bat_indices]
+        r  = self.r_buff[bat_indices]
+        o2 = self.o2_buff[bat_indices]
+        d = self.d_buff[bat_indices]
+        
+        # ---------- hist generation  --------
+
+        # create empty histories
+        o_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
+        a_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+        hist_len = np.ones(self.batch_size, dtype=np.int64) * self.history_length
+
+        # fill histories
+        for i, b_idx in enumerate(bat_indices):
             
-            # ---------- direct extraction ---------
+            # take data
+            o_hist[i, :, :] = self.o_buff[(b_idx - self.history_length) : b_idx, :]
+            a_hist[i, :, :] = self.a_buff[(b_idx - self.history_length) : b_idx, :]
 
-            o  = self.o_buff[bat_indices]
-            a  = self.a_buff[bat_indices]
-            r  = self.r_buff[bat_indices]
-            o2 = self.o2_buff[bat_indices]
-            d = self.d_buff[bat_indices]
-            
-            # ---------- hist generation  --------
-
-            # create empty histories
-            o_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
-            a_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
-            hist_len = np.ones(self.batch_size, dtype=np.int64) * self.history_length
-
-            # fill histories
-            for i, b_idx in enumerate(bat_indices):
+            # truncate if done appeared
+            for j in range(1, self.history_length + 1):
                 
-                # take data
-                o_hist[i, :, :] = self.o_buff[(b_idx - self.history_length) : b_idx, :]
-                a_hist[i, :, :] = self.a_buff[(b_idx - self.history_length) : b_idx, :]
-
-                # truncate if done appeared
-                for j in range(1, self.history_length + 1):
+                if self.d_buff[b_idx - j] == True:
                     
-                    if self.d_buff[b_idx - j] == True:
-                        
-                        # set history lengths
-                        hist_len[i]  = j - 1
+                    # set history lengths
+                    hist_len[i]  = j - 1
 
-                        # set prior entries to zero when done appeared
-                        o_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
-                        a_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
+                    # set prior entries to zero when done appeared
+                    o_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
+                    a_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
 
-                        # move non-zero experiences to the beginning
-                        o_hist[i] = np.roll(o_hist[i], shift = -(self.history_length - j + 1), axis=0)
-                        a_hist[i] = np.roll(a_hist[i], shift = -(self.history_length - j + 1), axis=0)
-                        break
+                    # move non-zero experiences to the beginning
+                    o_hist[i] = np.roll(o_hist[i], shift = -(self.history_length - j + 1), axis=0)
+                    a_hist[i] = np.roll(a_hist[i], shift = -(self.history_length - j + 1), axis=0)
+                    break
+        
+        # ---------- hist2 generation  --------
+
+        # create empty histories
+        o2_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
+        a2_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+        hist_len2 = np.ones(self.batch_size, dtype=np.int64) * self.history_length
+
+        # fill histories
+        for i, b_idx in enumerate(bat_indices):
             
-            # ---------- hist2 generation  --------
-
-            # create empty histories
-            o2_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
-            a2_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
-            hist_len2 = np.ones(self.batch_size, dtype=np.int64) * self.history_length
-
-            # fill histories
-            for i, b_idx in enumerate(bat_indices):
-                
-                # take data
-                o2_hist[i, :, :] = self.o_buff[(b_idx - self.history_length + 1) : (b_idx + 1), :]
-                a2_hist[i, :, :] = self.a_buff[(b_idx - self.history_length + 1) : (b_idx + 1), :]
-                
-                # truncate if done appeared
-                for j in range(1, self.history_length):
-                    
-                    if self.d_buff[b_idx - j] == True:
-                        
-                        # set history lengths
-                        hist_len2[i] = j
-
-                        # set prior entries to zero when done appeared
-                        o2_hist[i, : (self.history_length - j) ,:] = 0.0
-                        a2_hist[i, : (self.history_length - j) ,:]  = 0.0
-
-                        # move non-zero experiences to the beginning
-                        o2_hist[i] = np.roll(o2_hist[i], shift= -(self.history_length - j), axis=0)
-                        a2_hist[i] = np.roll(a2_hist[i], shift= -(self.history_length - j), axis=0)
-                        break
-
-            #print({"o_buff":self.o_buff, "a_buff":self.a_buff, "r_buff":self.r_buff, "o2_buff":self.o2_buff, "d_buff":self.d_buff})
-            #print({"o_hist": o_hist, "a_hist": a_hist, "hist_len":hist_len, "o2_hist":o2_hist, "a2_hist":a2_hist,\
-            #"hist_len2":hist_len2, "o":o, "a":a, "r":r, "o2": o2, "d": d, "idx": bat_indices})
-            #print("--------------------------")
-
-            return (torch.tensor(o_hist).to(self.device), 
-                    torch.tensor(a_hist).to(self.device), 
-                    torch.tensor(hist_len).to(self.device),
-                    torch.tensor(o2_hist).to(self.device), 
-                    torch.tensor(a2_hist).to(self.device), 
-                    torch.tensor(hist_len2).to(self.device),
-                    torch.tensor(o).to(self.device),
-                    torch.tensor(a).to(self.device),
-                    torch.tensor(r).to(self.device),
-                    torch.tensor(o2).to(self.device),
-                    torch.tensor(d).to(self.device))
-
-        else:
-
-            # sample indices
-            bat_indices = np.random.randint(low = self.history_length, high = self.size - (self.n_steps - 1), size = self.batch_size)
-
-            # ---------- direct extraction ---------
-
-            # get o, a
-            o  = self.o_buff[bat_indices]
-            a  = self.a_buff[bat_indices]
+            # take data
+            o2_hist[i, :, :] = self.o_buff[(b_idx - self.history_length + 1) : (b_idx + 1), :]
+            a2_hist[i, :, :] = self.a_buff[(b_idx - self.history_length + 1) : (b_idx + 1), :]
             
-            # get o', d
-            o2 = self.o2_buff[bat_indices + (self.n_steps - 1)]
-            d = self.d_buff[bat_indices + (self.n_steps - 1)]
-
-            # ---------- hist generation  --------
-
-            # create zero o_hist, a_hist
-            o_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
-            a_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
-            hist_len = np.ones(self.batch_size, dtype=np.int64) * self.history_length
-
-            # fill o_hist, a_hist
-            for i, b_idx in enumerate(bat_indices):
-
-                # take data
-                o_hist[i, :, :] = self.o_buff[(b_idx - self.history_length) : b_idx, :]
-                a_hist[i, :, :] = self.a_buff[(b_idx - self.history_length) : b_idx, :]
-
-                # truncate if done appeared
-                for j in range(1, self.history_length + 1):
-                    
-                    if self.d_buff[b_idx - j] == True:
-                        
-                        # set history length
-                        hist_len[i] = j - 1
-
-                        # set prior entries to zero when done appeared
-                        o_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
-                        a_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
-                        
-                        # move non-zero experiences to the beginning
-                        o_hist[i] = np.roll(o_hist[i], shift = -(self.history_length - j + 1), axis=0)
-                        a_hist[i] = np.roll(a_hist[i], shift = -(self.history_length - j + 1), axis=0)
-
-                        break
-
-            # ---------- hist2 generation  --------
-
-            # create zero o2_hist, a2_hist
-            o2_hist   = np.zeros((self.batch_size, self.history_length, self.obs_dim), dtype=np.float32)
-            a2_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
-            hist_len2 = np.ones(self.batch_size, dtype=np.int64) * self.history_length
-
-            # fill o2_hist, a2_hist
-            for i, b_idx in enumerate(bat_indices):
-
-                # take data
-                o2_hist[i, :, :] = self.o_buff[(b_idx - self.history_length + self.n_steps) : (b_idx + self.n_steps), :]
-                a2_hist[i, :, :] = self.a_buff[(b_idx - self.history_length + self.n_steps) : (b_idx + self.n_steps), :]
-
-                # truncate if done appeared
-                for j in range(1, self.history_length):
-
-                    if self.d_buff[(b_idx + self.n_steps - 1) - j] == True:
-                        
-                        # set history length
-                        hist_len2[i] = j
-
-                        # set prior entries to zero when done appeared
-                        o2_hist[i, : (self.history_length - j) ,:] = 0.0
-                        a2_hist[i, : (self.history_length - j) ,:]  = 0.0
-                        
-                        # move non-zero experiences to the beginning
-                        o2_hist[i] = np.roll(o2_hist[i], shift= -(self.history_length - j), axis=0)
-                        a2_hist[i] = np.roll(a2_hist[i], shift= -(self.history_length - j), axis=0)
-                        break
+            # truncate if done appeared
+            for j in range(1, self.history_length):
                 
-                # Note: 
-                # Truncation at this point is irrelevant for the case n_steps > history_length, as the computed target-Q value 
-                # is not regarded if a done appears during the n-step return calculation anyways. However, this truncation can 
-                # become relevant if history_length >= n_steps, hence we perform it as in the o-hist case.
-
-            # ----------- n-step return -----------
-
-            # create reward part of n-step return
-            r_n = np.zeros((self.batch_size, 1), dtype=np.float32)
-
-            # fill return
-            for i, b_idx in enumerate(bat_indices):
-                for j in range(self.n_steps):
+                if self.d_buff[b_idx - j] == True:
                     
-                    # add discounted reward
-                    r_n[i] += (self.gamma ** j) * self.r_buff[b_idx + j]
-                    
-                    # if done appears, break and set done which will be returned True (to avoid incorrect Q addition)
-                    if self.d_buff[b_idx + j] == 1:
-                        d[i] = 1
-                        break
-            
-            #print({"o_buff":self.o_buff, "a_buff":self.a_buff, "r_buff":self.r_buff, "o2_buff":self.o2_buff, "d_buff":self.d_buff})
-            #print({"o_hist": o_hist, "a_hist": a_hist, "hist_len":hist_len, "o2_hist":o2_hist, "a2_hist":a2_hist,\
-            #    "hist_len2":hist_len2, "o":o, "a":a, "r":r_n, "o2": o2, "d": d, "idx": bat_indices})
-            #print("--------------------------")
+                    # set history lengths
+                    hist_len2[i] = j
 
-            return (torch.tensor(o_hist).to(self.device), 
-                    torch.tensor(a_hist).to(self.device), 
-                    torch.tensor(hist_len).to(self.device),
-                    torch.tensor(o2_hist).to(self.device), 
-                    torch.tensor(a2_hist).to(self.device), 
-                    torch.tensor(hist_len2).to(self.device),
-                    torch.tensor(o).to(self.device),
-                    torch.tensor(a).to(self.device),
-                    torch.tensor(r_n).to(self.device),
-                    torch.tensor(o2).to(self.device),
-                    torch.tensor(d).to(self.device))
+                    # set prior entries to zero when done appeared
+                    o2_hist[i, : (self.history_length - j) ,:] = 0.0
+                    a2_hist[i, : (self.history_length - j) ,:]  = 0.0
 
-"""
-np.random.seed(100)
-my_buff = UniformReplayBuffer(action_dim=1, obs_dim=1, n_steps=1, gamma=0.99, history_length=5, buffer_length=11, batch_size=1, device="cpu")
+                    # move non-zero experiences to the beginning
+                    o2_hist[i] = np.roll(o2_hist[i], shift= -(self.history_length - j), axis=0)
+                    a2_hist[i] = np.roll(a2_hist[i], shift= -(self.history_length - j), axis=0)
+                    break
 
-o = np.array([.3, .8, .7, 1.5, 1.7, 5.3, 4.7, 9.0, 3.2, 1.7, 0.3])
-a = np.array([.5, .7, .4, .2, -0.9, 1.3, 1.2, -1.4, -1.5, 0.1, 0.2])
-r = np.array([-0.2, 0.7, -0.6, 0.5, -1.2, -1.7, -2.3, 2.4, -3.4, -5.3, 1.1])
-o2= np.array([.8, .7, .9, 1.7, -0.9, 4.7, 9.0, 3.2, 1.7, 4.2, 4.7])
-d = np.array([False] * 11)
-d[[2, 4, 9]] = True
+        #print({"o_buff":self.o_buff, "a_buff":self.a_buff, "r_buff":self.r_buff, "o2_buff":self.o2_buff, "d_buff":self.d_buff})
+        #print({"o_hist": o_hist, "a_hist": a_hist, "hist_len":hist_len, "o2_hist":o2_hist, "a2_hist":a2_hist,\
+        #"hist_len2":hist_len2, "o":o, "a":a, "r":r, "o2": o2, "d": d, "idx": bat_indices})
+        #print("--------------------------")
 
-for i in range(len(o)):
-    my_buff.add(o[i], a[i], r[i], o2[i], d[i])
-
-my_buff.sample()
-"""
+        return (torch.tensor(o_hist).to(self.device), 
+                torch.tensor(a_hist).to(self.device), 
+                torch.tensor(hist_len).to(self.device),
+                torch.tensor(o2_hist).to(self.device), 
+                torch.tensor(a2_hist).to(self.device), 
+                torch.tensor(hist_len2).to(self.device),
+                torch.tensor(o).to(self.device),
+                torch.tensor(a).to(self.device),
+                torch.tensor(r).to(self.device),
+                torch.tensor(o2).to(self.device),
+                torch.tensor(d).to(self.device))

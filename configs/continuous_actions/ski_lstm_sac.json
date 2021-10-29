@@ -1,0 +1,46 @@
+{
+   "env":
+   {
+      "name"              : "Ski-v0",
+      "max_episode_steps" : -1,
+      "state_type"        : "feature",
+      "wrappers"          : [],
+      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 1},
+      "plot_info"         : "RV"
+   }
+   ,
+
+   "agent": 
+   {
+      "lstm_sac" : {}
+   }
+   ,
+
+  "seed"             : 0,
+  "timesteps"        : 5e6,
+  "epoch_length"     : 5e3,
+  "eval_episodes"    : 10,
+  "actor_weights"    : null,
+  "critic_weights"   : null,
+  "input_norm"       : false,
+  "input_norm_prior" : null,
+  "gamma"            : 0.99,
+  "tau"              : 0.001,
+  "net_struc_actor"  : null,
+  "net_struc_critic" : null,
+  "lr_actor"         : 0.0001,
+  "lr_critic"        : 0.0001,
+  "lr_temperature"   : 0.0001,
+  "buffer_length"    : 1e5,
+  "grad_clip"        : false,
+  "grad_rescale"     : false,
+  "act_start_step"   : 5000,
+  "upd_start_step"   : 5000,
+  "upd_every"        : 1,
+  "batch_size"       : 32,
+  "device"           : "cpu",
+  "history_length"   : 5,
+  "use_past_actions" : false,
+  "temp_tuning"      : true,
+  "temperature"      : 0.2
+}

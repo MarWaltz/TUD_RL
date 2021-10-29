@@ -9,8 +9,10 @@ from torch.distributions.normal import Normal
 
 class LSTM_GaussianActor(nn.Module):
     """Defines recurrent, stochastic actor based on a Gaussian distribution."""
-    def __init__(self, action_dim, obs_dim, use_past_actions, log_std_min = -20, log_std_max = 2):
+    def __init__(self, action_dim, obs_dim, use_past_actions, net_struc_actor, log_std_min=-20, log_std_max=2):
         super(LSTM_GaussianActor, self).__init__()
+
+        assert net_struc_actor is None, "The net structure cannot be controlled in this way for LSTM-based agents."
 
         self.use_past_actions = use_past_actions
         self.log_std_min      = log_std_min
@@ -137,9 +139,11 @@ class LSTM_GaussianActor(nn.Module):
 class LSTM_Double_Critic(nn.Module):
     """Defines two recurrent critic networks to compute Q-values."""
     
-    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+    def __init__(self, action_dim, obs_dim, use_past_actions, net_struc_critic) -> None:
         super(LSTM_Double_Critic, self).__init__()
         
+        assert net_struc_critic is None, "The net structure cannot be controlled in this way for LSTM-based agents."
+
         self.use_past_actions = use_past_actions
 
         # ----------------------- Q1 ---------------------------

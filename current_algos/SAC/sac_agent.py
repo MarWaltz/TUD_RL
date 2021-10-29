@@ -19,28 +19,30 @@ class SAC_Agent:
     def __init__(self, 
                  mode,
                  action_dim, 
-                 state_dim, 
                  action_high,
                  action_low,
-                 actor_weights    = None,
-                 critic_weights   = None, 
-                 input_norm       = False,
-                 input_norm_prior = None,
-                 gamma            = 0.99,
-                 tau              = 0.001,
-                 lr_actor         = 0.001,
-                 lr_critic        = 0.0001,
-                 lr_temperature   = 0.0001,
-                 buffer_length    = 100000,
-                 grad_clip        = False,
-                 grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
-                 upd_every        = 1,
-                 batch_size       = 32,
-                 temp_tuning      = True,
-                 temperature      = 0.2,
-                 device           = "cpu"):
+                 state_dim,
+                 actor_weights,
+                 critic_weights, 
+                 input_norm,
+                 input_norm_prior,
+                 gamma,
+                 tau,
+                 net_struc_actor,
+                 net_struc_critic,
+                 lr_actor,
+                 lr_critic,
+                 lr_temperature,
+                 buffer_length,
+                 grad_clip,
+                 grad_rescale,
+                 act_start_step,
+                 upd_start_step,
+                 upd_every,
+                 batch_size,
+                 temp_tuning,
+                 temperature,
+                 device):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -72,17 +74,19 @@ class SAC_Agent:
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "SAC_Agent"
+        self.name             = "sac_agent"
         self.action_dim       = action_dim
-        self.state_dim        = state_dim
         self.action_high      = action_high
         self.action_low       = action_low
+        self.state_dim        = state_dim
         self.actor_weights    = actor_weights
         self.critic_weights   = critic_weights 
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.gamma            = gamma
         self.tau              = tau
+        self.net_struc_actor  = net_struc_actor
+        self.net_struc_critic = net_struc_critic
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
         self.lr_temperature   = lr_temperature
@@ -143,8 +147,8 @@ class SAC_Agent:
         self.act_normalizer = Action_Normalizer(action_high=action_high, action_low=action_low)
         
         # init actor, critic
-        self.actor = GaussianActor(action_dim=action_dim, state_dim=state_dim).to(self.device)
-        self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
+        self.actor = GaussianActor(action_dim=action_dim, state_dim=state_dim, net_struc_actor=net_struc_actor).to(self.device)
+        self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim, net_struc_critic=net_struc_critic).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params actor: {self._count_params(self.actor)}, n_params critic: {self._count_params(self.critic)}")

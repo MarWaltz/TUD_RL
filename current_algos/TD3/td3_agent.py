@@ -20,57 +20,63 @@ class TD3_Agent:
     def __init__(self, 
                  mode,
                  action_dim, 
-                 state_dim, 
                  action_high,
                  action_low,
-                 actor_weights    = None,
-                 critic_weights   = None, 
-                 input_norm       = False,
-                 input_norm_prior = None,
-                 double_critic    = True,
-                 tgt_pol_smooth   = True,
-                 tgt_noise        = 0.2,
-                 tgt_noise_clip   = 0.5,
-                 pol_upd_delay    = 2,
-                 gamma            = 0.99,
-                 n_steps          = 1,
-                 tau              = 0.001,
-                 lr_actor         = 0.001,
-                 lr_critic        = 0.001,
-                 l2_reg_actor     = 0.0,
-                 l2_reg_critic    = 0.0,
-                 buffer_length    = 100000,
-                 grad_clip        = False,
-                 grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
-                 upd_every        = 1,
-                 batch_size       = 32,
-                 device           = "cpu"):
+                 state_dim, 
+                 actor_weights,
+                 critic_weights, 
+                 input_norm,
+                 input_norm_prior,
+                 double_critic,
+                 tgt_pol_smooth,
+                 tgt_noise,
+                 tgt_noise_clip,
+                 pol_upd_delay,
+                 gamma,
+                 tau,
+                 net_struc_actor,
+                 net_struc_critic,
+                 lr_actor,
+                 lr_critic,
+                 buffer_length,
+                 grad_clip,
+                 grad_rescale,
+                 act_start_step,
+                 upd_start_step,
+                 upd_every,
+                 batch_size,
+                 device):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
             mode ([type]): [description]
             action_dim ([type]): [description]
-            state_dim ([type]): [description]
             action_high ([type]): [description]
             action_low ([type]): [description]
-            actor_weights ([type], optional): [description]. Defaults to None.
-            critic_weights ([type], optional): [description]. Defaults to None.
-            input_norm (bool, optional): [description]. Defaults to False.
-            input_norm_prior ([type], optional): [description]. Defaults to None.
-            gamma (float, optional): [description]. Defaults to 0.99.
-            tau (float, optional): [description]. Defaults to 0.005.
-            lr_actor (float, optional): [description]. Defaults to 0.001.
-            lr_critic (float, optional): [description]. Defaults to 0.001.
-            buffer_length (int, optional): [description]. Defaults to 1000000.
-            grad_clip (bool, optional): [description]. Defaults to False.
-            grad_rescale (bool, optional): [description]. Defaults to False.
-            act_start_step (int, optional): Number of steps with random actions before using own decisions. Defaults to 10000.
-            upd_start_step (int, optional): Steps to perform in environment before starting updates. Defaults to 1000.
-            upd_every (int, optional): Frequency of performing updates. However, ratio between environment and gradient steps is always 1.
-            batch_size (int, optional): [description]. Defaults to 100.
-            device (str, optional): [description]. Defaults to "cpu".
+            state_dim ([type]): [description]
+            actor_weights ([type]): [description]
+            critic_weights ([type]): [description]
+            input_norm ([type]): [description]
+            input_norm_prior ([type]): [description]
+            double_critic ([type]): [description]
+            tgt_pol_smooth ([type]): [description]
+            tgt_noise ([type]): [description]
+            tgt_noise_clip ([type]): [description]
+            pol_upd_delay ([type]): [description]
+            gamma ([type]): [description]
+            tau ([type]): [description]
+            net_actor ([type]): [description]
+            net_critic ([type]): [description]
+            lr_actor ([type]): [description]
+            lr_critic ([type]): [description]
+            buffer_length ([type]): [description]
+            grad_clip ([type]): [description]
+            grad_rescale ([type]): [description]
+            act_start_step ([type]): [description]
+            upd_start_step ([type]): [description]
+            upd_every ([type]): [description]
+            batch_size ([type]): [description]
+            device ([type]): [description]
         """
 
         # store attributes and hyperparameters
@@ -78,11 +84,11 @@ class TD3_Agent:
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "TD3_Agent" if double_critic == True and tgt_pol_smooth == True and pol_upd_delay != 1 else "DDPG_Agent"
+        self.name             = "td3_agent" if double_critic == True and tgt_pol_smooth == True and pol_upd_delay != 1 else "ddpg_agent"
         self.action_dim       = action_dim
-        self.state_dim        = state_dim
         self.action_high      = action_high
         self.action_low       = action_low
+        self.state_dim        = state_dim
         self.actor_weights    = actor_weights
         self.critic_weights   = critic_weights 
         self.input_norm       = input_norm
@@ -93,12 +99,11 @@ class TD3_Agent:
         self.tgt_noise_clip   = tgt_noise_clip
         self.pol_upd_delay    = pol_upd_delay
         self.gamma            = gamma
-        self.n_steps          = n_steps
         self.tau              = tau
+        self.net_struc_actor  = net_struc_actor
+        self.net_struc_critic = net_struc_critic
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
-        self.l2_reg_actor     = l2_reg_actor
-        self.l2_reg_critic    = l2_reg_critic
         self.buffer_length    = buffer_length
         self.grad_clip        = grad_clip
         self.grad_rescale     = grad_rescale
@@ -106,9 +111,6 @@ class TD3_Agent:
         self.upd_start_step   = upd_start_step
         self.upd_every        = upd_every
         self.batch_size       = batch_size
-
-        # n_step
-        assert n_steps >= 1, "'n_steps' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -125,7 +127,7 @@ class TD3_Agent:
         
         # init replay buffer and noise
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, n_steps=n_steps, gamma=gamma,
+            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, gamma=gamma,
                                                      buffer_length=buffer_length, batch_size=batch_size, device=self.device)
             self.noise = Gaussian_Noise(action_dim=action_dim)
 
@@ -143,12 +145,15 @@ class TD3_Agent:
         self.act_normalizer = Action_Normalizer(action_high=action_high, action_low=action_low)
         
         # init actor, critic
-        self.actor  = Actor(action_dim=action_dim, state_dim=state_dim).to(self.device)
+        self.actor = Actor(action_dim=action_dim, state_dim=state_dim, net_struc_actor=net_struc_actor).to(self.device)
+        
         if self.double_critic:
-            self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
+            self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim, net_struc_critic=net_struc_critic).to(self.device)
         else:
-            self.critic = Critic(action_dim=action_dim, state_dim=state_dim).to(self.device)
+            self.critic = Critic(action_dim=action_dim, state_dim=state_dim, net_struc_critic=net_struc_critic).to(self.device)
 
+        print(self.actor)
+        print(self.critic)
         print("--------------------------------------------")
         print(f"n_params actor: {self._count_params(self.actor)}, n_params critic: {self._count_params(self.critic)}")
         print("--------------------------------------------")
@@ -170,8 +175,8 @@ class TD3_Agent:
             p.requires_grad = False
 
         # define optimizer
-        self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=lr_actor, weight_decay=l2_reg_actor)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic, weight_decay=l2_reg_critic)
+        self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=lr_actor)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic)
     
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
@@ -241,7 +246,7 @@ class TD3_Agent:
                 target_Q_next = self.target_critic(s2, target_a)
 
             # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+            target_Q = r + self.gamma * target_Q_next * (1 - d)
 
         # calculate loss
         if self.double_critic:

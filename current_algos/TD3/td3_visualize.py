@@ -5,10 +5,7 @@ import torch
 
 from current_algos.TD3.td3_agent import *
 from current_envs.envs import *
-from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
-
-# training config
-EVAL_EPISODES = 10      # number of episodes to average per evaluation
+from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
 
 
 def visualize_policy(env_str, frame_stack, POMDP_type, actor_weights, critic_weights):
@@ -29,7 +26,7 @@ def visualize_policy(env_str, frame_stack, POMDP_type, actor_weights, critic_wei
 
     rets = []
     
-    for _ in range(EVAL_EPISODES):
+    for _ in range(10):
         # get initial state
         s = test_env.reset()
 

@@ -7,8 +7,10 @@ from torch.distributions.normal import Normal
 
 class GaussianActor(nn.Module):
     """Defines stochastic actor based on a Gaussian distribution."""
-    def __init__(self, action_dim, state_dim, log_std_min = -20, log_std_max = 2):
+    def __init__(self, action_dim, state_dim, net_struc_actor, log_std_min=-20, log_std_max=2):
         super(GaussianActor, self).__init__()
+
+        assert net_struc_actor is None, "The net structure cannot be controlled in this way for the SAC-agent."
 
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -66,13 +68,17 @@ class GaussianActor(nn.Module):
         # squash action to [-1, 1]
         pi_action = torch.tanh(pi_action)
 
-        # return squashed action and it's logprob
+        # return squashed action and its logprob
         return pi_action, logp_pi
+
 
 class Critic(nn.Module):
     """Defines critic network to compute Q-values."""
-    def __init__(self, action_dim, state_dim):
+    def __init__(self, action_dim, state_dim, net_struc_critic):
         super(Critic, self).__init__()
+
+        assert net_struc_critic is None, "The net structure cannot be controlled in this way for the SAC-agent."
+
         self.linear1 = nn.Linear(state_dim + action_dim, 256)
         self.linear2 = nn.Linear(256, 256)
         self.linear3 = nn.Linear(256, 1)
@@ -89,11 +95,14 @@ class Critic(nn.Module):
         x = self.linear3(x)
         return x
 
+
 class Double_Critic(nn.Module):
-    """Defines two critic network to compute Q-values in TD3 algorithm."""
-    def __init__(self, action_dim, state_dim):
+    """Defines two critic network to compute Q-values in the SAC algorithm."""
+    def __init__(self, action_dim, state_dim, net_struc_critic):
         super(Double_Critic, self).__init__()
         
+        assert net_struc_critic is None, "The net structure cannot be controlled in this way for the SAC-agent."
+
         # Q1 architecture
         self.l1 = nn.Linear(state_dim + action_dim, 128)
         self.l2 = nn.Linear(128, 128)

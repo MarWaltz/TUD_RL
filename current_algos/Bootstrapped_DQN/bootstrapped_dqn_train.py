@@ -11,10 +11,10 @@ import gym_pygame
 import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
-from configs import __path__
+from configs.discrete_actions import __path__
 from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
 from current_envs.envs import *
-from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
+from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
 
 def evaluate_policy(test_env, test_agent, c):
@@ -69,13 +69,13 @@ def train(c, agent_name):
     start_time = time.time()
     
     # init envs
-    env = gym.make(c["env"]["name"])
-    test_env = gym.make(c["env"]["name"])
+    env = gym.make(c["env"]["name"], **c["env"]["env_kwargs"])
+    test_env = gym.make(c["env"]["name"], **c["env"]["env_kwargs"])
 
-    # MinAtari observation wrapper
-    if "MinAtar" in c["env"]["name"]:
-        env = MinAtari_Wrapper(env)
-        test_env = MinAtari_Wrapper(test_env)
+    # wrappers
+    for wrapper in c["env"]["wrappers"]:
+        env = eval(wrapper)(env)
+        test_env = eval(wrapper)(test_env)
 
     # get state_shape
     if c["env"]["state_type"] == "image":

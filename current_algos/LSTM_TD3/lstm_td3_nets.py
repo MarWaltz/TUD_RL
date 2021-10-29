@@ -6,9 +6,11 @@ import torch.nn.functional as F
 class LSTM_Actor(nn.Module):
     """Defines recurrent deterministic actor."""
     
-    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+    def __init__(self, action_dim, obs_dim, use_past_actions, net_struc_actor) -> None:
         super(LSTM_Actor, self).__init__()
 
+        assert net_struc_actor is None, "The net structure cannot be controlled in this way for LSTM-based agents."
+        
         self.use_past_actions = use_past_actions
 
         # current feature extraction
@@ -91,9 +93,11 @@ class LSTM_Actor(nn.Module):
 class LSTM_Critic(nn.Module):
     """Defines recurrent critic network to compute Q-values."""
     
-    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+    def __init__(self, action_dim, obs_dim, use_past_actions, net_struc_critic) -> None:
         super(LSTM_Critic, self).__init__()
         
+        assert net_struc_critic is None, "The net structure cannot be controlled in this way for LSTM-based agents."
+
         self.use_past_actions = use_past_actions
 
         # current feature extraction
@@ -175,12 +179,15 @@ class LSTM_Critic(nn.Module):
         # return output
         return x, critic_net_info
 
+
 class LSTM_Double_Critic(nn.Module):
     """Defines two recurrent critic networks to compute Q-values."""
     
-    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+    def __init__(self, action_dim, obs_dim, use_past_actions, net_struc_critic) -> None:
         super(LSTM_Double_Critic, self).__init__()
         
+        assert net_struc_critic is None, "The net structure cannot be controlled in this way for LSTM-based agents."
+
         self.use_past_actions = use_past_actions
 
         # ----------------------- Q1 ---------------------------

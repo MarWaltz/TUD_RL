@@ -1,24 +1,29 @@
 import torch.nn as nn
 import torch.nn.functional as F
+from common.net_activations import activations
 
 class DQN(nn.Module):
     """Defines critic network to compute Q-values."""
-    def __init__(self, num_actions, state_dim, num_hid_layers, hid_size):
+    def __init__(self, num_actions, state_dim, net_struc_dqn):
         super(DQN, self).__init__()
 
-        assert num_hid_layers >= 1, "Please specify at least one hidden layer."
-        
+        self.struc = net_struc_dqn
+
+        assert isinstance(self.struc, list), "net should be a list,  e.g. [[64, 'relu'], [64, 'relu'], 'identity']."
+        assert len(self.struc) >= 2, "net should have at least one hidden layer and a final activation."
+        assert isinstance(self.struc[-1], str), "Final element of net should only be the activation string."
+   
         self.layers = nn.ModuleList()
 
         # create input-hidden_1
-        self.layers.append(nn.Linear(state_dim, hid_size))
+        self.layers.append(nn.Linear(state_dim, self.struc[0][0]))
 
         # create hidden_1-...-hidden_n
-        for _ in range(num_hid_layers - 1):
-            self.layers.append(nn.Linear(hid_size, hid_size))
+        for idx in range(len(self.struc) - 2):
+            self.layers.append(nn.Linear(self.struc[idx][0], self.struc[idx+1][0]))
 
         # create hidden_n-out
-        self.layers.append(nn.Linear(hid_size, num_actions))
+        self.layers.append(nn.Linear(self.struc[-2][0], num_actions))
 
     def forward(self, s):
         """s is a torch tensor. Shapes:
@@ -27,11 +32,20 @@ class DQN(nn.Module):
         returns: torch.Size([batch_size, num_actions])
         """
 
-        for layer in self.layers[:-1]:
-            x = F.relu(layer(s))
-        q = self.layers[-1](x)
+        for layer_idx, layer in enumerate(self.layers):
 
-        return q
+            # get activation fnc
+            if layer_idx == len(self.struc)-1:
+                act_str = self.struc[layer_idx]
+            else:
+                act_str = self.struc[layer_idx][1]
+            act_f = activations[act_str]
+
+            # forward
+            s = act_f(layer(s))
+
+        return s
+
 
 class CNN_DQN(nn.Module):
     """Defines a deep Q-network with a convolutional first layer. Suitable, e.g., for MinAtar games."""

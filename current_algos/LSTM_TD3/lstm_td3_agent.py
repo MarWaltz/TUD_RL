@@ -20,33 +20,34 @@ class LSTM_TD3_Agent:
     def __init__(self, 
                  mode,
                  action_dim, 
-                 obs_dim, 
                  action_high,
                  action_low,
-                 actor_weights    = None,
-                 critic_weights   = None, 
-                 input_norm       = False,
-                 input_norm_prior = None,
-                 double_critic    = True,
-                 tgt_pol_smooth   = True,
-                 tgt_noise        = 0.2,
-                 tgt_noise_clip   = 0.5,
-                 pol_upd_delay    = 2,
-                 gamma            = 0.99,
-                 n_steps          = 1,
-                 tau              = 0.001,
-                 lr_actor         = 0.001,
-                 lr_critic        = 0.001,
-                 buffer_length    = 100000,
-                 grad_clip        = False,
-                 grad_rescale     = False,
-                 act_start_step   = 10000,
-                 upd_start_step   = 1000,
-                 upd_every        = 1,
-                 batch_size       = 32,
-                 history_length   = 2,
-                 use_past_actions = False,
-                 device           = "cpu"):
+                 obs_dim, 
+                 actor_weights,
+                 critic_weights, 
+                 input_norm,
+                 input_norm_prior,
+                 double_critic,
+                 tgt_pol_smooth,
+                 tgt_noise,
+                 tgt_noise_clip,
+                 pol_upd_delay,
+                 gamma,
+                 tau,
+                 net_struc_actor,
+                 net_struc_critic,
+                 lr_actor,
+                 lr_critic,
+                 buffer_length,
+                 grad_clip,
+                 grad_rescale,
+                 act_start_step,
+                 upd_start_step,
+                 upd_every,
+                 batch_size,
+                 history_length,
+                 use_past_actions,
+                 device):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -78,11 +79,11 @@ class LSTM_TD3_Agent:
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "LSTM_TD3_Agent"
+        self.name             = "lstm_td3_agent"
         self.action_dim       = action_dim
-        self.obs_dim          = obs_dim
         self.action_high      = action_high
         self.action_low       = action_low
+        self.obs_dim          = obs_dim
         self.actor_weights    = actor_weights
         self.critic_weights   = critic_weights 
         self.input_norm       = input_norm
@@ -93,8 +94,9 @@ class LSTM_TD3_Agent:
         self.tgt_noise_clip   = tgt_noise_clip
         self.pol_upd_delay    = pol_upd_delay
         self.gamma            = gamma
-        self.n_steps          = n_steps
         self.tau              = tau
+        self.net_struc_actor  = net_struc_actor
+        self.net_struc_critic = net_struc_critic
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
         self.buffer_length    = buffer_length
@@ -109,9 +111,6 @@ class LSTM_TD3_Agent:
         
         # history_length
         assert history_length >= 1, "'history_length' should not be smaller than 1."
-
-        # n_step
-        assert n_steps >= 1, "'n_steps' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -128,9 +127,8 @@ class LSTM_TD3_Agent:
 
         # init replay buffer and noise
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, obs_dim=obs_dim, n_steps=n_steps, gamma=gamma,
-                                                     history_length=history_length, buffer_length=buffer_length, batch_size=batch_size, 
-                                                     device=self.device)
+            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, obs_dim=obs_dim, gamma=gamma, history_length=history_length, 
+                                                     buffer_length=buffer_length, batch_size=batch_size, device=self.device)
             self.noise = Gaussian_Noise(action_dim=action_dim)
 
         # init input, action normalizer
@@ -147,11 +145,15 @@ class LSTM_TD3_Agent:
         self.act_normalizer = Action_Normalizer(action_high=action_high, action_low=action_low)
         
         # init actor, critic
-        self.actor  = LSTM_Actor(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions).to(self.device)
+        self.actor = LSTM_Actor(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions,
+                                net_struc_actor=net_struc_actor).to(self.device)
+
         if self.double_critic:
-            self.critic = LSTM_Double_Critic(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions).to(self.device)
+            self.critic = LSTM_Double_Critic(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions, 
+                                             net_struc_critic=net_struc_critic).to(self.device)
         else:
-            self.critic = LSTM_Critic(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions).to(self.device)
+            self.critic = LSTM_Critic(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions,
+                                      net_struc_critic=net_struc_critic).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params actor: {self._count_params(self.actor)}, n_params critic: {self._count_params(self.critic)}")
@@ -252,7 +254,7 @@ class LSTM_TD3_Agent:
                 target_Q_next, _ = self.target_critic(o=o2, a=target_a, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2)
 
             # target
-            target_Q = r + (self.gamma ** self.n_steps) * target_Q_next * (1 - d)
+            target_Q = r + self.gamma * target_Q_next * (1 - d)
 
         # calculate loss, compute gradients 
         if self.double_critic:

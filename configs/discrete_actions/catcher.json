@@ -3,7 +3,9 @@
    {
       "name"              : "Catcher-PLE-v0",
       "max_episode_steps" : 2000,
-      "state_type"        : "feature"
+      "state_type"        : "feature",
+      "wrappers"          : [],
+      "env_kwargs"        : {}
    }
    ,
 

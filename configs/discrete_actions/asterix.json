@@ -3,7 +3,9 @@
    {
       "name"              : "Asterix-MinAtar-v0",
       "max_episode_steps" : -1,
-      "state_type"        : "image"
+      "state_type"        : "image",
+      "wrappers"          : ["MinAtar_wrapper"],
+      "env_kwargs"        : {}
    }
    ,
 
