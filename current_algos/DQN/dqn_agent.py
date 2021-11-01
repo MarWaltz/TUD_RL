@@ -1,17 +1,18 @@
 import copy
 import math
 import pickle
+import warnings
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-from current_algos.DQN.dqn_buffer import UniformReplayBuffer
-from current_algos.DQN.dqn_nets import DQN, CNN_DQN
-from common.normalizer import Input_Normalizer
 from common.logging_func import *
+from common.normalizer import Input_Normalizer
+from current_algos.DQN.dqn_buffer import UniformReplayBuffer
+from current_algos.DQN.dqn_nets import CNN_DQN, DQN
+
 
 class DQN_Agent:
     def __init__(self, 
@@ -28,8 +29,7 @@ class DQN_Agent:
                  eps_final,
                  eps_decay_steps,
                  tgt_update_freq,
-                 num_hid_layers, 
-                 hid_size,
+                 net_struc_dqn,
                  optimizer,
                  loss,
                  lr,
@@ -104,8 +104,11 @@ class DQN_Agent:
         self.eps_t            = 0
 
         self.tgt_update_freq  = tgt_update_freq
-        self.num_hid_layers   = num_hid_layers 
-        self.hid_size         = hid_size
+        self.net_struc_dqn    = net_struc_dqn
+
+        if state_type == "image" and net_struc_dqn is not None:
+            warnings.warn("For CNN-based nets, your specification of 'net_struc_dqn' is not considered.")
+
         self.optimizer        = optimizer
         self.loss             = loss
 
@@ -155,7 +158,7 @@ class DQN_Agent:
             self.DQN = CNN_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions).to(self.device)
 
         elif self.state_type == "feature":
-            self.DQN = DQN(num_actions=num_actions, state_dim=state_shape, num_hid_layers=num_hid_layers, hid_size=hid_size).to(self.device)
+            self.DQN = DQN(num_actions=num_actions, state_dim=state_shape, net_struc_dqn=net_struc_dqn).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")
