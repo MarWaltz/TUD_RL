@@ -223,14 +223,16 @@ if __name__ == "__main__":
     with open(__path__._path[0] + "\\" + args.config_file) as f:
         c = json.load(f)
 
-    # handle inf for maximum episode steps
-    if c["env"]["max_episode_steps"] == -1:
-        c["env"]["max_episode_steps"] = np.inf
-
     # convert certain keys in integers
     for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
          "upd_start_step", "upd_every", "batch_size"]:
         c[key] = int(c[key])
+
+    # handle maximum episode steps
+    if c["env"]["max_episode_steps"] == -1:
+        c["env"]["max_episode_steps"] = np.inf
+    else:
+        c["env"]["max_episode_steps"] = int(c["env"]["max_episode_steps"])
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())

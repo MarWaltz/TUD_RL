@@ -217,7 +217,7 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="asterix.json")
+    parser.add_argument("--config_file", type=str, default="freeway.json")
     parser.add_argument("--agent_name", type=str, default="dqn")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
@@ -233,14 +233,16 @@ if __name__ == "__main__":
     if args.seed is not None:
         c["seed"] = args.seed
 
-    # handle inf for maximum episode steps
-    if c["env"]["max_episode_steps"] == -1:
-        c["env"]["max_episode_steps"] = np.inf
-
     # convert certain keys in integers
     for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",\
         "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
         c[key] = int(c[key])
+
+    # handle maximum episode steps
+    if c["env"]["max_episode_steps"] == -1:
+        c["env"]["max_episode_steps"] = np.inf
+    else:
+        c["env"]["max_episode_steps"] = int(c["env"]["max_episode_steps"])
 
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())

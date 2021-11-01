@@ -1,8 +1,8 @@
 {
    "env":
    {
-      "name"              : "Catcher-PLE-v0",
-      "max_episode_steps" : 2000,
+      "name"              : "Pixelcopter-PLE-v0",
+      "max_episode_steps" : 500,
       "state_type"        : "feature",
       "wrappers"          : [],
       "env_kwargs"        : {}

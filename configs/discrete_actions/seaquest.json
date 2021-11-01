@@ -1,10 +1,10 @@
 {
    "env":
    {
-      "name"              : "Catcher-PLE-v0",
-      "max_episode_steps" : 2000,
-      "state_type"        : "feature",
-      "wrappers"          : [],
+      "name"              : "Seaquest-MinAtar-v0",
+      "max_episode_steps" : 1e4,
+      "state_type"        : "image",
+      "wrappers"          : ["MinAtar_wrapper"],
       "env_kwargs"        : {}
    }
    ,
@@ -28,14 +28,14 @@
   "input_norm_prior" : null,
   "gamma"            : 0.99,
   "eps_init"         : 1.0,
-  "eps_final"        : 0.01,
-  "eps_decay_steps"  : 1e3,
-  "tgt_update_freq"  : 200,
-  "net_struc_dqn"    : [[64, "relu"], [64, "relu"], "identity"],
+  "eps_final"        : 0.1,
+  "eps_decay_steps"  : 1e5,
+  "tgt_update_freq"  : 1e3,
+  "net_struc_dqn"    : null,
   "optimizer"        : "Adam",
   "loss"             : "MSELoss",
   "lr"               : 0.0001,
-  "buffer_length"    : 1e4,
+  "buffer_length"    : 1e5,
   "grad_clip"        : false,
   "grad_rescale"     : false,
   "act_start_step"   : 5000,
