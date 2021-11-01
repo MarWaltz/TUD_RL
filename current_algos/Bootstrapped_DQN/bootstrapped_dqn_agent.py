@@ -1,6 +1,7 @@
 import copy
 import math
 import pickle
+import warnings
 from collections import Counter
 
 import numpy as np
@@ -9,10 +10,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_buffer import UniformReplayBuffer_Bootstrapped_DQN
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_nets import Bootstrapped_DQN, CNN_Bootstrapped_DQN
 from common.logging_func import *
 from common.normalizer import Input_Normalizer
+from current_algos.Bootstrapped_DQN.bootstrapped_dqn_buffer import \
+    UniformReplayBuffer_Bootstrapped_DQN
+from current_algos.Bootstrapped_DQN.bootstrapped_dqn_nets import (
+    Bootstrapped_DQN, CNN_Bootstrapped_DQN)
 
 
 class Bootstrapped_DQN_Agent:
@@ -31,8 +34,7 @@ class Bootstrapped_DQN_Agent:
                  mask_p,
                  gamma,
                  tgt_update_freq,
-                 num_hid_layers, 
-                 hid_size,
+                 net_struc_dqn,
                  optimizer,
                  loss,
                  lr,
@@ -124,8 +126,11 @@ class Bootstrapped_DQN_Agent:
         self.mask_p           = mask_p
 
         self.tgt_update_freq  = tgt_update_freq
-        self.num_hid_layers   = num_hid_layers 
-        self.hid_size         = hid_size
+        self.net_struc_dqn    = net_struc_dqn
+
+        if state_type == "image" and net_struc_dqn is not None:
+            warnings.warn("For CNN-based nets, your specification of 'net_struc_dqn' is not considered.")
+
         self.optimizer        = optimizer
         self.loss             = loss
 
@@ -175,7 +180,7 @@ class Bootstrapped_DQN_Agent:
             self.DQN = CNN_Bootstrapped_DQN(in_channels=state_shape[0], height=state_shape[1], width=state_shape[2], num_actions=num_actions, K=K).to(self.device)
         
         elif self.state_type == "feature":
-            self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_hid_layers=num_hid_layers, hid_size=hid_size, num_actions=num_actions, K=K)
+            self.DQN = Bootstrapped_DQN(state_dim=state_shape, num_actions=num_actions, K=K, net_struc_dqn=net_struc_dqn).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params DQN: {self._count_params(self.DQN)}")

@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from common.net_activations import activations
 
+# --------------- CNN-based nets ---------------------
 
 class CNN_HeadNet(nn.Module):
     """Defines a single head for the Bootstrapped DQN architecture."""
@@ -88,57 +90,73 @@ class CNN_Bootstrapped_DQN(nn.Module):
             return self.heads[head](x)
 
 
+# --------------- Dense nets ---------------------
+
 class HeadNet(nn.Module):
     """Defines a single head for the Bootstrapped DQN architecture."""
-    def __init__(self, hid_size, num_actions):
+    def __init__(self, num_actions, net_struc_dqn):
         super().__init__()
 
-        self.linear1 = nn.Linear(hid_size, num_actions)
+        self.struc = net_struc_dqn
+
+        self.linear1 = nn.Linear(net_struc_dqn[-2][0], num_actions)
 
     def forward(self, x):
         """x : torch.Size([batch_size, hid_size])
         
         returns: torch.Size([batch_size, num_actions])"""
 
-        q = self.linear1(x)
+        act_str = self.struc[-1]
+        act_f = activations[act_str]
+
+        q = act_f(self.linear1(x))
 
         return q
 
 
 class CoreNet(nn.Module):
     """Defines the core for the Bootstrapped DQN architecture."""
-    def __init__(self, state_dim, num_hid_layers, hid_size):
+    def __init__(self, state_dim, net_struc_dqn):
         super().__init__()
 
-        assert num_hid_layers >= 1, "Please specify at least one hidden layer."
-        
+        self.struc = net_struc_dqn      
         self.layers = nn.ModuleList()
 
         # create input-hidden_1
-        self.layers.append(nn.Linear(state_dim, hid_size))
+        self.layers.append(nn.Linear(state_dim, self.struc[0][0]))
 
         # create hidden_1-...-hidden_n
-        for _ in range(num_hid_layers - 1):
-            self.layers.append(nn.Linear(hid_size, hid_size))
+        for idx in range(len(self.struc) - 2):
+            self.layers.append(nn.Linear(self.struc[idx][0], self.struc[idx+1][0]))
 
     def forward(self, x):
         """x : torch.Size([batch_size, state_dim])
         
         returns: torch.Size([batch_size, out_size])"""
         
-        for layer in self.layers:
-            x = F.relu(layer(x))
+        for layer_idx, layer in enumerate(self.layers):
+
+            # get activation fnc
+            act_str = self.struc[layer_idx][1]
+            act_f = activations[act_str]
+
+            # forward
+            x = act_f(layer(x))
 
         return x
 
 
 class Bootstrapped_DQN(nn.Module):
     """Defines the Bootstrapped DQN consisting of a common part and K different heads."""
-    def __init__(self, state_dim, num_hid_layers, hid_size, num_actions, K):
+    def __init__(self, state_dim, num_actions, K, net_struc_dqn):
         super().__init__()
+
+        assert isinstance(net_struc_dqn, list), "net should be a list,  e.g. [[64, 'relu'], [64, 'relu'], 'identity']."
+        assert len(net_struc_dqn) >= 2, "net should have at least one hidden layer and a final activation."
+        assert isinstance(net_struc_dqn[-1], str), "Final element of net should only be the activation string."
         
-        self.core = CoreNet(state_dim=state_dim, num_hid_layers=num_hid_layers, hid_size=hid_size)
-        self.heads = nn.ModuleList([HeadNet(hid_size=hid_size, num_actions=num_actions) for _ in range(K)])
+        self.core = CoreNet(state_dim=state_dim, net_struc_dqn=net_struc_dqn)
+        self.heads = nn.ModuleList([HeadNet(num_actions=num_actions, net_struc_dqn=net_struc_dqn) for _ in range(K)])
 
     def forward(self, s, head=None):
         """Returns for a state s all Q(s,a) for each k. Args:
