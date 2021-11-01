@@ -220,7 +220,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # read config file
-    with open(__path__._path[0] + "\\" + args.config_file) as f:
+    with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
 
     # convert certain keys in integers
