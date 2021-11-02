@@ -2,7 +2,7 @@
    "env":
    {
       "name"              : "Breakout-MinAtar-v0",
-      "max_episode_steps" : -1,
+      "max_episode_steps" : 1e6,
       "state_type"        : "image",
       "wrappers"          : ["MinAtar_wrapper"],
       "env_kwargs"        : {}
