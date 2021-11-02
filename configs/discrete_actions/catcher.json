@@ -22,7 +22,7 @@
   "seed"             : 0,
   "timesteps"        : 5e6,
   "epoch_length"     : 5e3,
-  "eval_episodes"    : 100,
+  "eval_episodes"    : 20,
   "dqn_weights"      : null,
   "input_norm"       : false,
   "input_norm_prior" : null,
