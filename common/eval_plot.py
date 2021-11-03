@@ -51,8 +51,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
 
     # fill first axis
     ax[0,0].plot(df["Timestep"], df["Avg_Eval_ret"], label = "Avg. test return")
-    if df.shape[0] > 20:
-        ax[0,0].plot(df["Timestep"], exponential_smoothing(df["Avg_Eval_ret"].values), label = "Exp. smooth. return")
+    ax[0,0].plot(df["Timestep"], exponential_smoothing(df["Avg_Eval_ret"].values), label = "Exp. smooth. return")
     ax[0,0].legend()
     ax[0,0].set_xlabel("Timestep")
     ax[0,0].set_ylabel("Test return")
