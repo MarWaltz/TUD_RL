@@ -90,8 +90,9 @@ def train(c):
 
     # wrappers
     for wrapper in c["env"]["wrappers"]:
-        env = eval(wrapper)(env)
-        test_env = eval(wrapper)(test_env)
+        wrapper_kwargs = c["env"]["wrapper_kwargs"][wrapper]
+        env = eval(wrapper)(env, **wrapper_kwargs)
+        test_env = eval(wrapper)(test_env, **wrapper_kwargs)
     
     # get state_shape
     if c["env"]["state_type"] == "image":

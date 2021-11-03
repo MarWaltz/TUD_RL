@@ -1,25 +1,25 @@
 {
    "env":
    {
-      "name"              : "ObstacleAvoidance-v0",
-      "max_episode_steps" : 500,
+      "name"              : "InvertedDoublePendulumPyBulletEnv-v0",
+      "max_episode_steps" : 1000,
       "state_type"        : "feature",
+      "env_kwargs"        : {},
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 3},
-      "plot_info"         : "RV-FS"
+      "plot_info"         : "MDP"
    }
    ,
 
    "agent": 
    {
-      "ddpg" : {"double_critic" : false, "tgt_pol_smooth" : false, "pol_upd_delay" : 1},
-      "td3"  : {"double_critic" : true, "tgt_pol_smooth" : true, "pol_upd_delay" : 2}
+      "lstm_ddpg" : {"double_critic" : false, "tgt_pol_smooth" : false, "pol_upd_delay" : 1},
+      "lstm_td3"  : {"double_critic" : true, "tgt_pol_smooth" : true, "pol_upd_delay" : 2}
    }
    ,
 
-  "seed"             : 0,
-  "timesteps"        : 1e8,
+  "seed"             : 2,
+  "timesteps"        : 2e6,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
@@ -30,8 +30,8 @@
   "tgt_noise_clip"   : 0.5,
   "gamma"            : 0.99,
   "tau"              : 0.001,
-  "net_struc_actor"  : [[256, "relu"], [256, "relu"], "tanh"],
-  "net_struc_critic" : [[256, "relu"], [256, "relu"], "identity"],
+  "net_struc_actor"  : null,
+  "net_struc_critic" : null,
   "lr_actor"         : 0.0001,
   "lr_critic"        : 0.0001,
   "buffer_length"    : 1e5,
@@ -41,5 +41,7 @@
   "upd_start_step"   : 5000,
   "upd_every"        : 1,
   "batch_size"       : 32,
-  "device"           : "cpu"
+  "device"           : "cpu",
+  "history_length"   : 2,
+  "use_past_actions" : false
 }

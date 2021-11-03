@@ -5,6 +5,7 @@
       "max_episode_steps" : -1,
       "state_type"        : "feature",
       "wrappers"          : [],
+      "wrapper_kwargs"    : {},
       "env_kwargs"        : {"POMDP_type" : "MDP", "frame_stack" : 1},
       "plot_info"         : "MDP"
    }

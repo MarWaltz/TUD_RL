@@ -5,6 +5,7 @@
       "max_episode_steps" : -1,
       "state_type"        : "image",
       "wrappers"          : ["MinAtar_wrapper"],
+      "wrapper_kwargs"    : {"MinAtar_wrapper" : {}},
       "env_kwargs"        : {}
    }
    ,

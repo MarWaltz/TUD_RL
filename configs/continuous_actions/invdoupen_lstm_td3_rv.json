@@ -1,13 +1,13 @@
 {
    "env":
    {
-      "name"              : "Ski-v0",
-      "max_episode_steps" : -1,
+      "name"              : "InvertedDoublePendulumPyBulletEnv-v0",
+      "max_episode_steps" : 1000,
       "state_type"        : "feature",
-      "wrappers"          : [],
-      "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"POMDP_type" : "MDP", "frame_stack" : 1},
-      "plot_info"         : "MDP"
+      "env_kwargs"        : {},
+      "wrappers"          : ["gym_POMDP_wrapper"],
+      "wrapper_kwargs"    : {"gym_POMDP_wrapper" : {"env_name" : "InvertedDoublePendulumPyBulletEnv-v0", "pomdp_type" : "remove_velocity"}},
+      "plot_info"         : "RV"
    }
    ,
 
@@ -19,7 +19,7 @@
    ,
 
   "seed"             : 2,
-  "timesteps"        : 5e6,
+  "timesteps"        : 2e6,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,

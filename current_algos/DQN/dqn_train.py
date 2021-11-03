@@ -74,8 +74,9 @@ def train(c, agent_name):
 
     # wrappers
     for wrapper in c["env"]["wrappers"]:
-        env = eval(wrapper)(env)
-        test_env = eval(wrapper)(test_env)
+        wrapper_kwargs = c["env"]["wrapper_kwargs"][wrapper]
+        env = eval(wrapper)(env, **wrapper_kwargs)
+        test_env = eval(wrapper)(test_env, **wrapper_kwargs)
 
     # get state_shape
     if c["env"]["state_type"] == "image":
@@ -217,7 +218,7 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="breakout.json")
+    parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--agent_name", type=str, default="dqn")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
