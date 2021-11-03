@@ -14,19 +14,19 @@ class LSTM_Actor(nn.Module):
         self.use_past_actions = use_past_actions
 
         # current feature extraction
-        self.curr_fe_dense1 = nn.Linear(obs_dim, 64)
-        self.curr_fe_dense2 = nn.Linear(64, 64)
+        self.curr_fe_dense1 = nn.Linear(obs_dim, 128)
+        self.curr_fe_dense2 = nn.Linear(128, 128)
         
         # memory
         if use_past_actions:
-            self.mem_dense = nn.Linear(obs_dim + action_dim, 64)
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
         else:
-            self.mem_dense = nn.Linear(obs_dim, 64)
-        self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
+            self.mem_dense = nn.Linear(obs_dim, 128)
+        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
         
         # post combination
-        #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2 = nn.Linear(64 + 64, action_dim)
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2 = nn.Linear(128, action_dim)
 
 
     def forward(self, o, o_hist, a_hist, hist_len) -> tuple:
@@ -79,7 +79,7 @@ class LSTM_Actor(nn.Module):
         x = torch.cat([curr_fe, hidden_mem], dim=1)
 
         # final dense layers
-        #x = F.relu(self.post_comb_dense1(x))
+        x = F.relu(self.post_comb_dense1(x))
         x = torch.tanh(self.post_comb_dense2(x))
         
         # create dict for logging
@@ -101,19 +101,19 @@ class LSTM_Critic(nn.Module):
         self.use_past_actions = use_past_actions
 
         # current feature extraction
-        self.curr_fe_dense1 = nn.Linear(obs_dim + action_dim, 64)
-        self.curr_fe_dense2 = nn.Linear(64, 64)
+        self.curr_fe_dense1 = nn.Linear(obs_dim + action_dim, 128)
+        self.curr_fe_dense2 = nn.Linear(128, 128)
         
         # memory
         if use_past_actions:
-            self.mem_dense = nn.Linear(obs_dim + action_dim, 64)
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
         else:
-            self.mem_dense = nn.Linear(obs_dim, 64)
-        self.mem_LSTM = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
+            self.mem_dense = nn.Linear(obs_dim, 128)
+        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
         
         # post combination
-        #self.post_comb_dense1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2 = nn.Linear(64 + 64, 1)
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2 = nn.Linear(128, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
@@ -169,7 +169,7 @@ class LSTM_Critic(nn.Module):
         x = torch.cat([curr_fe, hidden_mem], dim=1)
         
         # final dense layers
-        #x = F.relu(self.post_comb_dense1(x))
+        x = F.relu(self.post_comb_dense1(x))
         x = self.post_comb_dense2(x)
 
         # create dict for logging
@@ -192,35 +192,35 @@ class LSTM_Double_Critic(nn.Module):
 
         # ----------------------- Q1 ---------------------------
         # current feature extraction
-        self.curr_fe_dense1_q1 = nn.Linear(obs_dim + action_dim, 64)
-        self.curr_fe_dense2_q1 = nn.Linear(64, 64)
+        self.curr_fe_dense1_q1 = nn.Linear(obs_dim + action_dim, 128)
+        self.curr_fe_dense2_q1 = nn.Linear(128, 128)
         
         # memory
         if use_past_actions:
-            self.mem_dense_q1 = nn.Linear(obs_dim + action_dim, 64)
+            self.mem_dense_q1 = nn.Linear(obs_dim + action_dim, 128)
         else:
-            self.mem_dense_q1 = nn.Linear(obs_dim, 64)
-        self.mem_LSTM_q1 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
+            self.mem_dense_q1 = nn.Linear(obs_dim, 128)
+        self.mem_LSTM_q1 = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
         
         # post combination
-        #self.post_comb_dense1_q1 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2_q1 = nn.Linear(64 + 64, 1)
+        self.post_comb_dense1_q1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2_q1 = nn.Linear(128, 1)
         
         # ----------------------- Q2 ---------------------------
         # current feature extraction
-        self.curr_fe_dense1_q2 = nn.Linear(obs_dim + action_dim, 64)
-        self.curr_fe_dense2_q2 = nn.Linear(64, 64)
+        self.curr_fe_dense1_q2 = nn.Linear(obs_dim + action_dim, 128)
+        self.curr_fe_dense2_q2 = nn.Linear(128, 128)
         
         # memory
         if use_past_actions:
-            self.mem_dense_q2 = nn.Linear(obs_dim + action_dim, 64)
+            self.mem_dense_q2 = nn.Linear(obs_dim + action_dim, 128)
         else:
-            self.mem_dense_q2 = nn.Linear(obs_dim, 64)
-        self.mem_LSTM_q2 = nn.LSTM(input_size = 64, hidden_size = 64, num_layers = 1, batch_first = True)
+            self.mem_dense_q2 = nn.Linear(obs_dim, 128)
+        self.mem_LSTM_q2 = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
         
         # post combination
-        #self.post_comb_dense1_q2 = nn.Linear(64 + 64, 64)
-        self.post_comb_dense2_q2 = nn.Linear(64 + 64, 1)
+        self.post_comb_dense1_q2 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2_q2 = nn.Linear(128, 1)
         
 
     def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
@@ -278,7 +278,7 @@ class LSTM_Double_Critic(nn.Module):
         q1 = torch.cat([curr_fe_q1, hidden_mem_q1], dim=1)
         
         # final dense layers
-        #q1 = F.relu(self.post_comb_dense1_q1(q1))
+        q1 = F.relu(self.post_comb_dense1_q1(q1))
         q1 = self.post_comb_dense2_q1(q1)
         
         #-------------------- Q2 ------------------------
@@ -316,7 +316,7 @@ class LSTM_Double_Critic(nn.Module):
         q2 = torch.cat([curr_fe_q2, hidden_mem_q2], dim=1)
         
         # final dense layers
-        #q2 = F.relu(self.post_comb_dense1_q2(q2))
+        q2 = F.relu(self.post_comb_dense1_q2(q2))
         q2 = self.post_comb_dense2_q2(q2)
 
         #--------------- return output -----------------
@@ -365,7 +365,7 @@ class LSTM_Double_Critic(nn.Module):
         q1 = torch.cat([curr_fe_q1, hidden_mem_q1], dim=1)
         
         # final dense layers
-        #q1 = F.relu(self.post_comb_dense1_q1(q1))
+        q1 = F.relu(self.post_comb_dense1_q1(q1))
         q1 = self.post_comb_dense2_q1(q1)
 
         # return output

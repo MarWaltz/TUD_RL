@@ -17,8 +17,8 @@
    }
    ,
 
-  "seed"             : 0,
-  "timesteps"        : 1e7,
+  "seed"             : 2,
+  "timesteps"        : 5e6,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
@@ -41,6 +41,6 @@
   "upd_every"        : 1,
   "batch_size"       : 32,
   "device"           : "cpu",
-  "history_length"   : 5,
+  "history_length"   : 2,
   "use_past_actions" : false
 }

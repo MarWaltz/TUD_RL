@@ -1,12 +1,12 @@
 {
    "env":
    {
-      "name"              : "Ski-v0",
-      "max_episode_steps" : -1,
+      "name"              : "ObstacleAvoidance-v0",
+      "max_episode_steps" : 500,
       "state_type"        : "feature",
       "wrappers"          : [],
-      "env_kwargs"        : {"POMDP_type" : "MDP", "frame_stack" : 1},
-      "plot_info"         : "MDP"
+      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 1},
+      "plot_info"         : "RV"
    }
    ,
 
@@ -18,7 +18,7 @@
    ,
 
   "seed"             : 0,
-  "timesteps"        : 5e6,
+  "timesteps"        : 1e8,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
