@@ -18,7 +18,7 @@
    }
    ,
 
-  "seed"             : 0,
+  "seed"             : 101,
   "timesteps"        : 1e8,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,

@@ -18,8 +18,8 @@
    }
    ,
 
-  "seed"             : 0,
-  "timesteps"        : 2e6,
+  "seed"             : 50,
+  "timesteps"        : 5e6,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
