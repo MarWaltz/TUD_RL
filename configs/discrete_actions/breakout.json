@@ -2,7 +2,7 @@
    "env":
    {
       "name"              : "Breakout-MinAtar-v0",
-      "max_episode_steps" : 1e6,
+      "max_episode_steps" : 1e4,
       "state_type"        : "image",
       "wrappers"          : ["MinAtar_wrapper"],
       "wrapper_kwargs"    : {"MinAtar_wrapper" : {}},
@@ -22,7 +22,7 @@
 
   "seed"             : 0,
   "timesteps"        : 5e6,
-  "epoch_length"     : 5e3,
+  "epoch_length"     : 1e4,
   "eval_episodes"    : 20,
   "dqn_weights"      : null,
   "input_norm"       : false,
