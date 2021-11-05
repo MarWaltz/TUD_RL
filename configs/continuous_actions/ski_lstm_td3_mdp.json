@@ -19,7 +19,7 @@
    ,
 
   "seed"             : 2,
-  "timesteps"        : 5e6,
+  "timesteps"        : 1e8,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
