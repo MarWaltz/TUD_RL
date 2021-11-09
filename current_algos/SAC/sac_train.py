@@ -14,7 +14,7 @@ from configs.continuous_actions import __path__
 from current_algos.SAC.sac_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
-x = 3
+
 
 def evaluate_policy(test_env, test_agent, c):
     test_agent.mode = "test"
