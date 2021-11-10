@@ -115,7 +115,7 @@ def train(c, agent_name):
                       lr               = c["lr"],
                       buffer_length    = c["buffer_length"],
                       grad_clip        = c["grad_clip"],
-                      grad_rescale     = c["grad_rescale"],
+                      grad_rescale     = c["agent"][agent_name]["grad_rescale"],
                       act_start_step   = c["act_start_step"],
                       upd_start_step   = c["upd_start_step"],
                       upd_every        = c["upd_every"],

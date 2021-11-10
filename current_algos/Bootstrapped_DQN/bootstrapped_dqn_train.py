@@ -116,7 +116,7 @@ def train(c, agent_name):
                                    lr               = c["lr"],
                                    buffer_length    = c["buffer_length"],
                                    grad_clip        = c["grad_clip"],
-                                   grad_rescale     = c["grad_rescale"],
+                                   grad_rescale     = c["agent"][agent_name]["grad_rescale"],
                                    act_start_step   = c["act_start_step"],
                                    upd_start_step   = c["upd_start_step"],
                                    upd_every        = c["upd_every"],
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     # get config and name of agent
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="seaquest.json")
-    parser.add_argument("--agent_name", type=str, default="our_bootstrapped_dqn")
+    parser.add_argument("--agent_name", type=str, default="our_bootstrapped_dqn_K")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()

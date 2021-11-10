@@ -12,11 +12,11 @@
 
    "agent": 
    {
-
-      "dqn"                  : {"double" : false},
-      "ddqn"                 : {"double" : true},
-      "bootstrapped_ddqn"    : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : 10, "mask_p" : 1},
-      "our_bootstrapped_dqn" : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1}
+      "dqn"                    : {"double" : false, "grad_rescale" : false},
+      "ddqn"                   : {"double" : true, "grad_rescale" : false},
+      "bootstrapped_ddqn"      : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_bootstrapped_dqn_T" : {"double" : false, "kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_bootstrapped_dqn_K" : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
    }
    ,
 
@@ -38,7 +38,6 @@
   "lr"               : 0.0001,
   "buffer_length"    : 1e4,
   "grad_clip"        : false,
-  "grad_rescale"     : false,
   "act_start_step"   : 5000,
   "upd_start_step"   : 5000,
   "upd_every"        : 1,

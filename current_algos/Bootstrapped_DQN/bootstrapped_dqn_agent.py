@@ -118,7 +118,7 @@ class Bootstrapped_DQN_Agent:
             self.g = lambda u: u >= self.critical_value
 
         elif kernel == "gaussian_cdf":
-            self.g = scipy.stats.norm(scale=kernel_param).cdf
+            self.g = lambda u: torch.tensor(scipy.stats.norm(scale=kernel_param).cdf(u))
 
         # further params
         self.gamma            = gamma
@@ -307,7 +307,7 @@ class Bootstrapped_DQN_Agent:
 
                     for a_idx in range(self.num_actions):
                         u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_s2_var[:, a_idx] + ME_var)
-                        w[:, a_idx] = torch.tensor(self.g(u))
+                        w[:, a_idx] = self.g(u)
 
                     # compute weighted mean
                     target_Q_next = torch.sum(Q_tgt * w, dim=1) / torch.sum(w, dim=1)
