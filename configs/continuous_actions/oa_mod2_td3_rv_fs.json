@@ -6,8 +6,8 @@
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 1, "n_vessels" : 12, "max_temporal_dist" : 300},
-      "plot_info"         : "RV"
+      "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 3, "n_vessels" : 12, "max_temporal_dist" : 600},
+      "plot_info"         : "RV-FS"
    }
    ,
 
@@ -18,7 +18,7 @@
    }
    ,
 
-  "seed"             : 16,
+  "seed"             : 1500,
   "timesteps"        : 1e8,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
