@@ -115,7 +115,7 @@ class Bootstrapped_DQN_Agent:
 
         if kernel == "test":
             self.critical_value = scipy.stats.norm().ppf(kernel_param)
-            self.g = lambda u: u >= self.critical_value
+            self.g = lambda u: torch.tensor([1 if u_val >= self.critical_value else 0 for u_val in u])
 
         elif kernel == "gaussian_cdf":
             self.g = lambda u: torch.tensor(scipy.stats.norm(scale=kernel_param).cdf(u))
