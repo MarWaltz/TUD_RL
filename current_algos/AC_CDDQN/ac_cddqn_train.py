@@ -205,7 +205,7 @@ def train(c, agent_name):
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
 
             # save weights
-            torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+            torch.save(agent.DQN_A.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if c["input_norm"]:
