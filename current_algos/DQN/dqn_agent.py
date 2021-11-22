@@ -24,6 +24,7 @@ class DQN_Agent:
                  input_norm,
                  input_norm_prior,
                  double,
+                 self_correcting_beta,
                  gamma,
                  eps_init,
                  eps_final,
@@ -77,7 +78,15 @@ class DQN_Agent:
         assert not (mode == "test" and (dqn_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name = "dqn_agent" if double == False else "ddqn_agent"
+        assert not (double and self_correcting_beta is not None), "Specify either 'double' or 'self_correcting_beta', not both."
+
+        if double:
+            self.name = "ddqn_agent"
+        elif self_correcting_beta is not None:
+            self.name = f"scdqn_{self_correcting_beta}_agent"
+        else:
+            self.name = "dqn_agent"
+
         self.num_actions = num_actions
  
         # state type and shape
@@ -88,12 +97,13 @@ class DQN_Agent:
 
         if state_type == "image":
             assert len(state_shape) == 3 and type(state_shape) == tuple, "'state_shape' should be: (in_channels, height, width) for images."
-     
-        self.dqn_weights      = dqn_weights
-        self.input_norm       = input_norm
-        self.input_norm_prior = input_norm_prior
-        self.double           = double
-        self.gamma            = gamma
+
+        self.dqn_weights          = dqn_weights
+        self.input_norm           = input_norm
+        self.input_norm_prior     = input_norm_prior
+        self.double               = double
+        self.self_correcting_beta = self_correcting_beta
+        self.gamma                = gamma
 
         # linear epsilon schedule
         self.eps_init         = eps_init
@@ -240,6 +250,12 @@ class DQN_Agent:
             if self.double:
                 a2 = torch.argmax(self.DQN(s2), dim=1).reshape(self.batch_size, 1)
                 target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
+
+            elif self.self_correcting_beta is not None:
+                target_Q_beta = (1 - self.self_correcting_beta) * self.target_DQN(s2) + self.self_correcting_beta * self.DQN(s2)
+                a2 = torch.argmax(target_Q_beta, dim=1).reshape(self.batch_size, 1)
+                target_Q_next = torch.gather(input=self.target_DQN(s2), dim=1, index=a2)
+
             else:
                 target_Q_next = self.target_DQN(s2)
                 target_Q_next = torch.max(target_Q_next, dim=1).values.reshape(self.batch_size, 1)
