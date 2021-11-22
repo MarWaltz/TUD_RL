@@ -12,14 +12,19 @@
 
    "agent": 
    {
-      "dqn"                    : {"double" : false, "self_correcting_beta" : null, "grad_rescale" : false},
-      "ddqn"                   : {"double" : true, "self_correcting_beta" : null, "grad_rescale" : false},
-      "scdqn_2"                : {"double" : false, "self_correcting_beta" : 2.0, "grad_rescale" : false},
-      "scdqn_3"                : {"double" : false, "self_correcting_beta" : 3.0, "grad_rescale" : false},
-      "scdqn_4"                : {"double" : false, "self_correcting_beta" : 4.0, "grad_rescale" : false},
-      "bootstrapped_ddqn"      : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_bootstrapped_dqn_T" : {"double" : false, "kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_bootstrapped_dqn_K" : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
+      "dqn"               : {"double" : false, "self_correcting_beta" : null, "grad_rescale" : false},
+      "ddqn"              : {"double" : true, "self_correcting_beta" : null, "grad_rescale" : false},
+      "scdqn_2"           : {"double" : false, "self_correcting_beta" : 2.0, "grad_rescale" : false},
+      "scdqn_3"           : {"double" : false, "self_correcting_beta" : 3.0, "grad_rescale" : false},
+      "scdqn_4"           : {"double" : false, "self_correcting_beta" : 4.0, "grad_rescale" : false},
+      "ac_cddqn_2"        : {"action_candidate_K" : 2, "grad_rescale" : false},
+      "ac_cddqn_3"        : {"action_candidate_K" : 3, "grad_rescale" : false},
+      "ac_cddqn_4"        : {"action_candidate_K" : 4, "grad_rescale" : false},
+      "boot_ddqn"         : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_boot_dqn_T_5"  : {"double" : false, "kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_boot_dqn_T_10" : {"double" : false, "kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_boot_dqn_T_15" : {"double" : false, "kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_boot_dqn_K"    : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
    }
    ,
 

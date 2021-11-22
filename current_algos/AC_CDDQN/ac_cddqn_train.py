@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
 from configs.discrete_actions import __path__
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
+from current_algos.AC_CDDQN.ac_cddqn_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
@@ -33,13 +33,13 @@ def evaluate_policy(test_env, test_agent, c):
         cur_ret = 0
         d = False
         eval_epi_steps = 0
-        
+
         while not d:
 
             eval_epi_steps += 1
 
             # select action
-            a = test_agent.select_action(s, active_head=None)
+            a = test_agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -55,7 +55,7 @@ def evaluate_policy(test_env, test_agent, c):
             # break option
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
-
+        
         # compute average return and append it
         rets.append(cur_ret)
     
@@ -96,36 +96,31 @@ def train(c, agent_name):
     random.seed(c["seed"])
 
     # init agent
-    agent = Bootstrapped_DQN_Agent(mode             = "train",
-                                   num_actions      = env.action_space.n, 
-                                   state_shape      = state_shape,
-                                   state_type       = c["env"]["state_type"],
-                                   dqn_weights      = c["dqn_weights"], 
-                                   input_norm       = c["input_norm"],
-                                   input_norm_prior = c["input_norm_prior"],
-                                   double           = c["agent"][agent_name]["double"],
-                                   kernel           = c["agent"][agent_name]["kernel"],
-                                   kernel_param     = c["agent"][agent_name]["kernel_param"],
-                                   K                = c["agent"][agent_name]["K"],
-                                   mask_p           = c["agent"][agent_name]["mask_p"],
-                                   gamma            = c["gamma"],
-                                   tgt_update_freq  = c["tgt_update_freq"],
-                                   net_struc_dqn    = c["net_struc_dqn"],
-                                   optimizer        = c["optimizer"],
-                                   loss             = c["loss"],
-                                   lr               = c["lr"],
-                                   buffer_length    = c["buffer_length"],
-                                   grad_clip        = c["grad_clip"],
-                                   grad_rescale     = c["agent"][agent_name]["grad_rescale"],
-                                   act_start_step   = c["act_start_step"],
-                                   upd_start_step   = c["upd_start_step"],
-                                   upd_every        = c["upd_every"],
-                                   batch_size       = c["batch_size"],
-                                   device           = c["device"],
-                                   env_str          = c["env"]["name"])
-
-    # init the active head for action selection
-    active_head = np.random.choice(agent.K)
+    agent = AC_CDDQN_Agent(mode                 = "train",
+                           num_actions          = env.action_space.n, 
+                           state_shape          = state_shape,
+                           state_type           = c["env"]["state_type"],
+                           dqn_weights          = c["dqn_weights"], 
+                           input_norm           = c["input_norm"],
+                           input_norm_prior     = c["input_norm_prior"],
+                           action_candidate_K   = c["agent"][agent_name]["action_candidate_K"],
+                           gamma                = c["gamma"],
+                           eps_init             = c["eps_init"],
+                           eps_final            = c["eps_final"],
+                           eps_decay_steps      = c["eps_decay_steps"],
+                           net_struc_dqn        = c["net_struc_dqn"],
+                           optimizer            = c["optimizer"],
+                           loss                 = c["loss"],
+                           lr                   = c["lr"],
+                           buffer_length        = c["buffer_length"],
+                           grad_clip            = c["grad_clip"],
+                           grad_rescale         = c["agent"][agent_name]["grad_rescale"],
+                           act_start_step       = c["act_start_step"],
+                           upd_start_step       = c["upd_start_step"],
+                           upd_every            = c["upd_every"],
+                           batch_size           = c["batch_size"],
+                           device               = c["device"],
+                           env_str              = c["env"]["name"])
 
     # get initial state and normalize it
     s = env.reset()
@@ -135,7 +130,7 @@ def train(c, agent_name):
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-
+    
     # main loop    
     for total_steps in range(c["timesteps"]):
 
@@ -145,7 +140,7 @@ def train(c, agent_name):
         if total_steps < c["act_start_step"]:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
-            a = agent.select_action(s, active_head)
+            a = agent.select_action(s)
         
         # perform step
         s2, r, d, _ = env.step(a)
@@ -174,9 +169,6 @@ def train(c, agent_name):
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
-            # reset active head for action selection
-            active_head = np.random.choice(agent.K)
-
             # reset to initial state and normalize it
             s = env.reset()
             if c["input_norm"]:
@@ -184,7 +176,7 @@ def train(c, agent_name):
             
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
-
+            
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
@@ -222,11 +214,11 @@ def train(c, agent_name):
 
 
 if __name__ == "__main__":
- 
+
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="seaquest.json")
-    parser.add_argument("--agent_name", type=str, default="our_boot_dqn_K")
+    parser.add_argument("--config_file", type=str, default="asterix.json")
+    parser.add_argument("--agent_name", type=str, default="ac_cddqn_2")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
