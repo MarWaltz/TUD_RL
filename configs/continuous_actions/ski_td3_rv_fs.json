@@ -7,7 +7,7 @@
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
       "env_kwargs"        : {"POMDP_type" : "RV", "frame_stack" : 3},
-      "plot_info"         : "RV-FS"
+      "info"              : "RV-FS"
    }
    ,
 

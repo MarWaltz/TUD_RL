@@ -7,7 +7,7 @@
       "env_kwargs"        : {},
       "wrappers"          : ["gym_POMDP_wrapper"],
       "wrapper_kwargs"    : {"gym_POMDP_wrapper" : {"env_name" : "InvertedDoublePendulumPyBulletEnv-v0", "pomdp_type" : "remove_velocity"}},
-      "plot_info"         : "RV"
+      "info"              : "RV"
    }
    ,
 

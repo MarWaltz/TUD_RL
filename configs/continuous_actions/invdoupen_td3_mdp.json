@@ -7,7 +7,7 @@
       "env_kwargs"        : {},
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "plot_info"         : "MDP"
+      "info"              : "MDP"
    }
    ,
 

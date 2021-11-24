@@ -138,7 +138,9 @@ def train(c, agent_name):
                            batch_size       = c["batch_size"],
                            history_length   = c["history_length"],
                            use_past_actions = c["use_past_actions"],
-                           device           = c["device"])
+                           device           = c["device"],
+                           env_str          = c["env"]["name"],
+                           info             = c["env"]["info"])
 
     # init history
     o_hist = np.zeros((c["history_length"], agent.obs_dim))
@@ -258,7 +260,7 @@ def train(c, agent_name):
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=c["env"]["plot_info"])
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=c["env"]["info"])
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")

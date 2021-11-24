@@ -7,7 +7,7 @@
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
       "env_kwargs"        : {"POMDP_type" : "MDP", "frame_stack" : 1},
-      "plot_info"         : "MDP"
+      "info"              : "MDP"
    }
    ,
 

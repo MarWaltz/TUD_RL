@@ -47,7 +47,9 @@ class LSTM_TD3_Agent:
                  batch_size,
                  history_length,
                  use_past_actions,
-                 device):
+                 device,
+                 env_str,
+                 info):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -122,7 +124,7 @@ class LSTM_TD3_Agent:
             print("Using GPU support.")
 
         # init logger and save config
-        self.logger = EpochLogger(alg_str = self.name)
+        self.logger = EpochLogger(alg_str = self.name, env_str = env_str, info = info)
         self.logger.save_config(locals())
 
         # init replay buffer and noise

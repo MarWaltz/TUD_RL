@@ -103,7 +103,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, alg_str, env_str=None, output_dir=None, output_fname='progress.txt', exp_name=None):
+    def __init__(self, alg_str, env_str=None, info=None, output_dir=None, output_fname='progress.txt', exp_name=None):
         """
         Initialize a Logger.
         Args:
@@ -135,10 +135,17 @@ class Logger:
             #random_str = str(time.time())[-3:]
             random_str = str(random.randint(10000, 99999))
 
-            if env_str is None:
+            if env_str is None and info is None:
                 self.output_dir = "experiments/" + alg_str + "_" + today + random_str
-            else:
+            
+            elif info is None:
                 self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + random_str
+            
+            elif env_str is None:
+                self.output_dir = "experiments/" + alg_str + "_" + info + "_" + today + random_str
+            
+            else:
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + info + "_" + today + random_str
 
         os.makedirs(self.output_dir)
 

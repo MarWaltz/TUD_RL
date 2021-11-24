@@ -45,7 +45,9 @@ class TD3_Agent:
                  upd_start_step,
                  upd_every,
                  batch_size,
-                 device):
+                 device,
+                 env_str,
+                 info):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:
@@ -120,9 +122,9 @@ class TD3_Agent:
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-        
+
         # init logger and save config
-        self.logger = EpochLogger(alg_str = self.name)
+        self.logger = EpochLogger(alg_str = self.name, env_str = env_str, info = info)
         self.logger.save_config(locals())
         
         # init replay buffer and noise
