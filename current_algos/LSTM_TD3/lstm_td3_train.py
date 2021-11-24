@@ -278,11 +278,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="invdoupen_lstm_td3_rv.json")
     parser.add_argument("--agent_name", type=str, default="lstm_td3")
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
     # read config file
     with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
+
+    # potentially overwrite seed
+    if args.seed is not None:
+        c["seed"] = args.seed
 
     # convert certain keys in integers
     for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
