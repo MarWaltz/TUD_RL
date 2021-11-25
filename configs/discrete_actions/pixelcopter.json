@@ -24,6 +24,7 @@
       "our_boot_dqn_T_5"  : {"double" : false, "kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "our_boot_dqn_T_10" : {"double" : false, "kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "our_boot_dqn_T_15" : {"double" : false, "kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "our_boot_dqn_T_25" : {"double" : false, "kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "our_boot_dqn_K"    : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
    }
    ,
