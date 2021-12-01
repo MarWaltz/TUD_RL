@@ -49,7 +49,8 @@ class LSTM_TD3_Agent:
                  use_past_actions,
                  device,
                  env_str,
-                 info):
+                 info,
+                 seed):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:

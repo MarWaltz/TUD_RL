@@ -117,7 +117,8 @@ def train(c):
                       batch_size       = c["batch_size"],
                       temp_tuning      = c["temp_tuning"],
                       temperature      = c["temperature"],
-                      device           = c["device"])
+                      device           = c["device"],
+                      seed             = c["seed"])
     
     # get initial state and normalize it
     s = env.reset()

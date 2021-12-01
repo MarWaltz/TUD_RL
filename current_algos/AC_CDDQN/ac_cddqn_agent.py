@@ -40,7 +40,8 @@ class AC_CDDQN_Agent:
                  upd_every,
                  batch_size,
                  device,
-                 env_str):
+                 env_str,
+                 seed):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:

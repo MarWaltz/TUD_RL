@@ -44,7 +44,8 @@ class LSTM_SAC_Agent:
                  use_past_actions,
                  temp_tuning,
                  temperature,
-                 device):
+                 device,
+                 seed):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:

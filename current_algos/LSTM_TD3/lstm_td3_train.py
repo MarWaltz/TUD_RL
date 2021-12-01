@@ -140,7 +140,8 @@ def train(c, agent_name):
                            use_past_actions = c["use_past_actions"],
                            device           = c["device"],
                            env_str          = c["env"]["name"],
-                           info             = c["env"]["info"])
+                           info             = c["env"]["info"],
+                           seed             = c["seed"])
 
     # init history
     o_hist = np.zeros((c["history_length"], agent.obs_dim))

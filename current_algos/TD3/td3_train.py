@@ -121,7 +121,8 @@ def train(c, agent_name):
                       batch_size       = c["batch_size"],
                       device           = c["device"],
                       env_str          = c["env"]["name"],
-                      info             = c["env"]["info"])
+                      info             = c["env"]["info"],
+                      seed             = c["seed"])
 
     # get initial state and normalize it
     s = env.reset()

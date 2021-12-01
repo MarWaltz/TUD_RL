@@ -42,7 +42,8 @@ class SAC_Agent:
                  batch_size,
                  temp_tuning,
                  temperature,
-                 device):
+                 device,
+                 seed):
         """Initializes agent. Agent can select actions based on his model, memorize and replay to train his model.
 
         Args:

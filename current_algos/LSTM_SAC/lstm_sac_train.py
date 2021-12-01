@@ -136,7 +136,8 @@ def train(c):
                            use_past_actions = c["use_past_actions"],
                            temp_tuning      = c["temp_tuning"],
                            temperature      = c["temperature"],
-                           device           = c["device"])
+                           device           = c["device"],
+                           seed             = c["seed"])
     
     # init history
     o_hist = np.zeros((c["history_length"], agent.obs_dim))
