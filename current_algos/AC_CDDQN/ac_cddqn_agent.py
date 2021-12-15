@@ -243,7 +243,7 @@ class AC_CDDQN_Agent:
 
             # get a_star_K
             QA_v2 = self.DQN_A(s2)
-            a_star_K = torch.empty((self.batch_size, 1), dtype=torch.int64)
+            a_star_K = torch.empty((self.batch_size, 1), dtype=torch.int64).to(self.device)
 
             for bat_idx in range(self.batch_size):
                 
@@ -313,7 +313,7 @@ class AC_CDDQN_Agent:
 
             # get a_star_K
             QB_v2 = self.DQN_B(s2)
-            a_star_K = torch.empty((self.batch_size, 1), dtype=torch.int64)
+            a_star_K = torch.empty((self.batch_size, 1), dtype=torch.int64).to(self.device)
 
             for bat_idx in range(self.batch_size):
                 
