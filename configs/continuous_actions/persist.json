@@ -1,0 +1,35 @@
+{
+  "env": {
+    "name": "Persist-v0",
+    "max_episode_steps": 2000,
+    "state_type": "feature",
+    "wrappers": [],
+    "wrapper_kwargs": {},
+    "env_kwargs": {},
+    "info": ""
+  },
+  "agent": {
+    "tqc": {}
+  },
+  "seed": 101,
+  "timesteps": 15e6,
+  "epoch_length": 1e3,
+  "eval_episodes": 10,
+  "actor_weights": null,
+  "critic_weights": null,
+  "n_quantiles": 25,
+  "n_critics": 5,
+  "input_norm": true,
+  "input_norm_prior": null,
+  "top_quantiles_to_drop": 10,
+  "gamma": 0.99,
+  "tau": 0.005,
+  "lr_actor": 0.0003,
+  "lr_critic": 0.0003,
+  "buffer_length": 1e6,
+  "act_start_step": 5000,
+  "upd_start_step": 5000,
+  "upd_every": 1,
+  "batch_size": 256,
+  "device": "cpu"
+}

@@ -16,7 +16,6 @@ from current_algos.AC_CDDQN.ac_cddqn_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
-
 def evaluate_policy(test_env, test_agent, c):
     test_agent.mode = "test"
     rets = []
@@ -218,14 +217,14 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="asterix.json")
-    parser.add_argument("--agent_name", type=str, default="ac_cddqn_2")
+    parser.add_argument("--config_file", type=str, default="decpol.json")
+    parser.add_argument("--agent_name", type=str, default="ac_cddqn_3")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
     # read config file
-    with open(__path__._path[0] + "/" + args.config_file) as f:
+    with open(__path__[0] + "/" + args.config_file) as f:
         c = json.load(f)
 
     # potentially overwrite lr and seed
