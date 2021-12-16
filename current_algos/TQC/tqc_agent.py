@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import copy
 import torch
@@ -23,19 +24,22 @@ class TQC_Agent:
             action_high,
             action_low,
             top_quantiles_to_drop,
-            n_quantiles = 25, # Number of atoms per critic // Quantiles estimates per critic
-            n_critics = 5, # Number of critics with n_quantiles of atoms each.
-            actor_weights = None,
-            critic_weights = None,
-            input_norm = False,
-            input_norm_prior = None, 
-            gamma = 0.99,
-            polyak_tau = 0.005,
-            lr_actor = 0.0003,
-            lr_critic = 0.0003,
-            buffer_length = 1000000,
-            batch_size = 256,
-            device = "cpu") -> None:
+            n_quantiles, # Number of atoms per critic // Quantiles estimates per critic
+            n_critics, # Number of critics with n_quantiles of atoms each.
+            actor_weights,
+            critic_weights,
+            input_norm,
+            input_norm_prior, 
+            gamma,
+            tau,
+            lr_actor,
+            lr_critic,
+            buffer_length,
+            batch_size,
+            device,
+            env_str,
+            info,
+            seed) -> None:
 
         # store attributes and hyperparameters
         assert mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
@@ -52,7 +56,7 @@ class TQC_Agent:
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.gamma            = gamma
-        self.polyak_tau       = polyak_tau
+        self.polyak_tau       = tau
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
         self.buffer_length    = buffer_length
@@ -66,7 +70,7 @@ class TQC_Agent:
         self.device           = device
 
         # Logging
-        self.logger = EpochLogger(alg_str = self.name)
+        self.logger = EpochLogger(alg_str = self.name, env_str = env_str, info = info)
         self.logger.save_config(locals())
 
         # Init replay buffer
@@ -74,6 +78,14 @@ class TQC_Agent:
 
         # Action Normalizer
         self.action_normalizer = Action_Normalizer(action_high, action_low)
+
+        # Input normalizer
+        if self.input_norm and self.input_norm_prior is not None:
+            with open(input_norm_prior, "rb") as f:
+                prior = pickle.load(f)
+            self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=prior)
+        elif self.input_norm:
+            self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=None)
 
         # Init Actor and Quantile Critics
         self.actor = Actor(action_dim, state_dim).to(self.device)
