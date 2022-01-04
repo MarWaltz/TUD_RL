@@ -84,7 +84,7 @@ def visualize_policy(c, agent_name, actor_weights, critic_weights):
 
     rets = []
     
-    for _ in range(c["eval_episodes"]):
+    for _ in range(1):
 
         # init history
         o_hist = np.zeros((test_agent.history_length, test_agent.obs_dim))
@@ -99,12 +99,15 @@ def visualize_policy(c, agent_name, actor_weights, critic_weights):
             o = test_agent.inp_normalizer.normalize(o, mode="test")
 
         cur_ret = 0
+        epi_steps = 0
         d = False
         
         while not d:
 
+            epi_steps += 1
+            
             # render
-            test_env.render(agent_name=test_agent.name)
+            #test_env.render(agent_name=test_agent.name)
 
             # select action
             a = test_agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
@@ -131,6 +134,9 @@ def visualize_policy(c, agent_name, actor_weights, critic_weights):
             # o becomes o2
             o = o2
             cur_ret += r
+
+            if epi_steps == 600:
+                d = True
         
         # compute average return and append it
         rets.append(cur_ret)
@@ -144,7 +150,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="oa_lstm_td3_mdp.json")
     parser.add_argument("--agent_name", type=str, default="lstm_td3")
-    parser.add_argument("--seed", type=int, default=random.randint(0, 100000))
+    parser.add_argument("--seed", type=int, default=19753)
     args = parser.parse_args()
 
     # read config file
