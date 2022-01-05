@@ -107,7 +107,7 @@ def visualize_policy(c, agent_name, actor_weights, critic_weights):
             epi_steps += 1
             
             # render
-            #test_env.render(agent_name=test_agent.name)
+            test_env.render(agent_name=test_agent.name)
 
             # select action
             a = test_agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
@@ -135,8 +135,8 @@ def visualize_policy(c, agent_name, actor_weights, critic_weights):
             o = o2
             cur_ret += r
 
-            if epi_steps == 600:
-                d = True
+            #if epi_steps == 600:
+            #    d = True
         
         # compute average return and append it
         rets.append(cur_ret)
@@ -148,9 +148,9 @@ if __name__ == "__main__":
     
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="oa_lstm_td3_mdp.json")
+    parser.add_argument("--config_file", type=str, default="ski_lstm_td3_mdp.json")
     parser.add_argument("--agent_name", type=str, default="lstm_td3")
-    parser.add_argument("--seed", type=int, default=19753)
+    parser.add_argument("--seed", type=int, default=65330)#random.randint(0, 100000))
     args = parser.parse_args()
 
     # read config file
