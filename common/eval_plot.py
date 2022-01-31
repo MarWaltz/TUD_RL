@@ -77,7 +77,13 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,0].set_ylabel("Loss")
 
     # fill fourth axis
-    if any([alg.startswith(name.lower()) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
+    if "Avg_bias" in df.columns and "Std_bias" in df.columns:
+        ax[1,1].plot(df["Timestep"], df["Avg_bias"], label="Avg. bias")
+        ax[1,1].plot(df["Timestep"], df["Std_bias"], label="Std. bias")
+        ax[1,1].legend()
+        ax[1,1].set_xlabel("Timestep")
+
+    elif any([alg.startswith(name.lower()) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
         ax[1,1].plot(df["Timestep"], df["Actor_loss"])
         ax[1,1].set_xlabel("Timestep")
         ax[1,1].set_ylabel("Actor loss")
