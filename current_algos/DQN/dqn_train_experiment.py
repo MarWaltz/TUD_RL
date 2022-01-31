@@ -101,7 +101,7 @@ def evaluate_policy(test_env, test_agent, c):
     # compute bias
     bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
 
-    return rets, np.mean(bias), np.std(bias)
+    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias)
 
 
 def train(c, agent_name):
@@ -232,7 +232,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, avg_bias, std_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, avg_bias, std_bias, max_bias, min_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -246,6 +246,8 @@ def train(c, agent_name):
             agent.logger.log_tabular("Loss", average_only=True)
             agent.logger.log_tabular("Avg_bias", avg_bias)
             agent.logger.log_tabular("Std_bias", std_bias)
+            agent.logger.log_tabular("Max_bias", max_bias)
+            agent.logger.log_tabular("Min_bias", min_bias)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
