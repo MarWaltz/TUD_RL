@@ -12,8 +12,8 @@ import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
 from configs.discrete_actions import __path__
-#from agents.DQN.dqn_agent import *
-from environments.envs import *
+from agents.DQNAgent import DQNAgent
+from environments.envs.MountainCar import MountainCar
 from environments.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
 
@@ -62,7 +62,7 @@ def evaluate_policy(test_env, test_agent, c):
     return rets
 
 
-def train(c, agent_name):
+def train(c):
     """Main training loop."""
 
     # measure computation time
@@ -83,10 +83,13 @@ def train(c, agent_name):
         assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
 
         # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
     
     elif c["env"]["state_type"] == "feature":
-        state_shape = env.observation_space.shape[0]
+        c["state_shape"] = env.observation_space.shape[0]
+
+    # num actions
+    c["num_actions"] = env.action_space.n
 
     # seeding
     env.seed(c["seed"])
@@ -96,34 +99,7 @@ def train(c, agent_name):
     random.seed(c["seed"])
 
     # init agent
-    agent = DQN_Agent(mode                 = "train",
-                      num_actions          = env.action_space.n, 
-                      state_shape          = state_shape,
-                      state_type           = c["env"]["state_type"],
-                      dqn_weights          = c["dqn_weights"], 
-                      input_norm           = c["input_norm"],
-                      input_norm_prior     = c["input_norm_prior"],
-                      double               = c["agent"][agent_name]["double"],
-                      self_correcting_beta = c["agent"][agent_name]["self_correcting_beta"],
-                      gamma                = c["gamma"],
-                      eps_init             = c["eps_init"],
-                      eps_final            = c["eps_final"],
-                      eps_decay_steps      = c["eps_decay_steps"],
-                      tgt_update_freq      = c["tgt_update_freq"],
-                      net_struc_dqn        = c["net_struc_dqn"],
-                      optimizer            = c["optimizer"],
-                      loss                 = c["loss"],
-                      lr                   = c["lr"],
-                      buffer_length        = c["buffer_length"],
-                      grad_clip            = c["grad_clip"],
-                      grad_rescale         = c["agent"][agent_name]["grad_rescale"],
-                      act_start_step       = c["act_start_step"],
-                      upd_start_step       = c["upd_start_step"],
-                      upd_every            = c["upd_every"],
-                      batch_size           = c["batch_size"],
-                      device               = c["device"],
-                      env_str              = c["env"]["name"],
-                      seed                 = c["seed"])
+    agent = DQNAgent(c)
 
     # get initial state and normalize it
     s = env.reset()
@@ -221,7 +197,6 @@ if __name__ == "__main__":
     # get config and name of agent
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="asterix.json")
-    parser.add_argument("--agent_name", type=str, default="ddqn")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
@@ -250,4 +225,4 @@ if __name__ == "__main__":
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
-    train(c, args.agent_name)
+    train(c)
