@@ -2,7 +2,7 @@ import gym
 import gym_minatar
 import numpy as np
 
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
+from agents.Bootstrapped_DQN.bootstrapped_dqn_agent import *
 from current_envs.envs import *
 from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 

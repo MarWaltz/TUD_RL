@@ -10,18 +10,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.LSTM_SAC.lstm_sac_buffer import UniformReplayBuffer
-from current_algos.LSTM_SAC.lstm_sac_nets import LSTM_GaussianActor, LSTM_Double_Critic
+from agents.SAC.sac_buffer import UniformReplayBuffer
+from agents.SAC.sac_nets import GaussianActor, Double_Critic
 from common.normalizer import Action_Normalizer, Input_Normalizer
 from common.logging_func import *
 
-class LSTM_SAC_Agent:
+class SAC_Agent:
     def __init__(self, 
                  mode,
-                 action_dim,  
+                 action_dim, 
                  action_high,
                  action_low,
-                 obs_dim,
+                 state_dim,
                  actor_weights,
                  critic_weights, 
                  input_norm,
@@ -40,8 +40,6 @@ class LSTM_SAC_Agent:
                  upd_start_step,
                  upd_every,
                  batch_size,
-                 history_length,
-                 use_past_actions,
                  temp_tuning,
                  temperature,
                  device,
@@ -51,7 +49,7 @@ class LSTM_SAC_Agent:
         Args:
             mode ([type]): [description]
             action_dim ([type]): [description]
-            obs_dim ([type]): [description]
+            state_dim ([type]): [description]
             action_high ([type]): [description]
             action_low ([type]): [description]
             actor_weights ([type], optional): [description]. Defaults to None.
@@ -77,19 +75,19 @@ class LSTM_SAC_Agent:
         assert not (mode == "test" and (actor_weights is None or critic_weights is None)), "Need prior weights in test mode."
         self.mode = mode
         
-        self.name             = "lstm_sac_agent"
+        self.name             = "sac_agent"
         self.action_dim       = action_dim
         self.action_high      = action_high
         self.action_low       = action_low
-        self.obs_dim          = obs_dim
+        self.state_dim        = state_dim
         self.actor_weights    = actor_weights
         self.critic_weights   = critic_weights 
         self.input_norm       = input_norm
         self.input_norm_prior = input_norm_prior
         self.gamma            = gamma
         self.tau              = tau
-        self.net_struc_actor  = net_struc_actor,
-        self.net_struc_critic = net_struc_critic,
+        self.net_struc_actor  = net_struc_actor
+        self.net_struc_critic = net_struc_critic
         self.lr_actor         = lr_actor
         self.lr_critic        = lr_critic
         self.lr_temperature   = lr_temperature
@@ -100,11 +98,6 @@ class LSTM_SAC_Agent:
         self.upd_start_step   = upd_start_step
         self.upd_every        = upd_every
         self.batch_size       = batch_size
-        self.history_length   = history_length
-        self.use_past_actions = use_past_actions
-
-        # history_length
-        assert history_length >= 1, "'history_length' should not be smaller than 1."
 
         # gpu support
         assert device in ["cpu", "cuda"], "Unknown device."
@@ -114,7 +107,7 @@ class LSTM_SAC_Agent:
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-        
+
         # dynamic or static temperature
         self.temp_tuning = temp_tuning
 
@@ -131,14 +124,14 @@ class LSTM_SAC_Agent:
 
         else:
             self.temperature = temperature
-        
+
         # init logger and save config
         self.logger = EpochLogger(alg_str = self.name)
         self.logger.save_config(locals())
         
         # init replay buffer
         if mode == "train":
-            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, obs_dim=obs_dim, gamma=gamma, history_length=history_length,
+            self.replay_buffer = UniformReplayBuffer(action_dim=action_dim, state_dim=state_dim, gamma=gamma,
                                                      buffer_length=buffer_length, batch_size=batch_size, device=self.device)
 
         # init input, action normalizer
@@ -148,17 +141,15 @@ class LSTM_SAC_Agent:
             if input_norm_prior is not None:
                 with open(input_norm_prior, "rb") as f:
                     prior = pickle.load(f)
-                self.inp_normalizer = Input_Normalizer(obs_dim=obs_dim, prior=prior)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=prior)
             else:
-                self.inp_normalizer = Input_Normalizer(obs_dim=obs_dim, prior=None)
+                self.inp_normalizer = Input_Normalizer(state_dim=state_dim, prior=None)
         
         self.act_normalizer = Action_Normalizer(action_high=action_high, action_low=action_low)
         
         # init actor, critic
-        self.actor = LSTM_GaussianActor(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions, 
-                                        net_struc_actor=net_struc_actor).to(self.device)
-        self.critic = LSTM_Double_Critic(action_dim=action_dim, obs_dim=obs_dim, use_past_actions=use_past_actions,
-                                         net_struc_critic=net_struc_critic).to(self.device)
+        self.actor = GaussianActor(action_dim=action_dim, state_dim=state_dim, net_struc_actor=net_struc_actor).to(self.device)
+        self.critic = Double_Critic(action_dim=action_dim, state_dim=state_dim, net_struc_critic=net_struc_critic).to(self.device)
 
         print("--------------------------------------------")
         print(f"n_params actor: {self._count_params(self.actor)}, n_params critic: {self._count_params(self.critic)}")
@@ -184,25 +175,19 @@ class LSTM_SAC_Agent:
         return sum([np.prod(p.shape) for p in net.parameters()])
 
     @torch.no_grad()
-    def select_action(self, o, o_hist, a_hist, hist_len):
+    def select_action(self, s):
         """Selects action via actor network for a given state.
-        o:        np.array with shape (obs_dim,)
-        o_hist:   np.array with shape (history_length, obs_dim)
-        a_hist:   np.array with shape (history_length, action_dim)
-        hist_len: int
+        Arg s:   np.array with shape (state_dim,)
         returns: np.array with shape (action_dim,)
         """        
-        # reshape arguments and convert to tensors
-        o = torch.tensor(o.astype(np.float32)).view(1, self.obs_dim).to(self.device)
-        o_hist = torch.tensor(o_hist.astype(np.float32)).view(1, self.history_length, self.obs_dim).to(self.device)
-        a_hist = torch.tensor(a_hist.astype(np.float32)).view(1, self.history_length, self.action_dim).to(self.device)
-        hist_len = torch.tensor(hist_len).to(self.device)
+        # reshape obs
+        s = torch.tensor(s.astype(np.float32)).view(1, self.state_dim).to(self.device)
 
         # forward pass
         if self.mode == "train":
-            a, _, _ = self.actor(o, o_hist, a_hist, hist_len, deterministic=False, with_logprob=False)
+            a, _ = self.actor(s, deterministic=False, with_logprob=False)
         else:
-            a, _, _ = self.actor(o, o_hist, a_hist, hist_len, deterministic=True, with_logprob=False)
+            a, _ = self.actor(s, deterministic=True, with_logprob=False)
         
         # reshape actions
         a = a.cpu().numpy().reshape(self.action_dim)
@@ -210,11 +195,11 @@ class LSTM_SAC_Agent:
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)
     
-    def memorize(self, o, a, r, o2, d):
+    def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer.
         Note: action is transformed from application scale to [-1,1]."""
         a = self.act_normalizer.action_to_norm(a)
-        self.replay_buffer.add(o, a, r, o2, d)
+        self.replay_buffer.add(s, a, r, s2, d)
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        
@@ -222,7 +207,7 @@ class LSTM_SAC_Agent:
         batch = self.replay_buffer.sample()
         
         # unpack batch
-        o_hist, a_hist, hist_len, o2_hist, a2_hist, hist_len2, o, a, r, o2, d = batch
+        s, a, r, s2, d = batch
 
         # get current temperature
         if self.temp_tuning:
@@ -233,16 +218,16 @@ class LSTM_SAC_Agent:
         self.critic_optimizer.zero_grad()
         
         # calculate current estimated Q-values
-        Q_v1, Q_v2, critic_net_info = self.critic(o=o, a=a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
+        Q_v1, Q_v2 = self.critic(s, a)
  
         # calculate targets
         with torch.no_grad():
 
             # target actions come from current policy (no target actor)
-            target_a, target_logp_a, _ = self.actor(o=o2, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2, deterministic=False, with_logprob=True)
+            target_a, target_logp_a = self.actor(s2, deterministic=False, with_logprob=True)
 
             # Q-value of next state-action pair
-            target_Q_next1, target_Q_next2, _ = self.target_critic(o=o2, a=target_a, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            target_Q_next1, target_Q_next2 = self.target_critic(s2, target_a)
             target_Q_next = torch.min(target_Q_next1, target_Q_next2)
 
             # target
@@ -265,7 +250,7 @@ class LSTM_SAC_Agent:
         self.critic_optimizer.step()
         
         # log critic training
-        self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item(), **critic_net_info)
+        self.logger.store(Critic_loss=critic_loss.detach().cpu().numpy().item())
         self.logger.store(Q1_val=Q_v1.detach().mean().cpu().numpy().item(), Q2_val=Q_v2.detach().mean().cpu().numpy().item())
         
         #-------- train actor --------
@@ -277,10 +262,10 @@ class LSTM_SAC_Agent:
         self.actor_optimizer.zero_grad()
 
         # get current actions via actor
-        curr_a, curr_a_logprob, act_net_info = self.actor(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len, deterministic=False, with_logprob=True)
+        curr_a, curr_a_logprob = self.actor(s, deterministic=False, with_logprob=True)
         
         # compute Q1, Q2 values for current state and actor's actions
-        Q1_val_curr_a, Q2_val_curr_a, _ = self.critic(o=o, a=curr_a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
+        Q1_val_curr_a, Q2_val_curr_a = self.critic(s, curr_a)
         Q_val_curr_a = torch.min(Q1_val_curr_a, Q2_val_curr_a)
 
         # compute policy loss (which is based on min Q1, Q2 instead of just Q1 as in TD3, plus consider entropy regularization)
@@ -304,7 +289,7 @@ class LSTM_SAC_Agent:
             param.requires_grad = True
         
         # log actor training
-        self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item(), **act_net_info)
+        self.logger.store(Actor_loss=actor_loss.detach().cpu().numpy().item())
 
         #------- update temperature --------
         if self.temp_tuning:

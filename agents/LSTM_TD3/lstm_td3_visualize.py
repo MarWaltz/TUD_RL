@@ -11,7 +11,7 @@ import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
 from configs.continuous_actions import __path__
-from current_algos.LSTM_TD3.lstm_td3_agent import *
+from agents.LSTM_TD3.lstm_td3_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
 

@@ -10,7 +10,7 @@ import numpy as np
 import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
-from current_algos.TQC.tqc_agent import *
+from agents.TQC.tqc_agent import *
 from current_envs.envs import *
 from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 

@@ -11,7 +11,7 @@ import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
 from configs.continuous_actions import __path__
-from current_algos.LSTM_SAC.lstm_sac_agent import *
+from agents.LSTM_TD3.lstm_td3_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
 
@@ -26,7 +26,7 @@ def evaluate_policy(test_env, test_agent, c):
         o_hist = np.zeros((c["history_length"], test_agent.obs_dim))
         a_hist = np.zeros((c["history_length"], test_agent.action_dim))
         hist_len = 0
-
+        
         # get initial state
         o = test_env.reset()
 
@@ -78,7 +78,7 @@ def evaluate_policy(test_env, test_agent, c):
     return rets
 
 
-def train(c):
+def train(c, agent_name):
     """Main training loop."""
 
     # measure computation time
@@ -109,7 +109,7 @@ def train(c):
     random.seed(c["seed"])
 
     # init agent
-    agent = LSTM_SAC_Agent(mode             = "train",
+    agent = LSTM_TD3_Agent(mode             = "train",
                            action_dim       = env.action_space.shape[0], 
                            action_high      = env.action_space.high[0],
                            action_low       = env.action_space.low[0],
@@ -118,13 +118,17 @@ def train(c):
                            critic_weights   = c["critic_weights"], 
                            input_norm       = c["input_norm"],
                            input_norm_prior = c["input_norm_prior"],
+                           double_critic    = c["agent"][agent_name]["double_critic"],
+                           tgt_pol_smooth   = c["agent"][agent_name]["tgt_pol_smooth"],
+                           tgt_noise        = c["tgt_noise"],
+                           tgt_noise_clip   = c["tgt_noise_clip"],
+                           pol_upd_delay    = c["agent"][agent_name]["pol_upd_delay"],
                            gamma            = c["gamma"],
                            tau              = c["tau"],
                            net_struc_actor  = c["net_struc_actor"],
                            net_struc_critic = c["net_struc_critic"],
                            lr_actor         = c["lr_actor"],
                            lr_critic        = c["lr_critic"],
-                           lr_temperature   = c["lr_temperature"],
                            buffer_length    = c["buffer_length"],
                            grad_clip        = c["grad_clip"],
                            grad_rescale     = c["grad_rescale"],
@@ -134,16 +138,16 @@ def train(c):
                            batch_size       = c["batch_size"],
                            history_length   = c["history_length"],
                            use_past_actions = c["use_past_actions"],
-                           temp_tuning      = c["temp_tuning"],
-                           temperature      = c["temperature"],
                            device           = c["device"],
+                           env_str          = c["env"]["name"],
+                           info             = c["env"]["info"],
                            seed             = c["seed"])
-    
+
     # init history
     o_hist = np.zeros((c["history_length"], agent.obs_dim))
     a_hist = np.zeros((c["history_length"], agent.action_dim))
     hist_len = 0
-
+    
     # get initial state and normalize it
     o = env.reset()
     if c["input_norm"]:
@@ -152,8 +156,8 @@ def train(c):
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-    
-    # main loop    
+
+    # main loop
     for total_steps in range(c["timesteps"]):
 
         epi_steps += 1
@@ -163,7 +167,7 @@ def train(c):
             a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.action_dim)
         else:
             a = agent.select_action(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
-        
+
         # perform step
         o2, r, d, _ = env.step(a)
         
@@ -173,13 +177,13 @@ def train(c):
         # potentially normalize o2
         if c["input_norm"]:
             o2 = agent.inp_normalizer.normalize(o2, mode="train")
-
+        
         # add epi ret
         epi_ret += r
-        
+
         # memorize
         agent.memorize(o, a, r, o2, d)
-                
+        
         # update history
         if hist_len == c["history_length"] :
             o_hist = np.roll(o_hist, shift = -1, axis = 0)
@@ -202,12 +206,15 @@ def train(c):
 
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
-
+ 
+            # reset noise after episode
+            agent.noise.reset()
+            
             # reset history
             o_hist = np.zeros((c["history_length"], agent.obs_dim))
             a_hist = np.zeros((c["history_length"], agent.action_dim))
             hist_len = 0
-
+            
             # reset env to initial state and normalize it
             o = env.reset()
             if c["input_norm"]:
@@ -219,7 +226,7 @@ def train(c):
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
-
+        
         # end of epoch handling
         if (total_steps + 1) % c["epoch_length"]  == 0 and (total_steps + 1) > c["upd_start_step"]:
 
@@ -238,12 +245,17 @@ def train(c):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
             agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
-            agent.logger.log_tabular("Q1_val", with_min_and_max=True)
-            agent.logger.log_tabular("Q1_CurFE", with_min_and_max=False)
-            agent.logger.log_tabular("Q1_ExtMemory", with_min_and_max=False)
-            agent.logger.log_tabular("Q2_val", with_min_and_max=True)
-            agent.logger.log_tabular("Q2_CurFE", with_min_and_max=False)
-            agent.logger.log_tabular("Q2_ExtMemory", with_min_and_max=False)
+            if agent.double_critic:
+                agent.logger.log_tabular("Q1_val", with_min_and_max=True)
+                agent.logger.log_tabular("Q1_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Q1_ExtMemory", with_min_and_max=False)
+                agent.logger.log_tabular("Q2_val", with_min_and_max=True)
+                agent.logger.log_tabular("Q2_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Q2_ExtMemory", with_min_and_max=False)
+            else:
+                agent.logger.log_tabular("Q_val", with_min_and_max=True)
+                agent.logger.log_tabular("Critic_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Critic_ExtMemory", with_min_and_max=False)
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()
@@ -265,12 +277,18 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="ski_lstm_sac.json")
+    parser.add_argument("--config_file", type=str, default="invdoupen_lstm_td3_rv.json")
+    parser.add_argument("--agent_name", type=str, default="lstm_td3")
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
     # read config file
     with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
+
+    # potentially overwrite seed
+    if args.seed is not None:
+        c["seed"] = args.seed
 
     # convert certain keys in integers
     for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
@@ -287,4 +305,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(c)
+    train(c, args.agent_name)

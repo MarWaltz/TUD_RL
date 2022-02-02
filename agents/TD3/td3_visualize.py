@@ -5,7 +5,7 @@ import numpy as np
 #import pybulletgym
 import torch
 from configs.continuous_actions import __path__
-from current_algos.TD3.td3_agent import *
+from agents.TD3.td3_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
 

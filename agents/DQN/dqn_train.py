@@ -5,7 +5,6 @@ import pickle
 import random
 import time
 
-import matplotlib.pyplot as plt
 import gym
 import gym_minatar
 import gym_pygame
@@ -13,40 +12,15 @@ import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
 from configs.discrete_actions import __path__
-from current_algos.DQN.dqn_agent import *
+from agents.DQN.dqn_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
-def get_MC_ret_from_rew(rews, gamma):
-    """Returns for a given episode of rewards (list) the corresponding list of MC-returns under a specified discount factor."""
-
-    MC = 0
-    MC_list = []
-    
-    for r in reversed(rews):
-        # compute one-step backup
-        backup = r + gamma * MC
-        
-        # add to MCs
-        MC_list.append(backup)
-        
-        # update MC
-        MC = backup
-    
-    return list(reversed(MC_list))
 
 def evaluate_policy(test_env, test_agent, c):
     test_agent.mode = "test"
-    
-    # final (undiscounted) sum of rewards of ALL episodes
     rets = []
-
-    # Q-ests of all (s,a) pairs of ALL episodes
-    Q_est_all_eps = []
-
-    # MC-vals of all (s,a) pairs of ALL episodes
-    MC_all_eps = []
-  
+    
     for _ in range(c["eval_episodes"]):
 
         # get initial state
@@ -60,25 +34,15 @@ def evaluate_policy(test_env, test_agent, c):
         d = False
         eval_epi_steps = 0
 
-        # rewards of ONE episode
-        rews_one_eps = []
-
         while not d:
 
             eval_epi_steps += 1
 
             # select action
             a = test_agent.select_action(s)
-
-            # get current Q estimate
-            s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
             
             # perform step
             s2, r, d, _ = test_env.step(a)
-
-            # save reward
-            rews_one_eps.append(r)
 
             # potentially normalize s2
             if c["input_norm"]:
@@ -92,16 +56,10 @@ def evaluate_policy(test_env, test_agent, c):
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
         
-        # append return
+        # compute average return and append it
         rets.append(cur_ret)
-        
-        # transform reward list in MC return list and append it to overall MC returns
-        MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=test_agent.gamma)
-        
-    # compute bias
-    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
-
-    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias)
+    
+    return rets
 
 
 def train(c, agent_name):
@@ -232,7 +190,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, avg_bias, std_bias, max_bias, min_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -244,10 +202,6 @@ def train(c, agent_name):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
-            agent.logger.log_tabular("Avg_bias", avg_bias)
-            agent.logger.log_tabular("Std_bias", std_bias)
-            agent.logger.log_tabular("Max_bias", max_bias)
-            agent.logger.log_tabular("Min_bias", min_bias)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -266,10 +220,10 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="breakout.json")
-    parser.add_argument("--agent_name", type=str, default="dqn")
+    parser.add_argument("--config_file", type=str, default="asterix.json")
+    parser.add_argument("--agent_name", type=str, default="ddqn")
     parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument("--seed", type=int, default=random.randint(0, 10000))
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
     # read config file

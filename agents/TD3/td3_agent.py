@@ -10,8 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from current_algos.TD3.td3_buffer import UniformReplayBuffer
-from current_algos.TD3.td3_nets import Actor, Critic, Double_Critic
+from agents.TD3.td3_buffer import UniformReplayBuffer
+from agents.TD3.td3_nets import Actor, Critic, Double_Critic
 from common.noise import Gaussian_Noise
 from common.normalizer import Action_Normalizer, Input_Normalizer
 from common.logging_func import *

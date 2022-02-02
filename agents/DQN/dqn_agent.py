@@ -10,8 +10,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from common.logging_func import *
 from common.normalizer import Input_Normalizer
-from current_algos.DQN.dqn_buffer import UniformReplayBuffer
-from current_algos.DQN.dqn_nets import CNN_DQN, DQN
+from agents.DQN.dqn_buffer import UniformReplayBuffer
+from agents.DQN.dqn_nets import CNN_DQN, DQN
 
 
 class DQN_Agent:

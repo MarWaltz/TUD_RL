@@ -12,9 +12,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 from common.logging_func import *
 from common.normalizer import Input_Normalizer
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_buffer import \
+from agents.Bootstrapped_DQN.bootstrapped_dqn_buffer import \
     UniformReplayBuffer_Bootstrapped_DQN
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_nets import (
+from agents.Bootstrapped_DQN.bootstrapped_dqn_nets import (
     Bootstrapped_DQN, CNN_Bootstrapped_DQN)
 
 

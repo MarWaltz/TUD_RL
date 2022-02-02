@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from common.eval_plot import plot_from_progress
 from configs.discrete_actions import __path__
-from current_algos.Bootstrapped_DQN.bootstrapped_dqn_agent import *
+from agents.Bootstrapped_DQN.bootstrapped_dqn_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
 

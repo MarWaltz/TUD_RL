@@ -3,7 +3,7 @@ import numpy as np
 #import pybulletgym
 import torch
 
-from current_algos.SAC.sac_agent import *
+from agents.SAC.sac_agent import *
 from current_envs.envs import *
 from current_envs.wrappers import MinAtari_wrapper, gym_POMDP_wrapper
 

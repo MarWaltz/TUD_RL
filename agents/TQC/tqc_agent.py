@@ -6,8 +6,8 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 
-from current_algos.TQC.tqc_buffer import UniformReplayBuffer
-from current_algos.TQC.tqc_nets import Actor, Critic
+from agents.TQC.tqc_buffer import UniformReplayBuffer
+from agents.TQC.tqc_nets import Actor, Critic
 from common.normalizer import Action_Normalizer, Input_Normalizer
 from common.logging_func import *
 

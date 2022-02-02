@@ -11,7 +11,7 @@ import pybulletgym
 import torch
 from common.eval_plot import plot_from_progress
 from configs.continuous_actions import __path__
-from current_algos.SAC.sac_agent import *
+from agents.TD3.td3_agent import *
 from current_envs.envs import *
 from current_envs.wrappers.gym_POMDP_wrapper import gym_POMDP_wrapper
 
@@ -28,7 +28,7 @@ def evaluate_policy(test_env, test_agent, c):
         # potentially normalize it
         if c["input_norm"]:
             s = test_agent.inp_normalizer.normalize(s, mode="test")
-        
+
         cur_ret = 0
         d = False
         eval_epi_steps = 0
@@ -54,14 +54,14 @@ def evaluate_policy(test_env, test_agent, c):
             # break option
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
-        
+
         # compute average return and append it
         rets.append(cur_ret)
     
     return rets
 
 
-def train(c):
+def train(c, agent_name):
     """Main training loop."""
 
     # measure computation time
@@ -92,7 +92,7 @@ def train(c):
     random.seed(c["seed"])
 
     # init agent
-    agent = SAC_Agent(mode             = "train",
+    agent = TD3_Agent(mode             = "train",
                       action_dim       = env.action_space.shape[0], 
                       action_high      = env.action_space.high[0],
                       action_low       = env.action_space.low[0],
@@ -101,13 +101,17 @@ def train(c):
                       critic_weights   = c["critic_weights"], 
                       input_norm       = c["input_norm"],
                       input_norm_prior = c["input_norm_prior"],
+                      double_critic    = c["agent"][agent_name]["double_critic"],
+                      tgt_pol_smooth   = c["agent"][agent_name]["tgt_pol_smooth"],
+                      tgt_noise        = c["tgt_noise"],
+                      tgt_noise_clip   = c["tgt_noise_clip"],
+                      pol_upd_delay    = c["agent"][agent_name]["pol_upd_delay"],
                       gamma            = c["gamma"],
                       tau              = c["tau"],
                       net_struc_actor  = c["net_struc_actor"],
                       net_struc_critic = c["net_struc_critic"],
                       lr_actor         = c["lr_actor"],
                       lr_critic        = c["lr_critic"],
-                      lr_temperature   = c["lr_temperature"],
                       buffer_length    = c["buffer_length"],
                       grad_clip        = c["grad_clip"],
                       grad_rescale     = c["grad_rescale"],
@@ -115,11 +119,11 @@ def train(c):
                       upd_start_step   = c["upd_start_step"],
                       upd_every        = c["upd_every"],
                       batch_size       = c["batch_size"],
-                      temp_tuning      = c["temp_tuning"],
-                      temperature      = c["temperature"],
                       device           = c["device"],
+                      env_str          = c["env"]["name"],
+                      info             = c["env"]["info"],
                       seed             = c["seed"])
-    
+
     # get initial state and normalize it
     s = env.reset()
     if c["input_norm"]:
@@ -155,7 +159,7 @@ def train(c):
         
         # memorize
         agent.memorize(s, a, r, s2, d)
-        
+
         # train
         if (total_steps >= c["upd_start_step"]) and (total_steps % c["upd_every"] == 0):
             for _ in range(c["upd_every"]):
@@ -166,6 +170,9 @@ def train(c):
 
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
+ 
+            # reset noise after episode
+            agent.noise.reset()
             
             # reset to initial state and normalize it
             s = env.reset()
@@ -195,8 +202,11 @@ def train(c):
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
-            agent.logger.log_tabular("Q1_val", with_min_and_max=True)
-            agent.logger.log_tabular("Q2_val", with_min_and_max=True)
+            if agent.double_critic:
+                agent.logger.log_tabular("Q1_val", with_min_and_max=True)
+                agent.logger.log_tabular("Q2_val", with_min_and_max=True)
+            else:
+                agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()
@@ -218,12 +228,18 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="ski_sac.json")
+    parser.add_argument("--config_file", type=str, default="invdoupen_td3_rv.json")
+    parser.add_argument("--agent_name", type=str, default="td3")
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
     # read config file
     with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
+
+    # potentially overwrite seed
+    if args.seed is not None:
+        c["seed"] = args.seed
 
     # convert certain keys in integers
     for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
@@ -240,4 +256,4 @@ if __name__ == "__main__":
     torch.set_num_threads(torch.get_num_threads())
 
     # run main loop
-    train(c)
+    train(c, args.agent_name)
