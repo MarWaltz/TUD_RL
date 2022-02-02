@@ -10,11 +10,11 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from common.eval_plot import plot_from_progress
-from configs.discrete_actions import __path__
-from agents.DQNAgent import DQNAgent
-from environments.envs.MountainCar import MountainCar
-from environments.wrappers.MinAtar_wrapper import MinAtar_wrapper
+from tud_rl.common.eval_plot import plot_from_progress
+from tud_rl.configs.discrete_actions import __path__
+from tud_rl.agents.DQNAgent import DQNAgent
+from tud_env.envs.MountainCar import MountainCar
+from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
 
 def evaluate_policy(test_env, test_agent, c):

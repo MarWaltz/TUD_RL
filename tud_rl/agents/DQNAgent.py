@@ -6,11 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from common.exploration import LinearDecayEpsilonGreedy
-from common.logging_func import *
-from common.nets import MLP, MinAtar_DQN
+from tud_rl.common.exploration import LinearDecayEpsilonGreedy
+from tud_rl.common.logging_func import *
+from tud_rl.common.nets import MLP, MinAtar_DQN
 
-from agents.BaseAgent import BaseAgent
+from tud_rl.agents.BaseAgent import BaseAgent
 
 
 class DQNAgent(BaseAgent):

@@ -2,9 +2,8 @@ import pickle
 
 import numpy as np
 import torch
-from common.buffer import UniformReplayBuffer
-from common.normalizer import Input_Normalizer
-
+from tud_rl.common.buffer import UniformReplayBuffer
+from tud_rl.common.normalizer import Input_Normalizer
 
 class BaseAgent:
     def __init__(self, c):
