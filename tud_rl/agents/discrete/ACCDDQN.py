@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from tud_rl.agents.dis_act.DQN import DQNAgent
+from tud_rl.agents.discrete.DQN import DQNAgent
 from tud_rl.common.logging_func import *
 from tud_rl.common.nets import MLP, MinAtar_DQN
 

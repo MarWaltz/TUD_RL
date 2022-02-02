@@ -13,8 +13,13 @@ import torch
 from tud_rl.common.eval_plot import plot_from_progress
 
 from tud_rl.configs.discrete_actions import __path__
-from tud_rl.agents.dis_act.DQN import DQNAgent
-from tud_rl.agents.dis_act.DDQN import DDQNAgent
+from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents.discrete.DDQN import DDQNAgent
+from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.agents.discrete.BootDQN import BootDQNAgent
+from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
+
+from tud_rl.agents.discrete import *
 
 from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
@@ -210,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="ddqn")
+    parser.add_argument("--agent_name", type=str, default="SCDQN_b")
     args = parser.parse_args()
 
     # read config file

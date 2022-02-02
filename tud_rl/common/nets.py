@@ -103,9 +103,9 @@ class MinAtar_DQN(nn.Module):
                                     height      = height,
                                     width       = width)
 
-        self.head = MLP(in_size     = self.core.in_size_FC, 
-                        num_actions = num_actions,
-                        net_struc   = [[128, "relu"], "identity"])
+        self.head = MLP(in_size   = self.core.in_size_FC, 
+                        out_size  = num_actions,
+                        net_struc = [[128, "relu"], "identity"])
     
     def forward(self, s):
         x = self.core(s)
@@ -121,9 +121,9 @@ class MinAtar_BootDQN(nn.Module):
                                     height      = height,
                                     width       = width)
 
-        self.heads = nn.ModuleList([MLP(in_size     = self.core.in_size_FC, 
-                                        num_actions = num_actions,
-                                        net_struc   = [[128, "relu"], "identity"]) for _ in range(K)])
+        self.heads = nn.ModuleList([MLP(in_size   = self.core.in_size_FC, 
+                                        out_size  = num_actions,
+                                        net_struc = [[128, "relu"], "identity"]) for _ in range(K)])
 
     def forward(self, s, head=None):
         """Returns for a state s all Q(s,a) for each k. Args:

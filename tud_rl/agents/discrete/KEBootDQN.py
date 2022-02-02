@@ -1,11 +1,11 @@
 import scipy.stats
 import torch
 import torch.nn as nn
-from tud_rl.agents.dis_act.BootDQN import BootDQNAgent
+from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.common.logging_func import *
 
 
-class KE_BootDQN_Agent(BootDQNAgent):
+class KEBootDQNAgent(BootDQNAgent):
     def __init__(self, c, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
@@ -95,7 +95,7 @@ class KE_BootDQN_Agent(BootDQNAgent):
                 y = r + self.gamma * Q_next * (1 - d)
 
             # calculate (Q - y)**2
-            loss_k = self._compute_loss(Q, y, reduction="None")
+            loss_k = self._compute_loss(Q, y, reduction="none")
 
             # use only relevant samples for given head
             loss_k = loss_k * m[:, k].unsqueeze(1)

@@ -12,20 +12,21 @@
 
    "agent": 
    {
-      "DQN"            : {},
-      "DDQN"           : {},
-      "SCDQN_a"        : {"sc_beta" : 2.0},
-      "SCDQN_b"        : {"sc_beta" : 3.0},
-      "SCDQN_c"        : {"sc_beta" : 4.0},
-      "AC_CDDQN_a"     : {"AC_K" : 2},
-      "AC_CDDQN_b"     : {"AC_K" : 3},
-      "AC_CDDQN_c"     : {"AC_K" : 4},
-      "BootDQN"        : {"K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "TE_BootDQN_a"   : {"kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "TE_BootDQN_b"   : {"kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "TE_BootDQN_c"   : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "TE_BootDQN_d"   : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "KE_BootDQN"     : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
+      "DQN"         : {},
+      "DDQN"        : {},
+      "SCDQN_a"     : {"sc_beta" : 2.0},
+      "SCDQN_b"     : {"sc_beta" : 3.0},
+      "SCDQN_c"     : {"sc_beta" : 4.0},
+      "ACCDDQN_a"   : {"AC_K" : 2},
+      "ACCDDQN_b"   : {"AC_K" : 3},
+      "ACCDDQN_c"   : {"AC_K" : 4},
+      "BootDQN"     : {"K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_a" : {"kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_b" : {"kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_c" : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_d" : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_e" : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "EnsembleDQN" : {"N" : 5, "N_to_update" : 1}
    }
    ,
 

@@ -4,41 +4,34 @@ from collections import Counter
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tud_rl.agents.dis_act.DQN import DQNAgent
-from tud_rl.common.buffer import UniformReplayBuffer_BootDQN
+from tud_rl.agents.discrete.DQN import DQNAgent
 from tud_rl.common.logging_func import *
-from tud_rl.common.nets import MinAtar_BootDQN
+from tud_rl.common.nets import MLP, MinAtar_DQN
 
 
-class BootDQNAgent(DQNAgent):
+class EnsembleDQNAgent(DQNAgent):
     def __init__(self, c, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
-        # store attributes and hyperparameters
-        self.K            = c["agent"][agent_name]["K"]
-        self.mask_p       = c["agent"][agent_name]["mask_p"]
-        self.grad_rescale = c["agent"][agent_name]["grad_rescale"]
+        # attributes and hyperparameters
+        self.N           = c["agent"][agent_name]["N"]
+        self.N_to_update = c["agent"][agent_name]["N_to_update"]
 
-        # checks
-        if self.state_type == "feature":
-            raise NotImplementedError("Currently, BootDQN is only available with 'image' input.")
-       
-        # replay buffer with masks
-        if self.mode == "train":
-            self.replay_buffer = UniformReplayBuffer_BootDQN(state_type    = self.state_type, 
-                                                             state_shape   = self.state_shape,
-                                                             buffer_length = self.buffer_length, 
-                                                             batch_size    = self.batch_size, 
-                                                             device        = self.device,
-                                                             K             = self.K, 
-                                                             mask_p        = self.mask_p)
-        # init BootDQN
-        if self.state_type == "image":
-            self.DQN = MinAtar_BootDQN(in_channels = self.state_shape[0],
-                                       height      = self.state_shape[1], 
-                                       width       = self.state_shape[2], 
-                                       num_actions = self.num_actions, 
-                                       K           = self.K).to(self.device)
+        # init EnsembleDQN
+        del self.DQN
+        self.EnsembleDQN = [None] * self.N
+
+        for i in range(self.N):
+            if self.state_type == "image":
+                self.EnsembleDQN[i] = MinAtar_DQN(in_channels = self.state_shape[0],
+                                                  height      = self.state_shape[1],
+                                                  width       = self.state_shape[2],
+                                                  num_actions = self.num_actions).to(self.device)
+
+            elif self.state_type == "feature":
+                self.EnsembleDQN[i] = MLP(in_size   = self.state_shape,
+                                          out_size  = self.num_actions, 
+                                          net_struc = self.net_struc).to(self.device)
         
 
         # init logger and save config
@@ -47,34 +40,37 @@ class BootDQNAgent(DQNAgent):
             self.logger.save_config({"agent_name" : self.name, **c})
 
             print("--------------------------------------------")
-            print(f"n_params: {self._count_params(self.DQN)}")
+            print(f"n_params: {self.N * self._count_params(self.EnsembleDQN[0])}")
             print("--------------------------------------------")
 
         # prior weights
         if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights))
+            raise NotImplementedError("Prior weights not implemented so far for EnsembleDQN.")
 
         # target net and counter for target update
-        self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
+        del self.target_DQN
+
+        self.target_EnsembleDQN = copy.deepcopy(self.EnsembleDQN).to(self.device)
         self.tgt_up_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_DQN.parameters():
-            p.requires_grad = False
+        for net in self.target_EnsembleDQN:
+            for p in net.parameters():
+                p.requires_grad = False
 
         # define optimizer
-        if self.optimizer == "Adam":
-            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
-        else:
-            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
-        
-        # init active head
-        self.reset_active_head()
+        del self.DQN_optimizer
 
+        self.EnsembleDQN_optimizer = [None] * self.N
 
-    def reset_active_head(self):
-        self.active_head = np.random.choice(self.K)
+        for i in range(self.N):
+            if self.optimizer == "Adam":
+                self.EnsembleDQN_optimizer[i] = optim.Adam(self.EnsembleDQN[i].parameters(), lr=self.lr)
 
+            else:
+                self.EnsembleDQN_optimizer[i] = optim.RMSprop(self.EnsembleDQN[i].parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
+
+#---------------- CONTINUE -----------------------
 
     @torch.no_grad()
     def select_action(self, s):
@@ -145,7 +141,7 @@ class BootDQNAgent(DQNAgent):
                 y = r + self.gamma * Q_next * (1 - d)
 
             # calculate (Q - y)**2
-            loss_k = self._compute_loss(Q, y, reduction="None")
+            loss_k = self._compute_loss(Q, y, reduction="none")
 
             # use only relevant samples for given head
             loss_k = loss_k * m[:, k].unsqueeze(1)
