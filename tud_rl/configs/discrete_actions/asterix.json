@@ -12,20 +12,20 @@
 
    "agent": 
    {
-      "dqn"            : {},
-      "ddqn"           : {},
-      "scdqn_2"        : {"sc_beta" : 2.0},
-      "scdqn_3"        : {"sc_beta" : 3.0},
-      "scdqn_4"        : {"sc_beta" : 4.0},
-      "ac_cddqn_2"     : {"AC_K" : 2},
-      "ac_cddqn_3"     : {"AC_K" : 3},
-      "ac_cddqn_4"     : {"AC_K" : 4},
-      "boot_dqn"       : {"K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "te_boot_dqn_5"  : {"kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "te_boot_dqn_10" : {"kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "te_boot_dqn_15" : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "te_boot_dqn_25" : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "ke_boot_dqn"    : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
+      "DQN"            : {},
+      "DDQN"           : {},
+      "SCDQN_a"        : {"sc_beta" : 2.0},
+      "SCDQN_b"        : {"sc_beta" : 3.0},
+      "SCDQN_c"        : {"sc_beta" : 4.0},
+      "AC_CDDQN_a"     : {"AC_K" : 2},
+      "AC_CDDQN_b"     : {"AC_K" : 3},
+      "AC_CDDQN_c"     : {"AC_K" : 4},
+      "BootDQN"        : {"K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "TE_BootDQN_a"   : {"kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "TE_BootDQN_b"   : {"kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "TE_BootDQN_c"   : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "TE_BootDQN_d"   : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KE_BootDQN"     : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
    }
    ,
 
@@ -41,7 +41,7 @@
   "eps_final"        : 0.1,
   "eps_decay_steps"  : 1e5,
   "tgt_update_freq"  : 1e3,
-  "net_struc_dqn"    : null,
+  "net_struc"        : null,
   "optimizer"        : "Adam",
   "loss"             : "MSELoss",
   "lr"               : 0.0001,

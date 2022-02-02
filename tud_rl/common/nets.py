@@ -52,10 +52,12 @@ class MLP(nn.Module):
         return s
 
 
-class MinAtar_DQN(nn.Module):
-    """Defines a deep Q-network with a convolutional first layer. Suitable for MinAtar games."""
-    def __init__(self, in_channels, height, width, num_actions):
-        super(MinAtar_DQN, self).__init__()
+# --------------------------- MinAtar ---------------------------------
+class MinAtar_CoreNet(nn.Module):
+    """Defines the CNN part for MinAtar games."""
+
+    def __init__(self, in_channels, height, width):
+        super().__init__()
 
         # CNN hyperparams
         self.out_channels = 16
@@ -68,11 +70,7 @@ class MinAtar_DQN(nn.Module):
                               stride=self.stride, padding=self.padding)
 
         # calculate input size for FC layer (which is size of a single feature map multiplied by number of out_channels)
-        num_linear_units = self._output_size_filter(height) * self._output_size_filter(width) * self.out_channels
-
-        # define FC layers
-        self.linear1 = nn.Linear(num_linear_units, 128)
-        self.linear2 = nn.Linear(128, num_actions)
+        self.in_size_FC = self._output_size_filter(height) * self._output_size_filter(width) * self.out_channels
 
     def _output_size_filter(self, size, kernel_size=3, stride=1):
         """Computes for given height or width (here named 'size') of ONE input channel, given
@@ -82,10 +80,9 @@ class MinAtar_DQN(nn.Module):
         return (size - (kernel_size - 1) - 1) // stride + 1
 
     def forward(self, s):
-        """Returns for a state s all the Q(s,a). Args:
-        s: torch.Size([batch_size, in_channels, height, width])
+        """s: torch.Size([batch_size, in_channels, height, width])
 
-        returns: torch.Size([batch_size, num_actions])
+        returns: torch.Size([batch_size, in_size_FC])
         """
         # CNN
         x = F.relu(self.conv(s))
@@ -94,8 +91,53 @@ class MinAtar_DQN(nn.Module):
         # torch.Size([batch_size, out_channels * out_height * out_width])
         x = x.view(x.shape[0], -1)
 
-        # FC layers
-        x = F.relu(self.linear1(x))
-        q = self.linear2(x)
+        return x
 
-        return q
+
+class MinAtar_DQN(nn.Module):
+    """Defines the DQN consisting of the CNN part and a fully-connected layer."""
+    def __init__(self, in_channels, height, width, num_actions):
+        super().__init__()
+        
+        self.core = MinAtar_CoreNet(in_channels = in_channels,
+                                    height      = height,
+                                    width       = width)
+
+        self.head = MLP(in_size     = self.core.in_size_FC, 
+                        num_actions = num_actions,
+                        net_struc   = [[128, "relu"], "identity"])
+    
+    def forward(self, s):
+        x = self.core(s)
+        return self.head(x)
+
+
+class MinAtar_BootDQN(nn.Module):
+    """Defines the BootDQN consisting of the common CNN part and K different heads."""
+    def __init__(self, in_channels, height, width, num_actions, K):
+        super().__init__()
+        
+        self.core = MinAtar_CoreNet(in_channels = in_channels,
+                                    height      = height,
+                                    width       = width)
+
+        self.heads = nn.ModuleList([MLP(in_size     = self.core.in_size_FC, 
+                                        num_actions = num_actions,
+                                        net_struc   = [[128, "relu"], "identity"]) for _ in range(K)])
+
+    def forward(self, s, head=None):
+        """Returns for a state s all Q(s,a) for each k. Args:
+        s: torch.Size([batch_size, in_channels, height, width])
+
+        returns:
+        list of length K with each element being torch.Size([batch_size, num_actions]) if head is None,
+        torch.Size([batch_size, num_actions]) else."""
+
+        # CNN part
+        x = self.core(s)
+
+        # K heads
+        if head is None:
+            return [head_net(x) for head_net in self.heads]
+        else:
+            return self.heads[head](x)

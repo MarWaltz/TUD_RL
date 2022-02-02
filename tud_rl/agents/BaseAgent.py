@@ -6,9 +6,10 @@ from tud_rl.common.buffer import UniformReplayBuffer
 from tud_rl.common.normalizer import Input_Normalizer
 
 class BaseAgent:
-    def __init__(self, c):
+    def __init__(self, c, agent_name):
 
         # attributes and hyperparameters
+        self.name =             agent_name
         self.mode =             c["mode"]
         self.state_shape =      c["state_shape"]
         self.state_type =       c["env"]["state_type"]

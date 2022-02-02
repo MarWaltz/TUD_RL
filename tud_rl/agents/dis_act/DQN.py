@@ -14,11 +14,10 @@ from tud_rl.agents.BaseAgent import BaseAgent
 
 
 class DQNAgent(BaseAgent):
-    def __init__(self, c, logging=True):
-        super().__init__(c)
+    def __init__(self, c, agent_name, logging=True):
+        super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.name            = "dqn_agent"
         self.num_actions     = c["num_actions"]
         self.dqn_weights     = c["dqn_weights"]
         self.eps_init        = c["eps_init"]
@@ -32,11 +31,6 @@ class DQNAgent(BaseAgent):
 
         if self.state_type == "image" and self.net_struc is not None:
             raise Exception("For CNN-based nets, the specification of 'net_struc_dqn' should be 'None'.")
-
-        # init logger and save config
-        if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str)
-            self.logger.save_config(locals())
 
         # linear epsilon schedule
         self.exploration = LinearDecayEpsilonGreedy(eps_init        = self.eps_init, 
@@ -55,9 +49,14 @@ class DQNAgent(BaseAgent):
                            out_size  = self.num_actions, 
                            net_struc = self.net_struc).to(self.device)
 
-        print("--------------------------------------------")
-        print(f"n_params DQN: {self._count_params(self.DQN)}")
-        print("--------------------------------------------")
+        # init logger and save config
+        if logging:
+            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str)
+            self.logger.save_config({"agent_name" : self.name, **c})
+            
+            print("--------------------------------------------")
+            print(f"n_params: {self._count_params(self.DQN)}")
+            print("--------------------------------------------")
         
         # load prior weights if available
         if self.dqn_weights is not None:
@@ -89,21 +88,26 @@ class DQNAgent(BaseAgent):
         # get current epsilon
         curr_epsilon = self.exploration.get_epsilon(self.mode)
 
-        # random action
+        # random
         if np.random.binomial(1, curr_epsilon) == 1:
             a = np.random.randint(low=0, high=self.num_actions, size=1, dtype=int).item()
             
-        # greedy action
+        # greedy
         else:
-            # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
-            s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
-
-            # forward pass
-            q = self.DQN(s).to(self.device)
-
-            # greedy
-            a = torch.argmax(q).item()
+            a = self._greedy_action(s)
         return a
+
+
+    @torch.no_grad()
+    def _greedy_action(self, s):
+        # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
+        s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
+
+        # forward pass
+        q = self.DQN(s).to(self.device)
+
+        # greedy
+        return torch.argmax(q).item()
 
 
     def _compute_target(self, r, s2, d):
@@ -114,12 +118,12 @@ class DQNAgent(BaseAgent):
         return y
 
 
-    def _compute_loss(self, Q, y):
+    def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
-            return F.mse_loss(Q, y)
+            return F.mse_loss(Q, y, reduction=reduction)
 
         elif self.loss == "SmoothL1Loss":
-            return F.smooth_l1_loss(Q, y)
+            return F.smooth_l1_loss(Q, y, reduction=reduction)
 
 
     def train(self):
@@ -161,13 +165,14 @@ class DQNAgent(BaseAgent):
         self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
 
         #------- Update target networks -------
-        if self.tgt_up_cnt % self.tgt_update_freq == 0:
-            self.target_update()
-
-        # increase target-update cnt
-        self.tgt_up_cnt += 1
+        self._target_update()
     
 
     @torch.no_grad()
-    def target_update(self):
-        self.target_DQN.load_state_dict(self.DQN.state_dict())
+    def _target_update(self):
+
+        if self.tgt_up_cnt % self.tgt_update_freq == 0:
+            self.target_DQN.load_state_dict(self.DQN.state_dict())
+
+        # increase target-update cnt
+        self.tgt_up_cnt += 1

@@ -11,8 +11,11 @@ import gym_pygame
 import numpy as np
 import torch
 from tud_rl.common.eval_plot import plot_from_progress
+
 from tud_rl.configs.discrete_actions import __path__
-from tud_rl.agents.DQNAgent import DQNAgent
+from tud_rl.agents.dis_act.DQN import DQNAgent
+from tud_rl.agents.dis_act.DDQN import DDQNAgent
+
 from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
@@ -28,7 +31,7 @@ def evaluate_policy(test_env, test_agent, c):
 
         # potentially normalize it
         if c["input_norm"]:
-            s = test_agent.inp_normalizer.normalize(s, mode="test")
+            s = test_agent.inp_normalizer.normalize(s, mode=test_agent.mode)
 
         cur_ret = 0
         d = False
@@ -46,7 +49,7 @@ def evaluate_policy(test_env, test_agent, c):
 
             # potentially normalize s2
             if c["input_norm"]:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
+                s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
 
             # s becomes s2
             s = s2
@@ -62,7 +65,7 @@ def evaluate_policy(test_env, test_agent, c):
     return rets
 
 
-def train(c):
+def train(c, agent_name):
     """Main training loop."""
 
     # measure computation time
@@ -88,7 +91,8 @@ def train(c):
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]
 
-    # num actions
+    # mode and num actions
+    c["mode"] = "train"
     c["num_actions"] = env.action_space.n
 
     # seeding
@@ -99,12 +103,15 @@ def train(c):
     random.seed(c["seed"])
 
     # init agent
-    agent = DQNAgent(c)
+    if agent_name[-1].islower():
+        agent = eval(agent_name[:-2] + "Agent")(c, agent_name)
+    else:
+        agent = eval(agent_name + "Agent")(c, agent_name)
 
     # get initial state and normalize it
     s = env.reset()
     if c["input_norm"]:
-        s = agent.inp_normalizer.normalize(s, mode="train")
+        s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
     # init epi step counter and epi return
     epi_steps = 0
@@ -129,7 +136,7 @@ def train(c):
 
         # potentially normalize s2
         if c["input_norm"]:
-            s2 = agent.inp_normalizer.normalize(s2, mode="train")
+            s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
         # add epi ret
         epi_ret += r
@@ -148,10 +155,14 @@ def train(c):
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
+            # reset active head for BootDQN
+            if "Boot" in agent_name:
+                agent.reset_active_head()
+
             # reset to initial state and normalize it
             s = env.reset()
             if c["input_norm"]:
-                s = agent.inp_normalizer.normalize(s, mode="train")
+                s = agent.inp_normalizer.normalize(s, mode=agent.mode)
             
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
@@ -199,6 +210,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--agent_name", type=str, default="ddqn")
     args = parser.parse_args()
 
     # read config file
@@ -225,4 +237,4 @@ if __name__ == "__main__":
     # set number of torch threads
     torch.set_num_threads(torch.get_num_threads())
 
-    train(c)
+    train(c, args.agent_name)
