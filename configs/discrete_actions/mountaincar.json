@@ -1,0 +1,43 @@
+{
+   "env":
+   {
+      "name"              : "MyMountainCar-v0",
+      "max_episode_steps" : -1,
+      "state_type"        : "feature",
+      "wrappers"          : [],
+      "wrapper_kwargs"    : {},
+      "env_kwargs"        : {"rewardStd" : 1}
+   }
+   ,
+
+   "agent": 
+   {
+      "dqn"  : {"double" : false, "self_correcting_beta" : null, "grad_rescale" : false},
+      "ddqn" : {"double" : true, "self_correcting_beta" : null, "grad_rescale" : false}
+   }
+   ,
+
+  "seed"             : 0,
+  "timesteps"        : 5e6,
+  "epoch_length"     : 1e4,
+  "eval_episodes"    : 20,
+  "dqn_weights"      : null,
+  "input_norm"       : false,
+  "input_norm_prior" : null,
+  "gamma"            : 0.99,
+  "eps_init"         : 1.0,
+  "eps_final"        : 0.1,
+  "eps_decay_steps"  : 1e5,
+  "tgt_update_freq"  : 1e3,
+  "net_struc_dqn"    : [[16, "relu"], [16, "relu"], "identity"],
+  "optimizer"        : "Adam",
+  "loss"             : "MSELoss",
+  "lr"               : 0.0001,
+  "buffer_length"    : 1e5,
+  "grad_clip"        : false,
+  "act_start_step"   : 5000,
+  "upd_start_step"   : 5000,
+  "upd_every"        : 1,
+  "batch_size"       : 32,
+  "device"           : "cpu"
+}

@@ -85,11 +85,14 @@ class Bootstrapped_DQN_Agent:
         self.mode = mode
         
         if kernel is not None:
-            self.name = f"our_boot_dqn_agent_{kernel}_{kernel_param}"
+            if kernel == "test":
+                self.name = f"te-bdqn_agent_{kernel_param}"
+            else:
+                self.name = f"ke-bdqn_agent_{kernel_param}"
         elif double:
-            self.name = "boot_ddqn_agent"
+            self.name = "bddqn_agent"
         else:
-            self.name = "boot_dqn_agent"
+            self.name = "bdqn_agent"
 
         self.num_actions = num_actions
  
