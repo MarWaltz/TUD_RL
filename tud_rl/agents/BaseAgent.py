@@ -2,33 +2,33 @@ import pickle
 
 import numpy as np
 import torch
-from tud_rl.common.buffer import UniformReplayBuffer
 from tud_rl.common.normalizer import Input_Normalizer
 
 class BaseAgent:
     def __init__(self, c, agent_name):
 
         # attributes and hyperparameters
-        self.name =             agent_name
-        self.mode =             c["mode"]
-        self.state_shape =      c["state_shape"]
-        self.state_type =       c["env"]["state_type"]
-        self.input_norm =       c["input_norm"]
+        self.name             = agent_name
+        self.num_actions      = c["num_actions"]
+        self.mode             = c["mode"]
+        self.state_shape      = c["state_shape"]
+        self.state_type       = c["env"]["state_type"]
+        self.input_norm       = c["input_norm"]
         self.input_norm_prior = c["input_norm_prior"]
-        self.gamma =            c["gamma"]
-        self.optimizer =        c["optimizer"]
-        self.loss =             c["loss"]
-        self.lr =               c["lr"]
-        self.buffer_length =    c["buffer_length"]
-        self.grad_clip =        c["grad_clip"]
-        self.grad_rescale =     c["grad_rescale"]
-        self.act_start_step =   c["act_start_step"]
-        self.upd_start_step =   c["upd_start_step"]
-        self.upd_every =        c["upd_every"]             # used in training files, purely for logging here
-        self.batch_size =       c["batch_size"]
-        self.device =           c["device"]
-        self.env_str =          c["env"]["name"]
-        self.seed =             c["seed"]
+        self.gamma            = c["gamma"]
+        self.optimizer        = c["optimizer"]
+        self.loss             = c["loss"]
+        self.buffer_length    = c["buffer_length"]
+        self.grad_clip        = c["grad_clip"]
+        self.grad_rescale     = c["grad_rescale"]
+        self.act_start_step   = c["act_start_step"]
+        self.upd_start_step   = c["upd_start_step"]
+        self.upd_every        = c["upd_every"]             # used in training files, purely for logging here
+        self.batch_size       = c["batch_size"]
+        self.device           = c["device"]
+        self.env_str          = c["env"]["name"]
+        self.info             = c["env"]["info"]
+        self.seed             = c["seed"]
 
         # checks
         assert c["mode"] in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
@@ -53,13 +53,6 @@ class BaseAgent:
             self.device = torch.device("cuda")
             print("Using GPU support.")
         
-        # replay buffer
-        if self.mode == "train":
-            self.replay_buffer = UniformReplayBuffer(state_type    = self.state_type, 
-                                                     state_shape   = self.state_shape, 
-                                                     buffer_length = self.buffer_length,
-                                                     batch_size    = self.batch_size,
-                                                     device        = self.device)
         # input normalizer
         if self.input_norm:
             

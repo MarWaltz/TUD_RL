@@ -12,7 +12,7 @@ class SCDQNAgent(DQNAgent):
 
         # init logger and save config
         if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str)
+            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
             self.logger.save_config({"agent_name" : self.name, **c})
 
             print("--------------------------------------------")

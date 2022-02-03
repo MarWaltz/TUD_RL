@@ -6,7 +6,8 @@
       "state_type"        : "image",
       "wrappers"          : ["MinAtar_wrapper"],
       "wrapper_kwargs"    : {"MinAtar_wrapper" : {}},
-      "env_kwargs"        : {}
+      "env_kwargs"        : {},
+      "info"              : ""
    }
    ,
 

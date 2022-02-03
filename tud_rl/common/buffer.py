@@ -3,7 +3,7 @@ import torch
 
 
 class UniformReplayBuffer:
-    def __init__(self, state_type, state_shape, buffer_length, batch_size, device):
+    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
         """A simple replay buffer with uniform sampling."""
 
         self.max_size   = buffer_length
@@ -20,7 +20,11 @@ class UniformReplayBuffer:
             self.s  = np.zeros((self.max_size, state_shape), dtype=np.float32)
             self.s2 = np.zeros((self.max_size, state_shape), dtype=np.float32)
         
-        self.a  = np.zeros((self.max_size, 1), dtype=np.int64)
+        if disc_actions:
+            self.a = np.zeros((self.max_size, 1), dtype=np.int64)
+        else:
+            self.a = np.zeros((self.max_size, action_dim), dtype=np.float32)
+
         self.r  = np.zeros((self.max_size, 1), dtype=np.float32)
         self.d  = np.zeros((self.max_size, 1), dtype=np.float32)
     

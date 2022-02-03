@@ -13,8 +13,8 @@
 
    "agent": 
    {
-      "ddpg" : {"double_critic" : false, "tgt_pol_smooth" : false, "pol_upd_delay" : 1},
-      "td3"  : {"double_critic" : true, "tgt_pol_smooth" : true, "pol_upd_delay" : 2}
+      "DDPG" : {},
+      "TD3"  : {"tgt_noise" : 0.2, "tgt_noise_clip" : 0.5, "pol_upd_delay" : 2}
    }
    ,
 
@@ -25,9 +25,7 @@
   "actor_weights"    : null,
   "critic_weights"   : null,
   "input_norm"       : false,
-  "input_norm_prior" : null,
-  "tgt_noise"        : 0.2,
-  "tgt_noise_clip"   : 0.5,
+  "input_norm_prior" : null, 
   "gamma"            : 0.99,
   "tau"              : 0.001,
   "net_struc_actor"  : [[256, "relu"], [256, "relu"], "tanh"],

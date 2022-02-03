@@ -6,11 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from tud_rl.agents.BaseAgent import BaseAgent
+from tud_rl.common.buffer import UniformReplayBuffer
 from tud_rl.common.exploration import LinearDecayEpsilonGreedy
 from tud_rl.common.logging_func import *
 from tud_rl.common.nets import MLP, MinAtar_DQN
-
-from tud_rl.agents.BaseAgent import BaseAgent
 
 
 class DQNAgent(BaseAgent):
@@ -18,7 +18,7 @@ class DQNAgent(BaseAgent):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.num_actions     = c["num_actions"]
+        self.lr              = c["lr"]
         self.dqn_weights     = c["dqn_weights"]
         self.eps_init        = c["eps_init"]
         self.eps_final       = c["eps_final"]
@@ -37,6 +37,15 @@ class DQNAgent(BaseAgent):
                                                     eps_final       = self.eps_final,
                                                     eps_decay_steps = self.eps_decay_steps)
 
+        # replay buffer
+        if self.mode == "train":
+            self.replay_buffer = UniformReplayBuffer(state_type    = self.state_type, 
+                                                     state_shape   = self.state_shape, 
+                                                     buffer_length = self.buffer_length,
+                                                     batch_size    = self.batch_size,
+                                                     device        = self.device,
+                                                     disc_actions  = True)
+
         # init DQN
         if self.state_type == "image":
             self.DQN = MinAtar_DQN(in_channels = self.state_shape[0],
@@ -51,7 +60,7 @@ class DQNAgent(BaseAgent):
 
         # init logger and save config
         if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str)
+            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
             self.logger.save_config({"agent_name" : self.name, **c})
             
             print("--------------------------------------------")
