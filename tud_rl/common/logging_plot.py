@@ -83,6 +83,12 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,1].plot(df["Timestep"], df["Max_bias"], label="Max. bias")
         ax[1,1].plot(df["Timestep"], df["Min_bias"], label="Min. bias")
         ax[1,1].legend()
+    
+    if "Bias_Unc_cor" in df.columns:
+        ax_add = ax[1,1].twinx()
+        ax_add.plot(df["Timestep"], df["Bias_Unc_cor"], color="black")
+        ax_add.set_ylim(-1,1)
+        ax_add.set_ylabel("Correlation: Bias - Ensemble Uncertainty (black)")
 
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")

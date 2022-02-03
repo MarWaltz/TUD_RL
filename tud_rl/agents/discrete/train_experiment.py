@@ -19,7 +19,7 @@ from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
-from tud_rl.common.eval_plot import plot_from_progress
+from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
 
@@ -51,6 +51,9 @@ def evaluate_policy(test_env, test_agent, c):
     # Q-ests of all (s,a) pairs of ALL episodes
     Q_est_all_eps = []
 
+    # Sd of Q-ests of all (s,a) pairs of ALL episodes
+    Q_sd_all_eps = []
+
     # MC-vals of all (s,a) pairs of ALL episodes
     MC_all_eps = []
     
@@ -77,10 +80,19 @@ def evaluate_policy(test_env, test_agent, c):
             # select action
             a = test_agent.select_action(s)
 
-            # get current Q estimate
+            # get current Q estimate and its sd
             s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
-            
+            q_ens = [net(s) for net in test_agent.EnsembleDQN]
+            q_ens = torch.stack(q_ens)
+
+            Q_est = test_agent._ensemble_reduction(q_ens)[0][a].item()
+            Q_est_all_eps.append(Q_est)
+
+            Q_sd = torch.std(q_ens, dim=0)[0][a].item()
+            Q_sd_all_eps.append(Q_sd)
+
+            #Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
+
             # perform step
             s2, r, d, _ = test_env.step(a)
 
@@ -107,8 +119,9 @@ def evaluate_policy(test_env, test_agent, c):
         
     # compute bias
     bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
+    Q_sd = np.array(Q_sd_all_eps)
 
-    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias)
+    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias), np.corrcoef(bias, Q_sd)[0][1]
 
 
 def train(c, agent_name):
@@ -223,7 +236,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, avg_bias, std_bias, max_bias, min_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -239,6 +252,7 @@ def train(c, agent_name):
             agent.logger.log_tabular("Std_bias", std_bias)
             agent.logger.log_tabular("Max_bias", max_bias)
             agent.logger.log_tabular("Min_bias", min_bias)
+            agent.logger.log_tabular("Bias_Unc_cor", bias_unc_cor)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -261,7 +275,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
+    parser.add_argument("--agent_name", type=str, default="EnsembleDQN")
     args = parser.parse_args()
 
     # read config file
