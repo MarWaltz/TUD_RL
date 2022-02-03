@@ -11,17 +11,12 @@ from tud_rl.common.nets import Double_MLP
 
 class TD3Agent(DDPGAgent):
     def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging=False)
+        super().__init__(c, agent_name, logging=False, init_critic=False)
 
         # attributes and hyperparameters
         self.tgt_noise      = c["agent"][agent_name]["tgt_noise"]
         self.tgt_noise_clip = c["agent"][agent_name]["tgt_noise_clip"]
         self.pol_upd_delay  = c["agent"][agent_name]["pol_upd_delay"]
-
-        # delete DDPG critic - just for transparency
-        del self.critic
-        del self.target_critic
-        del self.critic_optimizer
 
         # init double critic
         if self.state_type == "feature":
@@ -38,9 +33,8 @@ class TD3Agent(DDPGAgent):
             print(f"n_params_actor: {self._count_params(self.actor)}  |  n_params_critic: {self._count_params(self.critic)}")
             print("--------------------------------------------")
 
-        # load prior weights if available
-        if self.actor_weights is not None and self.critic_weights is not None:
-            self.actor.load_state_dict(torch.load(self.actor_weights))
+        # load prior critic weights if available
+        if self.critic_weights is not None:
             self.critic.load_state_dict(torch.load(self.critic_weights))
 
         # redefine target critic

@@ -15,7 +15,7 @@ from tud_rl.common.normalizer import Action_Normalizer
 
 
 class DDPGAgent(BaseAgent):
-    def __init__(self, c, agent_name, logging=True):
+    def __init__(self, c, agent_name, logging=True, init_critic=True):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
@@ -57,9 +57,10 @@ class DDPGAgent(BaseAgent):
                             out_size  = self.num_actions,
                             net_struc = self.net_struc_actor).to(self.device)
             
-            self.critic = MLP(in_size   = self.state_shape + self.num_actions,
-                            out_size  = 1,
-                            net_struc = self.net_struc_critic).to(self.device)
+            if init_critic:
+                self.critic = MLP(in_size   = self.state_shape + self.num_actions,
+                                out_size  = 1,
+                                net_struc = self.net_struc_critic).to(self.device)
         
         # init logger and save config
         if logging:
@@ -73,25 +74,34 @@ class DDPGAgent(BaseAgent):
         # load prior weights if available
         if self.actor_weights is not None and self.critic_weights is not None:
             self.actor.load_state_dict(torch.load(self.actor_weights))            
-            self.critic.load_state_dict(torch.load(self.critic_weights))
+            
+            if init_critic:
+                self.critic.load_state_dict(torch.load(self.critic_weights))
 
         # init target nets
         self.target_actor  = copy.deepcopy(self.actor).to(self.device)
-        self.target_critic = copy.deepcopy(self.critic).to(self.device)
+        
+        if init_critic:
+            self.target_critic = copy.deepcopy(self.critic).to(self.device)
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
         for p in self.target_actor.parameters():
             p.requires_grad = False
-        for p in self.target_critic.parameters():
-            p.requires_grad = False
+        
+        if init_critic:
+            for p in self.target_critic.parameters():
+                p.requires_grad = False
 
         # define optimizer
         if self.optimizer == "Adam":
             self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
-            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic)
+            if init_critic:
+                self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic)
+        
         else:
             self.actor_optimizer = optim.RMSprop(self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
-            self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
+            if init_critic:
+                self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
 
     @torch.no_grad()
