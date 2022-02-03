@@ -26,7 +26,8 @@
       "KEBootDQN_c" : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "KEBootDQN_d" : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "KEBootDQN_e" : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "EnsembleDQN" : {"N" : 5, "N_to_update" : 1}
+      "EnsembleDQN" : {"N" : 5, "N_to_update" : 1},
+      "MaxMinDQN"   : {"N" : 5, "N_to_update" : 1}
    }
    ,
 

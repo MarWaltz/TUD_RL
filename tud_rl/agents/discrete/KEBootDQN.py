@@ -23,7 +23,7 @@ class KEBootDQNAgent(BootDQNAgent):
             print("--------------------------------------------")
 
         # checks
-        assert self.kernel in [None, "test", "gaussian_cdf"], "Unknown kernel."
+        assert self.kernel in ["test", "gaussian_cdf"], "Unknown kernel."
 
         # kernel funcs
         if self.kernel == "test":

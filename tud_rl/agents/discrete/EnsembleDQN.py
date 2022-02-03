@@ -1,4 +1,5 @@
 import copy
+import math
 from collections import Counter
 
 import torch
@@ -49,8 +50,7 @@ class EnsembleDQNAgent(DQNAgent):
 
         # target net and counter for target update
         del self.target_DQN
-
-        self.target_EnsembleDQN = copy.deepcopy(self.EnsembleDQN).to(self.device)
+        self.target_EnsembleDQN = [copy.deepcopy(net).to(self.device) for net in self.EnsembleDQN]
         self.tgt_up_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
@@ -60,7 +60,6 @@ class EnsembleDQNAgent(DQNAgent):
 
         # define optimizer
         del self.DQN_optimizer
-
         self.EnsembleDQN_optimizer = [None] * self.N
 
         for i in range(self.N):
@@ -70,102 +69,100 @@ class EnsembleDQNAgent(DQNAgent):
             else:
                 self.EnsembleDQN_optimizer[i] = optim.RMSprop(self.EnsembleDQN[i].parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
-#---------------- CONTINUE -----------------------
+
+    def _ensemble_reduction(self, q_ens):
+        """
+        Input:  torch.Size([N, batch_size, num_actions])
+        Output: torch.Size([batch_size, num_actions])
+        """
+        return torch.mean(q_ens, dim=0)
+
 
     @torch.no_grad()
-    def select_action(self, s):
-        """Greedy action selection using the active head for a given state.
-        s:           np.array with shape (in_channels, height, width)
-        active_head: int 
-
-        returns: int for the action
-        """
+    def _greedy_action(self, s):
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
         s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
 
-        # forward pass
-        if self.mode == "train":
-            q = self.DQN(s, self.active_head)
+        # forward through ensemble
+        q_ens = [net(s).to(self.device) for net in self.EnsembleDQN] # list of torch.Size([batch_size, num_actions])
+        q_ens = torch.stack(q_ens).to(self.device)                   # torch.Size([N, batch_size, num_actions])   
 
-            # greedy
-            a = torch.argmax(q).item()
-        
-        # majority vote
-        else:
+        # reduction over ensemble
+        q = self._ensemble_reduction(q_ens).to(self.device)
 
-            # push through all heads
-            q = self.DQN(s)
+        # greedy
+        return torch.argmax(q).item()
 
-            # get favoured action of each head
-            actions = [torch.argmax(head_q).item() for head_q in q]
 
-            # choose majority vote
-            actions = Counter(actions)
-            a = actions.most_common(1)[0][0]
+    def _compute_target(self, r, s2, d):
+        with torch.no_grad():
 
-        return a
+            # forward through ensemble
+            Q_next_ens = [net(s2).to(self.device) for net in self.target_EnsembleDQN]
+            Q_next_ens = torch.stack(Q_next_ens).to(self.device)
+            
+            # reduction over ensemble
+            Q_next = self._ensemble_reduction(Q_next_ens)
+
+            # maximization and target
+            Q_next = torch.max(Q_next, dim=1).values.reshape(self.batch_size, 1)
+            y = r + self.gamma * Q_next * (1 - d)
+        return y
 
 
     def train(self):
-        """Samples from replay_buffer, updates critic and the target networks."""        
-        # sample batch
-        batch = self.replay_buffer.sample()
-        
-        # unpack batch
-        s, a, r, s2, d, m = batch
-
-        #-------- train BootDQN --------
-        # clear gradients
-        self.DQN_optimizer.zero_grad()
-        
-        # current and next Q-values
-        Q_main = self.DQN(s)
-        Q_s2_tgt = self.target_DQN(s2)
-        Q_s2_main = self.DQN(s2)
-
-        # set up losses
-        losses = []
-
-        # calculate loss for each head
-        for k in range(self.K):
-            
-            # gather actions
-            Q = torch.gather(input=Q_main[k], dim=1, index=a)
-
-            # targets
-            with torch.no_grad():
-
-                a2 = torch.argmax(Q_s2_main[k], dim=1).reshape(self.batch_size, 1)
-                Q_next = torch.gather(input=Q_s2_tgt[k], dim=1, index=a2)
-
-                y = r + self.gamma * Q_next * (1 - d)
-
-            # calculate (Q - y)**2
-            loss_k = self._compute_loss(Q, y, reduction="none")
-
-            # use only relevant samples for given head
-            loss_k = loss_k * m[:, k].unsqueeze(1)
-
-            # append loss
-            losses.append(torch.sum(loss_k) / torch.sum(m[:, k]))
+        """Samples from replay_buffer, updates critic and the target networks.""" 
        
-        # compute gradients
-        loss = sum(losses)
-        loss.backward()
+        #-------- train EnsembleDQN --------
+        for _ in range(self.N_to_update):
+            
+            # ensemble member to update
+            i = np.random.choice(self.N)
 
-        # gradient scaling and clipping
-        if self.grad_rescale:
-            for p in self.DQN.core.parameters():
-                p.grad *= 1/float(self.K)
-        if self.grad_clip:
-            nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
+            # sample batch
+            batch = self.replay_buffer.sample()
         
-        # perform optimizing step
-        self.DQN_optimizer.step()
-        
-        # log critic training
-        self.logger.store(Loss=loss.detach().cpu().numpy().item())
-        self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
+            # unpack batch
+            s, a, r, s2, d = batch
+
+            # clear gradients
+            self.EnsembleDQN_optimizer[i].zero_grad()
+            
+            # Q estimates
+            Q = self.EnsembleDQN[i](s)
+            Q = torch.gather(input=Q, dim=1, index=a)
+ 
+            # targets
+            y = self._compute_target(r, s2, d)
+
+            # loss
+            loss = self._compute_loss(Q=Q, y=y)
+            
+            # compute gradients
+            loss.backward()
+
+            # gradient scaling and clipping
+            if self.grad_rescale:
+                for p in self.EnsembleDQN[i].parameters():
+                    p.grad *= 1 / math.sqrt(2)
+            if self.grad_clip:
+                nn.utils.clip_grad_norm_(self.EnsembleDQN[i].parameters(), max_norm=10)
+            
+            # perform optimizing step
+            self.EnsembleDQN_optimizer[i].step()
+            
+            # log critic training
+            self.logger.store(Loss=loss.detach().cpu().numpy().item())
+            self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
 
         #------- Update target networks -------
         self._target_update()
+
+
+    def _target_update(self):
+        if self.tgt_up_cnt % self.tgt_update_freq == 0:
+            for i in range(self.N):
+                self.target_EnsembleDQN[i].load_state_dict(self.EnsembleDQN[i].state_dict())
+
+        # increase target-update cnt
+        self.tgt_up_cnt += 1

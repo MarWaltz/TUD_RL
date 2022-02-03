@@ -10,16 +10,49 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from common.eval_plot import plot_from_progress
-from configs.discrete_actions import __path__
-from agents.Bootstrapped_DQN.bootstrapped_dqn_agent import *
-from current_envs.envs import *
-from current_envs.wrappers.MinAtar_wrapper import MinAtar_wrapper
+from tud_env.envs.MountainCar import MountainCar
+from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
+from tud_rl.agents.discrete.BootDQN import BootDQNAgent
+from tud_rl.agents.discrete.DDQN import DDQNAgent
+from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
+from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
+from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
+from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.common.eval_plot import plot_from_progress
+from tud_rl.configs.discrete_actions import __path__
+
+
+def get_MC_ret_from_rew(rews, gamma):
+    """Returns for a given episode of rewards (list) the corresponding list of MC-returns under a specified discount factor."""
+
+    MC = 0
+    MC_list = []
+    
+    for r in reversed(rews):
+        # compute one-step backup
+        backup = r + gamma * MC
+        
+        # add to MCs
+        MC_list.append(backup)
+        
+        # update MC
+        MC = backup
+    
+    return list(reversed(MC_list))
 
 
 def evaluate_policy(test_env, test_agent, c):
     test_agent.mode = "test"
+
+    # final (undiscounted) sum of rewards of ALL episodes
     rets = []
+
+    # Q-ests of all (s,a) pairs of ALL episodes
+    Q_est_all_eps = []
+
+    # MC-vals of all (s,a) pairs of ALL episodes
+    MC_all_eps = []
     
     for _ in range(c["eval_episodes"]):
 
@@ -28,25 +61,35 @@ def evaluate_policy(test_env, test_agent, c):
 
         # potentially normalize it
         if c["input_norm"]:
-            s = test_agent.inp_normalizer.normalize(s, mode="test")
+            s = test_agent.inp_normalizer.normalize(s, mode=test_agent.mode)
 
         cur_ret = 0
         d = False
         eval_epi_steps = 0
-        
+
+        # rewards of ONE episode
+        rews_one_eps = []
+
         while not d:
 
             eval_epi_steps += 1
 
             # select action
-            a = test_agent.select_action(s, active_head=None)
+            a = test_agent.select_action(s)
+
+            # get current Q estimate
+            s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
+            Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
             
             # perform step
             s2, r, d, _ = test_env.step(a)
 
+            # save reward
+            rews_one_eps.append(r)
+
             # potentially normalize s2
             if c["input_norm"]:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode="test")
+                s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
 
             # s becomes s2
             s = s2
@@ -55,11 +98,17 @@ def evaluate_policy(test_env, test_agent, c):
             # break option
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
-
-        # compute average return and append it
+        
+        # append return
         rets.append(cur_ret)
-    
-    return rets
+        
+        # transform reward list in MC return list and append it to overall MC returns
+        MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=test_agent.gamma)
+        
+    # compute bias
+    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
+
+    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias)
 
 
 def train(c, agent_name):
@@ -83,10 +132,14 @@ def train(c, agent_name):
         assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
 
         # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
     
     elif c["env"]["state_type"] == "feature":
-        state_shape = env.observation_space.shape[0]
+        c["state_shape"] = env.observation_space.shape[0]
+
+    # mode and num actions
+    c["mode"] = "train"
+    c["num_actions"] = env.action_space.n
 
     # seeding
     env.seed(c["seed"])
@@ -96,47 +149,20 @@ def train(c, agent_name):
     random.seed(c["seed"])
 
     # init agent
-    agent = Bootstrapped_DQN_Agent(mode             = "train",
-                                   num_actions      = env.action_space.n, 
-                                   state_shape      = state_shape,
-                                   state_type       = c["env"]["state_type"],
-                                   dqn_weights      = c["dqn_weights"], 
-                                   input_norm       = c["input_norm"],
-                                   input_norm_prior = c["input_norm_prior"],
-                                   double           = c["agent"][agent_name]["double"],
-                                   kernel           = c["agent"][agent_name]["kernel"],
-                                   kernel_param     = c["agent"][agent_name]["kernel_param"],
-                                   K                = c["agent"][agent_name]["K"],
-                                   mask_p           = c["agent"][agent_name]["mask_p"],
-                                   gamma            = c["gamma"],
-                                   tgt_update_freq  = c["tgt_update_freq"],
-                                   net_struc_dqn    = c["net_struc_dqn"],
-                                   optimizer        = c["optimizer"],
-                                   loss             = c["loss"],
-                                   lr               = c["lr"],
-                                   buffer_length    = c["buffer_length"],
-                                   grad_clip        = c["grad_clip"],
-                                   grad_rescale     = c["agent"][agent_name]["grad_rescale"],
-                                   act_start_step   = c["act_start_step"],
-                                   upd_start_step   = c["upd_start_step"],
-                                   upd_every        = c["upd_every"],
-                                   batch_size       = c["batch_size"],
-                                   device           = c["device"],
-                                   env_str          = c["env"]["name"],
-                                   seed             = c["seed"])
-
-    # init the active head for action selection
-    active_head = np.random.choice(agent.K)
+    if agent_name[-1].islower():
+        agent = eval(agent_name[:-2] + "Agent")(c, agent_name)
+    else:
+        agent = eval(agent_name + "Agent")(c, agent_name)
 
     # get initial state and normalize it
     s = env.reset()
     if c["input_norm"]:
-        s = agent.inp_normalizer.normalize(s, mode="train")
+        s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-
+    
     # main loop    
     for total_steps in range(c["timesteps"]):
 
@@ -146,7 +172,7 @@ def train(c, agent_name):
         if total_steps < c["act_start_step"]:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
-            a = agent.select_action(s, active_head)
+            a = agent.select_action(s)
         
         # perform step
         s2, r, d, _ = env.step(a)
@@ -156,7 +182,7 @@ def train(c, agent_name):
 
         # potentially normalize s2
         if c["input_norm"]:
-            s2 = agent.inp_normalizer.normalize(s2, mode="train")
+            s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
         # add epi ret
         epi_ret += r
@@ -175,17 +201,18 @@ def train(c, agent_name):
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
-            # reset active head for action selection
-            active_head = np.random.choice(agent.K)
+            # reset active head for BootDQN
+            if "Boot" in agent_name:
+                agent.reset_active_head()
 
             # reset to initial state and normalize it
             s = env.reset()
             if c["input_norm"]:
-                s = agent.inp_normalizer.normalize(s, mode="train")
+                s = agent.inp_normalizer.normalize(s, mode=agent.mode)
             
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
-
+            
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
@@ -196,7 +223,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, avg_bias, std_bias, max_bias, min_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -208,13 +235,18 @@ def train(c, agent_name):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
+            agent.logger.log_tabular("Avg_bias", avg_bias)
+            agent.logger.log_tabular("Std_bias", std_bias)
+            agent.logger.log_tabular("Max_bias", max_bias)
+            agent.logger.log_tabular("Min_bias", min_bias)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
 
             # save weights
-            torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+            if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
+                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if c["input_norm"]:
@@ -223,13 +255,13 @@ def train(c, agent_name):
 
 
 if __name__ == "__main__":
- 
+
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="seaquest.json")
-    parser.add_argument("--agent_name", type=str, default="our_boot_dqn_K")
+    parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
     args = parser.parse_args()
 
     # read config file

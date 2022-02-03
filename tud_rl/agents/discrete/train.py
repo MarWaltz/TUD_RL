@@ -10,19 +10,17 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from tud_rl.common.eval_plot import plot_from_progress
-
-from tud_rl.configs.discrete_actions import __path__
-from tud_rl.agents.discrete.DQN import DQNAgent
-from tud_rl.agents.discrete.DDQN import DDQNAgent
-from tud_rl.agents.discrete.SCDQN import SCDQNAgent
-from tud_rl.agents.discrete.BootDQN import BootDQNAgent
-from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
-
-from tud_rl.agents.discrete import *
-
 from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
+from tud_rl.agents.discrete.BootDQN import BootDQNAgent
+from tud_rl.agents.discrete.DDQN import DDQNAgent
+from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
+from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
+from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
+from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.common.eval_plot import plot_from_progress
+from tud_rl.configs.discrete_actions import __path__
 
 
 def evaluate_policy(test_env, test_agent, c):
@@ -64,7 +62,7 @@ def evaluate_policy(test_env, test_agent, c):
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
         
-        # compute average return and append it
+        # append return
         rets.append(cur_ret)
     
     return rets
@@ -200,7 +198,8 @@ def train(c, agent_name):
             plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
 
             # save weights
-            torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+            if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
+                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
     
             # save input normalizer values 
             if c["input_norm"]:
@@ -215,7 +214,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="SCDQN_b")
+    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
     args = parser.parse_args()
 
     # read config file

@@ -17,6 +17,9 @@ class AC_CDDQN_Agent(DQNAgent):
         # attributes and hyperparameters
         self.AC_K = c["agent"][agent_name]["AC_K"]
 
+        # checks
+        assert self.AC_K <= self.num_actions, "ACC-K cannot exceed number of actions."
+
         # replace DQN + target by DQN_A + DQN_B
         self.DQN_A = self.DQN
         del self.target_DQN
@@ -68,28 +71,31 @@ class AC_CDDQN_Agent(DQNAgent):
 
 
     def train(self):
-        raise NotImplementedError("Not yet.")
-        self.train_A()
-        self.train_B()
-
-    def train_A(self):
         """Samples from replay_buffer and updates DQN."""        
 
-        #-------- train DQN_A --------
         # sample batch
         batch = self.replay_buffer.sample()
         
         # unpack batch
         s, a, r, s2, d = batch
 
+        #-------- train DQN_A & DQN_B --------
+        # Note: The description of the training process is not completely clear, see Section 'Deep Version' of Jiang et. al (2021).
+        #       Here, both nets will be updated towards the same target, stemming from Equation (12). Alternatively, one could compute
+        #       two distinct targets based on different buffer samples and train each net separately. 
+
         # clear gradients
         self.DQN_A_optimizer.zero_grad()
+        self.DQN_B_optimizer.zero_grad()
         
-        # calculate current estimated Q-values
-        QA_v = self.DQN_A(s)
-        QA_v = torch.gather(input=QA_v, dim=1, index=a)
+        # Q-values
+        QA = self.DQN_A(s)
+        QA = torch.gather(input=QA, dim=1, index=a)
+
+        QB = self.DQN_B(s)
+        QB = torch.gather(input=QB, dim=1, index=a)
  
-        # calculate targets
+        # targets
         with torch.no_grad():
 
             # compute candidate set based on QB
@@ -109,101 +115,37 @@ class AC_CDDQN_Agent(DQNAgent):
                 a_star_K[bat_idx] = M_K[bat_idx][act_idx]
 
             # evaluate a_star_K on B
-            target_Q_next = torch.gather(QB_v2, dim=1, index=a_star_K)
+            Q_next = torch.gather(QB_v2, dim=1, index=a_star_K)
 
             # clip to ME
             ME = torch.max(QA_v2, dim=1).values.reshape(self.batch_size, 1)
-            target_Q_next = torch.min(target_Q_next, ME)
+            Q_next = torch.min(Q_next, ME)
 
             # target
-            target_Q = r + self.gamma * target_Q_next * (1 - d)
+            y = r + self.gamma * Q_next * (1 - d)
 
         # calculate loss
-        if self.loss == "MSELoss":
-            loss_A = F.mse_loss(QA_v, target_Q)
-
-        elif self.loss == "SmoothL1Loss":
-            loss_A = F.smooth_l1_loss(QA_v, target_Q)
-        
+        loss_A = self._compute_loss(QA, y)
+        loss_B = self._compute_loss(QB, y)
+       
         # compute gradients
         loss_A.backward()
+        loss_B.backward()
 
         # gradient scaling and clipping
         if self.grad_rescale:
             for p in self.DQN_A.parameters():
                 p.grad *= 1 / math.sqrt(2)
-        if self.grad_clip:
-            nn.utils.clip_grad_norm_(self.DQN_A.parameters(), max_norm=10)
-        
-        # perform optimizing step
-        self.DQN_A_optimizer.step()
-        
-        # log critic training
-        self.logger.store(Loss=loss_A.detach().cpu().numpy().item())
-        self.logger.store(Q_val=QA_v.detach().mean().cpu().numpy().item())
-
-    def train_B(self):
-        """Samples from replay_buffer and updates DQN."""        
-
-        #-------- train DQN_B --------
-        # sample batch
-        batch = self.replay_buffer.sample()
-        
-        # unpack batch
-        s, a, r, s2, d = batch
-
-        # clear gradients
-        self.DQN_B_optimizer.zero_grad()
-        
-        # calculate current estimated Q-values
-        QB_v = self.DQN_B(s)
-        QB_v = torch.gather(input=QB_v, dim=1, index=a)
- 
-        # calculate targets
-        with torch.no_grad():
-
-            # compute candidate set based on QA
-            QA_v2 = self.DQN_A(s2)
-            M_K = torch.argsort(QA_v2, dim=1, descending=True)[:, :self.action_candidate_K]
-
-            # get a_star_K
-            QB_v2 = self.DQN_B(s2)
-            a_star_K = torch.empty((self.batch_size, 1), dtype=torch.int64).to(self.device)
-
-            for bat_idx in range(self.batch_size):
-                
-                # get best action of the candidate set
-                act_idx = torch.argmax(QB_v2[bat_idx][M_K[bat_idx]])
-
-                # store its index
-                a_star_K[bat_idx] = M_K[bat_idx][act_idx]
-
-            # evaluate a_star_K on A
-            target_Q_next = torch.gather(QA_v2, dim=1, index=a_star_K)
-
-            # clip to ME
-            ME = torch.max(QB_v2, dim=1).values.reshape(self.batch_size, 1)
-            target_Q_next = torch.min(target_Q_next, ME)
-
-            # target
-            target_Q = r + self.gamma * target_Q_next * (1 - d)
-
-        # calculate loss
-        if self.loss == "MSELoss":
-            loss_B = F.mse_loss(QB_v, target_Q)
-
-        elif self.loss == "SmoothL1Loss":
-            loss_B = F.smooth_l1_loss(QB_v, target_Q)
-        
-        # compute gradients
-        loss_B.backward()
-
-        # gradient scaling and clipping
-        if self.grad_rescale:
             for p in self.DQN_B.parameters():
                 p.grad *= 1 / math.sqrt(2)
         if self.grad_clip:
+            nn.utils.clip_grad_norm_(self.DQN_A.parameters(), max_norm=10)
             nn.utils.clip_grad_norm_(self.DQN_B.parameters(), max_norm=10)
         
         # perform optimizing step
+        self.DQN_A_optimizer.step()
         self.DQN_B_optimizer.step()
+        
+        # log critic training
+        self.logger.store(Loss=loss_A.detach().cpu().numpy().item())
+        self.logger.store(Q_val=QA.detach().mean().cpu().numpy().item())
