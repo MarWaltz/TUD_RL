@@ -65,7 +65,3 @@ class BaseAgent:
         
     def _count_params(self, net):
         return sum([np.prod(p.shape) for p in net.parameters()])
-
-    def memorize(self, s, a, r, s2, d):
-        """Stores current transition in replay buffer."""
-        self.replay_buffer.add(s, a, r, s2, d)

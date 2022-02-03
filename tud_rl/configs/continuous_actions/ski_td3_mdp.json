@@ -30,6 +30,8 @@
   "tau"              : 0.001,
   "net_struc_actor"  : [[256, "relu"], [256, "relu"], "tanh"],
   "net_struc_critic" : [[256, "relu"], [256, "relu"], "identity"],
+  "optimizer"        : "Adam",
+  "loss"             : "MSELoss",
   "lr_actor"         : 0.0001,
   "lr_critic"        : 0.0001,
   "buffer_length"    : 1e5,

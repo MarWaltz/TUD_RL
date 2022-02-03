@@ -86,6 +86,11 @@ class DQNAgent(BaseAgent):
             self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
 
+    def memorize(self, s, a, r, s2, d):
+        """Stores current transition in replay buffer."""
+        self.replay_buffer.add(s, a, r, s2, d)
+
+
     @torch.no_grad()
     def select_action(self, s):
         """Epsilon-greedy based action selection for a given state.

@@ -12,15 +12,10 @@ import numpy as np
 import torch
 from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
-from tud_rl.agents.discrete.BootDQN import BootDQNAgent
-from tud_rl.agents.discrete.DDQN import DDQNAgent
-from tud_rl.agents.discrete.DQN import DQNAgent
-from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
-from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
-from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
-from tud_rl.agents.discrete.SCDQN import SCDQNAgent
-from tud_rl.common.eval_plot import plot_from_progress
-from tud_rl.configs.discrete_actions import __path__
+from tud_rl.agents.continuous.DDPG import DDPGAgent
+from tud_rl.agents.continuous.TD3 import TD3Agent
+from tud_rl.common.logging_plot import plot_from_progress
+from tud_rl.configs.continuous_actions import __path__
 
 
 def evaluate_policy(test_env, test_agent, c):
@@ -86,17 +81,16 @@ def train(c, agent_name):
 
     # get state_shape
     if c["env"]["state_type"] == "image":
-        assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
-
-        # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        raise NotImplementedError("Currently, image input is not available for continuous action spaces.")
     
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]
 
     # mode and num actions
     c["mode"] = "train"
-    c["num_actions"] = env.action_space.n
+    c["num_actions"] = env.action_space.shape[0]
+    c["action_high"] = env.action_space.high[0]
+    c["action_low"]  = env.action_space.low[0]
 
     # seeding
     env.seed(c["seed"])
@@ -127,7 +121,7 @@ def train(c, agent_name):
         
         # select action
         if total_steps < c["act_start_step"]:
-            a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
+            a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.num_actions)
         else:
             a = agent.select_action(s)
         
@@ -158,9 +152,8 @@ def train(c, agent_name):
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
-            # reset active head for BootDQN
-            if "Boot" in agent_name:
-                agent.reset_active_head()
+            # reset noise after episode
+            agent.noise.reset()
 
             # reset to initial state and normalize it
             s = env.reset()
@@ -191,16 +184,17 @@ def train(c, agent_name):
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
-            agent.logger.log_tabular("Loss", average_only=True)
+            agent.logger.log_tabular("Critic_loss", average_only=True)
+            agent.logger.log_tabular("Actor_loss", average_only=True)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=c["env"]["info"])
 
             # save weights
-            if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
-                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
-    
+            torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
+            torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
+
             # save input normalizer values 
             if c["input_norm"]:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
@@ -211,25 +205,22 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="asterix.json")
-    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--config_file", type=str, default="ski_td3_mdp.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
+    parser.add_argument("--agent_name", type=str, default="TD3")
     args = parser.parse_args()
 
     # read config file
     with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
 
-    # potentially overwrite lr and seed
-    if args.lr is not None:
-        c["lr"] = args.lr
+    # potentially overwrite seed
     if args.seed is not None:
         c["seed"] = args.seed
 
     # convert certain keys in integers
-    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",\
-        "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
+    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
+         "upd_start_step", "upd_every", "batch_size"]:
         c[key] = int(c[key])
 
     # handle maximum episode steps

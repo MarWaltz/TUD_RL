@@ -1,3 +1,4 @@
+from turtle import forward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -30,9 +31,9 @@ class MLP(nn.Module):
         # create hidden_n-out
         self.layers.append(nn.Linear(self.struc[-2][0], out_size))
 
-    def forward(self, s):
-        """s is a torch tensor. Shapes:
-        s:       torch.Size([batch_size, in_size]), e.g., in_size = state_dim
+    def forward(self, x):
+        """x is a torch tensor. Shapes:
+        x:       torch.Size([batch_size, in_size]), e.g., in_size = state_dim
 
         returns: torch.Size([batch_size, out_size]), e.g., out_size = num_actions
         """
@@ -47,9 +48,30 @@ class MLP(nn.Module):
             act_f = ACTIVATIONS[act_str]
 
             # forward
-            s = act_f(layer(s))
+            x = act_f(layer(x))
 
-        return s
+        return x
+
+
+class Double_MLP(nn.Module):
+    """Maintains two MLPs of identical structure as, e.g., in the TD3 author's original implementation."""
+
+    def __init__(self, in_size, out_size, net_struc):
+        super().__init__()
+
+        self.MLP1 = MLP(in_size   = in_size, 
+                        out_size  = out_size, 
+                        net_struc = net_struc)
+
+        self.MLP2 = MLP(in_size   = in_size, 
+                        out_size  = out_size, 
+                        net_struc = net_struc)
+    
+    def forward(self, x):
+        return self.MLP1(x), self.MLP2(x)
+
+    def single_forward(self, x):
+        return self.MLP1(x)
 
 
 # --------------------------- MinAtar ---------------------------------

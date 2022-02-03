@@ -49,46 +49,40 @@ def plot_from_progress(dir, alg, env_str, info=None):
     else:
         fig.suptitle(f"{alg} | {env_str} | Runtime (h): {runtime}")
 
-    # fill first axis
+    # first axis
     ax[0,0].plot(df["Timestep"], df["Avg_Eval_ret"], label = "Avg. test return")
     ax[0,0].plot(df["Timestep"], exponential_smoothing(df["Avg_Eval_ret"].values), label = "Exp. smooth. return")
     ax[0,0].legend()
     ax[0,0].set_xlabel("Timestep")
     ax[0,0].set_ylabel("Test return")
 
-    # fill second axis
-    if any([alg.startswith(name.lower()) for name in ["TD3", "LSTM_TD3", "SAC", "LSTM_SAC"]]):
-        ax[0,1].plot(df["Timestep"], df["Avg_Q1_val"])
-        ax[0,1].set_ylabel("Avg_Q1_val")
-    else:
-        ax[0,1].plot(df["Timestep"], df["Avg_Q_val"])
-        ax[0,1].set_ylabel("Avg_Q_val")
-    
+    # second axis
+    ax[0,1].plot(df["Timestep"], df["Avg_Q_val"])
+    ax[0,1].set_ylabel("Avg_Q_val")
     ax[0,1].set_xlabel("Timestep")
     
-    # fill third axis
-    if any([alg.startswith(name.lower()) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
-        ax[1,0].plot(df["Timestep"], df["Critic_loss"])
-        ax[1,0].set_xlabel("Timestep")
-        ax[1,0].set_ylabel("Critic loss")
+    # third axis
+    ax[1,0].set_xlabel("Timestep")
+    ax[1,0].set_ylabel("Loss")
+
+    if "Critic_loss" in df.columns and "Actor_loss" in df.columns:
+        ax[1,0].plot(df["Timestep"], df["Critic_loss"], label="Critic")
+        ax[1,0].plot(df["Timestep"], df["Actor_loss"], label="Actor")
+        ax[1,0].legend()
+
     else:
         ax[1,0].plot(df["Timestep"], df["Loss"])
         ax[1,0].set_xlabel("Timestep")
-        ax[1,0].set_ylabel("Loss")
 
-    # fill fourth axis
+    # fourth axis
+    ax[1,1].set_xlabel("Timestep")
+    
     if all(ele in df.columns for ele in ["Avg_bias", "Std_bias", "Max_bias", "Min_bias"]):
         ax[1,1].plot(df["Timestep"], df["Avg_bias"], label="Avg. bias")
         ax[1,1].plot(df["Timestep"], df["Std_bias"], label="Std. bias")
         ax[1,1].plot(df["Timestep"], df["Max_bias"], label="Max. bias")
         ax[1,1].plot(df["Timestep"], df["Min_bias"], label="Min. bias")
         ax[1,1].legend()
-        ax[1,1].set_xlabel("Timestep")
-
-    elif any([alg.startswith(name.lower()) for name in ["DDPG", "TD3", "LSTM_TD3", "SAC", "LSTM_SAC", "TQC"]]):
-        ax[1,1].plot(df["Timestep"], df["Actor_loss"])
-        ax[1,1].set_xlabel("Timestep")
-        ax[1,1].set_ylabel("Actor loss")
 
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")
