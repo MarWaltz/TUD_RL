@@ -14,6 +14,8 @@ from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.continuous.DDPG import DDPGAgent
 from tud_rl.agents.continuous.TD3 import TD3Agent
+from tud_rl.agents.continuous.LSTMDDPG import LSTMDDPGAgent
+from tud_rl.agents.continuous.LSTMTD3 import LSTMTD3Agent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.continuous_actions import __path__
 
@@ -23,6 +25,12 @@ def evaluate_policy(test_env, test_agent, c):
     rets = []
     
     for _ in range(c["eval_episodes"]):
+
+        # LSTM: init history
+        if "LSTM" in test_agent.name:
+            s_hist = np.zeros((test_agent.history_length, test_agent.state_shape))
+            a_hist = np.zeros((test_agent.history_length, test_agent.num_actions))
+            hist_len = 0
 
         # get initial state
         s = test_env.reset()
@@ -40,7 +48,10 @@ def evaluate_policy(test_env, test_agent, c):
             eval_epi_steps += 1
 
             # select action
-            a = test_agent.select_action(s)
+            if "LSTM" in test_agent.name:
+                a = test_agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = test_agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -48,6 +59,19 @@ def evaluate_policy(test_env, test_agent, c):
             # potentially normalize s2
             if c["input_norm"]:
                 s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
+
+            # LSTM: update history
+            if "LSTM" in test_agent.name:
+                if hist_len == test_agent.history_length:
+                    s_hist = np.roll(s_hist, shift = -1, axis = 0)
+                    s_hist[test_agent.history_length - 1, :] = s
+
+                    a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                    a_hist[test_agent.history_length - 1, :] = a
+                else:
+                    s_hist[hist_len] = s
+                    a_hist[hist_len] = a
+                    hist_len += 1
 
             # s becomes s2
             s = s2
@@ -105,6 +129,13 @@ def train(c, agent_name):
     else:
         agent = eval(agent_name + "Agent")(c, agent_name)
 
+    # LSTM: init history
+    if "LSTM" in agent.name:
+        s_hist = np.zeros((agent.history_length, agent.state_shape))
+        a_hist = np.zeros((agent.history_length, agent.num_actions))
+        hist_len = 0
+
+
     # get initial state and normalize it
     s = env.reset()
     if c["input_norm"]:
@@ -123,7 +154,10 @@ def train(c, agent_name):
         if total_steps < c["act_start_step"]:
             a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.num_actions)
         else:
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
         
         # perform step
         s2, r, d, _ = env.step(a)
@@ -141,6 +175,19 @@ def train(c, agent_name):
         # memorize
         agent.memorize(s, a, r, s2, d)
 
+        # LSTM: update history
+        if "LSTM" in agent.name:
+            if hist_len == agent.history_length:
+                s_hist = np.roll(s_hist, shift = -1, axis = 0)
+                s_hist[agent.history_length - 1, :] = s
+
+                a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                a_hist[agent.history_length - 1, :] = a
+            else:
+                s_hist[hist_len] = s
+                a_hist[hist_len] = a
+                hist_len += 1
+
         # train
         if (total_steps >= c["upd_start_step"]) and (total_steps % c["upd_every"] == 0):
             for _ in range(c["upd_every"]):
@@ -154,6 +201,12 @@ def train(c, agent_name):
  
             # reset noise after episode
             agent.noise.reset()
+
+            # LSTM: reset history
+            if "LSTM" in agent.name:
+                s_hist = np.zeros((agent.history_length, agent.state_shape))
+                a_hist = np.zeros((agent.history_length, agent.num_actions))
+                hist_len = 0
 
             # reset to initial state and normalize it
             s = env.reset()
@@ -186,6 +239,13 @@ def train(c, agent_name):
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
+
+            if "LSTM" in agent.name:
+                agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
+                agent.logger.log_tabular("Critic_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Critic_ExtMemory", with_min_and_max=False)
+
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -205,9 +265,9 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="ski_td3_mdp.json")
+    parser.add_argument("--config_file", type=str, default="ski_mdp.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TD3")
+    parser.add_argument("--agent_name", type=str, default="LSTMTD3")
     args = parser.parse_args()
 
     # read config file

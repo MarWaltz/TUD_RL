@@ -1,4 +1,5 @@
-from turtle import forward
+import copy
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +8,8 @@ ACTIVATIONS = {"relu"     : F.relu,
                "identity" : nn.Identity(),
                "tanh"     : torch.tanh}
 
+
+# --------------------------- MLP ---------------------------------
 class MLP(nn.Module):
     """Generically defines a multi-layer perceptron."""
 
@@ -163,3 +166,204 @@ class MinAtar_BootDQN(nn.Module):
             return [head_net(x) for head_net in self.heads]
         else:
             return self.heads[head](x)
+
+
+# --------------------------- LSTM ---------------------------------
+class LSTM_Actor(nn.Module):
+    """Defines recurrent deterministic actor."""
+    
+    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+        super(LSTM_Actor, self).__init__()
+        
+        self.use_past_actions = use_past_actions
+
+        # current feature extraction
+        self.curr_fe_dense1 = nn.Linear(obs_dim, 128)
+        self.curr_fe_dense2 = nn.Linear(128, 128)
+        
+        # memory
+        if use_past_actions:
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
+        else:
+            self.mem_dense = nn.Linear(obs_dim, 128)
+        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+        
+        # post combination
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2 = nn.Linear(128, action_dim)
+
+
+    def forward(self, o, o_hist, a_hist, hist_len) -> tuple:
+        """o, o_hist, hist_len are torch tensors. Shapes:
+        o:        torch.Size([batch_size, obs_dim])
+        o_hist:   torch.Size([batch_size, history_length, obs_dim])
+        a_hist:   torch.Size([batch_size, history_length, action_dim])
+        hist_len: torch.Size(batch_size)
+        
+        returns: output with shape torch.Size([batch_size, action_dim]), act_net_info (dict)
+        
+        Note: 
+        The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
+        x = (batch_size, seq_length, obs_dim)
+        
+        The call <out, (hidden, cell) = LSTM(x)> results in: 
+        out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
+        hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        """
+
+        #------ current feature extraction ------
+        curr_fe = F.relu(self.curr_fe_dense1(o))
+        curr_fe = F.relu(self.curr_fe_dense2(curr_fe))
+
+        #------ memory ------
+        # dense layer
+        if self.use_past_actions:
+            x_mem = F.relu(self.mem_dense(torch.cat([o_hist, a_hist], dim=2)))
+        else:
+            x_mem = F.relu(self.mem_dense(o_hist))
+        
+        # LSTM
+        #self.mem_LSTM.flatten_parameters()
+        extracted_mem, (_, _) = self.mem_LSTM(x_mem)
+
+        # get selection index according to history lengths (no-history cases will be masked later)
+        h_idx = copy.deepcopy(hist_len)
+        h_idx[h_idx == 0] = 1
+        h_idx -= 1
+        
+        # select LSTM output, resulting shape is (batch_size, hidden_dim)
+        hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
+        
+        # mask no-history cases to yield zero extracted memory
+        hidden_mem[hist_len == 0] = 0
+
+        #------ post combination ------
+        # concate current feature extraction with generated memory
+        x = torch.cat([curr_fe, hidden_mem], dim=1)
+
+        # final dense layers
+        x = F.relu(self.post_comb_dense1(x))
+        x = torch.tanh(self.post_comb_dense2(x))
+        
+        # create dict for logging
+        act_net_info = dict(Actor_CurFE = curr_fe.detach().mean().cpu().numpy(),
+                            Actor_ExtMemory = hidden_mem.detach().mean().cpu().numpy())
+        
+        # return output
+        return x, act_net_info
+
+
+class LSTM_Critic(nn.Module):
+    """Defines recurrent critic network to compute Q-values."""
+    
+    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+        super(LSTM_Critic, self).__init__()
+        
+        self.use_past_actions = use_past_actions
+
+        # current feature extraction
+        self.curr_fe_dense1 = nn.Linear(obs_dim + action_dim, 128)
+        self.curr_fe_dense2 = nn.Linear(128, 128)
+        
+        # memory
+        if use_past_actions:
+            self.mem_dense = nn.Linear(obs_dim + action_dim, 128)
+        else:
+            self.mem_dense = nn.Linear(obs_dim, 128)
+        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
+        
+        # post combination
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2 = nn.Linear(128, 1)
+        
+
+    def forward(self, o, a, o_hist, a_hist, hist_len, log_info=True) -> tuple:
+        """o, o_hist, a_hist are torch tensors. Shapes:
+        o:        torch.Size([batch_size, obs_dim])
+        a:        torch.Size([batch_size, action_dim])
+        o_hist:   torch.Size([batch_size, history_length, obs_dim])
+        a_hist:   torch.Size([batch_size, history_length, action_dim])
+        hist_len: torch.Size(batch_size)
+        log_info: Bool, whether to return logging dict
+        
+        returns: output with shape torch.Size([batch_size, 1]), critic_net_info (dict) (if log_info)
+        
+        Note: 
+        The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
+        x = (batch_size, seq_length, obs_dim)
+        
+        The call <out, (hidden, cell) = LSTM(x)> results in: 
+        out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
+        hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        """
+
+        #------ current feature extraction ------
+        # concatenate obs and act
+        oa = torch.cat([o, a], dim=1)
+        curr_fe = F.relu(self.curr_fe_dense1(oa))
+        curr_fe = F.relu(self.curr_fe_dense2(curr_fe))
+        
+        #------ memory ------
+        # dense layer
+        if self.use_past_actions:
+            x_mem = F.relu(self.mem_dense(torch.cat([o_hist, a_hist], dim=2)))
+        else:
+            x_mem = F.relu(self.mem_dense(o_hist))
+        
+        # LSTM
+        #self.mem_LSTM.flatten_parameters()
+        extracted_mem, (_, _) = self.mem_LSTM(x_mem)
+
+        # get selection index according to history lengths (no-history cases will be masked later)
+        h_idx = copy.deepcopy(hist_len)
+        h_idx[h_idx == 0] = 1
+        h_idx -= 1
+
+        # select LSTM output, resulting shape is (batch_size, hidden_dim)
+        hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
+
+        # mask no-history cases to yield zero extracted memory
+        hidden_mem[hist_len == 0] = 0
+        
+        #------ post combination ------
+        # concatenate current feature extraction with generated memory
+        x = torch.cat([curr_fe, hidden_mem], dim=1)
+        
+        # final dense layers
+        x = F.relu(self.post_comb_dense1(x))
+        x = self.post_comb_dense2(x)
+
+        # create dict for logging
+        if log_info:
+            critic_net_info = dict(Critic_CurFE = curr_fe.detach().mean().cpu().numpy(),
+                                   Critic_ExtMemory = hidden_mem.detach().mean().cpu().numpy())
+            return x, critic_net_info
+        else:
+            return x
+
+
+class LSTM_Double_Critic(nn.Module):
+    def __init__(self, action_dim, obs_dim, use_past_actions) -> None:
+        super(LSTM_Double_Critic, self).__init__()
+
+        self.LSTM_Q1 = LSTM_Critic(action_dim       = action_dim, 
+                                   obs_dim          = obs_dim,
+                                   use_past_actions = use_past_actions)
+
+        self.LSTM_Q2 = LSTM_Critic(action_dim       = action_dim, 
+                                   obs_dim          = obs_dim,
+                                   use_past_actions = use_past_actions)
+
+    def forward(self, o, a, o_hist, a_hist, hist_len) -> tuple:
+        q1                  = self.LSTM_Q1(o, a, o_hist, a_hist, hist_len, log_info=False)
+        q2, critic_net_info = self.LSTM_Q2(o, a, o_hist, a_hist, hist_len, log_info=True)
+
+        return q1, q2, critic_net_info
+
+
+    def single_forward(self, o, a, o_hist, a_hist, hist_len):
+        q1 = self.LSTM_Q1(o, a, o_hist, a_hist, hist_len, log_info=False)
+
+        return q1
