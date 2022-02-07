@@ -199,7 +199,7 @@ def train(c, agent_name):
 
             # save weights
             if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
-                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
+                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_weights.pth")
     
             # save input normalizer values 
             if c["input_norm"]:
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="SCDQN_a")
+    parser.add_argument("--agent_name", type=str, default="DQN")
     args = parser.parse_args()
 
     # read config file

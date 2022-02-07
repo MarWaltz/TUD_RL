@@ -32,7 +32,9 @@ class BaseAgent:
 
         # checks
         assert c["mode"] in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
-        assert not (self.mode == "test" and self.input_norm_prior is None), "Please supply 'input_norm_prior' in test mode with input normalization."
+
+        if self.input_norm:
+            assert not (self.mode == "test" and self.input_norm_prior is None), "Please supply 'input_norm_prior' in test mode with input normalization."
 
         assert self.state_type in ["image", "feature"], "'state_type' can be either 'image' or 'feature'."
 
