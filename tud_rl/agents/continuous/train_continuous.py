@@ -17,6 +17,7 @@ from tud_rl.agents.continuous.TD3 import TD3Agent
 from tud_rl.agents.continuous.SAC import SACAgent
 from tud_rl.agents.continuous.LSTMDDPG import LSTMDDPGAgent
 from tud_rl.agents.continuous.LSTMTD3 import LSTMTD3Agent
+from tud_rl.agents.continuous.LSTMSAC import LSTMSACAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.continuous_actions import __path__
 
@@ -268,7 +269,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="ski_mdp.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TD3")
+    parser.add_argument("--agent_name", type=str, default="LSTMSAC")
     args = parser.parse_args()
 
     # read config file

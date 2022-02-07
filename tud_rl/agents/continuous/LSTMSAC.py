@@ -135,7 +135,7 @@ class LSTMSACAgent(BaseAgent):
             a, _, _ = self.actor(s, s_hist, a_hist, hist_len, deterministic=True, with_logprob=False)
         
         # reshape actions
-        a = a.cpu().numpy().reshape(self.action_dim)
+        a = a.cpu().numpy().reshape(self.num_actions)
         
         # transform [-1,1] to application scale
         return self.act_normalizer.norm_to_action(a)
