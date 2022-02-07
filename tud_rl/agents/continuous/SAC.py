@@ -71,8 +71,8 @@ class SACAgent(BaseAgent):
 
         # init actor and critic
         if self.state_type == "feature":
-            self.actor = GaussianActor(state_dim  = self.state_shape,
-                                       action_dim = self.num_actions).to(self.device)
+            self.actor = GaussianActor(state_shape = self.state_shape,
+                                       action_dim  = self.num_actions).to(self.device)
             
             self.critic = Double_MLP(in_size   = self.state_shape + self.num_actions,
                                      out_size  = 1,

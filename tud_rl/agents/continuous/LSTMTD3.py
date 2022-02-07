@@ -20,7 +20,7 @@ class LSTMTD3Agent(LSTMDDPGAgent):
 
         # init double critic
         if self.state_type == "feature":
-            self.critic = LSTM_Double_Critic(obs_dim          = self.state_shape,
+            self.critic = LSTM_Double_Critic(state_shape      = self.state_shape,
                                              action_dim       = self.num_actions,
                                              use_past_actions = self.use_past_actions).to(self.device)
 
@@ -54,10 +54,10 @@ class LSTMTD3Agent(LSTMDDPGAgent):
             self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
 
-    def _compute_target(self, o2_hist, a2_hist, hist_len2, r, o2, d):
+    def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
         with torch.no_grad():
-            target_a, _ = self.target_actor(o=o2, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            target_a, _ = self.target_actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
             
             # target policy smoothing
             eps = torch.randn_like(target_a) * self.tgt_noise
@@ -66,7 +66,7 @@ class LSTMTD3Agent(LSTMDDPGAgent):
             target_a = torch.clamp(target_a, -1, 1)
             
             # Q-value of next state-action pair
-            Q_next1, Q_next2, _ = self.target_critic(o=o2, a=target_a, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            Q_next1, Q_next2, _ = self.target_critic(s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
             Q_next = torch.min(Q_next1, Q_next2)
 
             # target
@@ -80,17 +80,17 @@ class LSTMTD3Agent(LSTMDDPGAgent):
         batch = self.replay_buffer.sample()
 
         # unpack batch
-        o_hist, a_hist, hist_len, o2_hist, a2_hist, hist_len2, o, a, r, o2, d = batch
+        s_hist, a_hist, hist_len, s2_hist, a2_hist, hist_len2, s, a, r, s2, d = batch
 
         #-------- train critic --------
         # clear gradients
         self.critic_optimizer.zero_grad()
         
         # Q-estimates
-        Q1, Q2, critic_net_info = self.critic(o=o, a=a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
+        Q1, Q2, critic_net_info = self.critic(s=s, a=a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
  
         # calculate targets
-        y = self._compute_target(o2_hist, a2_hist, hist_len2, r, o2, d)
+        y = self._compute_target(s2_hist, a2_hist, hist_len2, r, s2, d)
 
         # calculate loss
         critic_loss = self._compute_loss(Q1, y) + self._compute_loss(Q2, y)
@@ -123,10 +123,10 @@ class LSTMTD3Agent(LSTMDDPGAgent):
             self.actor_optimizer.zero_grad()
             
             # get current actions via actor
-            curr_a, act_net_info = self.actor(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
+            curr_a, act_net_info = self.actor(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
             
             # compute loss, which is negative Q-values from critic
-            actor_loss = -self.critic.single_forward(o=o, a=curr_a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len).mean()
+            actor_loss = -self.critic.single_forward(s=s, a=curr_a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len).mean()
 
             # compute gradients
             actor_loss.backward()

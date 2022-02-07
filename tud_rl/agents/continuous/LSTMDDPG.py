@@ -147,13 +147,13 @@ class LSTMDDPGAgent(BaseAgent):
         self.replay_buffer.add(s, a, r, s2, d)
 
 
-    def _compute_target(self, o2_hist, a2_hist, hist_len2, r, o2, d):
+    def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
         with torch.no_grad():
-            target_a, _ = self.target_actor(o=o2, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            target_a, _ = self.target_actor(s=s2, o_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
                         
             # next Q-estimate
-            Q_next = self.target_critic(o=o2, a=target_a, o_hist=o2_hist, a_hist=a2_hist, hist_len=hist_len2, log_info=False)
+            Q_next = self.target_critic(s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, log_info=False)
 
             # target
             y = r + self.gamma * Q_next * (1 - d)
@@ -174,17 +174,17 @@ class LSTMDDPGAgent(BaseAgent):
         batch = self.replay_buffer.sample()
 
         # unpack batch
-        o_hist, a_hist, hist_len, o2_hist, a2_hist, hist_len2, o, a, r, o2, d = batch
+        s_hist, a_hist, hist_len, s2_hist, a2_hist, hist_len2, s, a, r, s2, d = batch
 
         #-------- train critic --------
         # clear gradients
         self.critic_optimizer.zero_grad()
         
         # Q-estimates
-        Q, critic_net_info = self.critic(o=o, a=a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len, log_info=True)
+        Q, critic_net_info = self.critic(s=s, a=a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=True)
  
         # calculate targets
-        y = self._compute_target(o2_hist, a2_hist, hist_len2, r, o2, d)
+        y = self._compute_target(s2_hist, a2_hist, hist_len2, r, s2, d)
 
         # calculate loss
         critic_loss = self._compute_loss(Q, y)
@@ -216,10 +216,10 @@ class LSTMDDPGAgent(BaseAgent):
         self.actor_optimizer.zero_grad()
         
         # get current actions via actor
-        curr_a, act_net_info = self.actor(o=o, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len)
+        curr_a, act_net_info = self.actor(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
         
         # compute loss, which is negative Q-values from critic
-        actor_loss = -self.critic(o=o, a=curr_a, o_hist=o_hist, a_hist=a_hist, hist_len=hist_len, log_info=False).mean()
+        actor_loss = -self.critic(s=s, a=curr_a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=False).mean()
 
         # compute gradients
         actor_loss.backward()

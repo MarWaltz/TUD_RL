@@ -106,7 +106,7 @@ class DDPGAgent(BaseAgent):
     @torch.no_grad()
     def select_action(self, s):
         """Selects action via actor network for a given state. Adds exploration bonus from noise and clips to action scale.
-        Arg s:   np.array with shape (state_dim,)
+        Arg s:   np.array with shape (state_shape,)
         returns: np.array with shape (num_actions,)
         """        
         # greedy
