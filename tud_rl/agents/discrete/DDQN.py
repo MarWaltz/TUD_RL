@@ -4,18 +4,8 @@ from tud_rl.common.logging_func import *
 
 
 class DDQNAgent(DQNAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging=False)
-     
-        # init logger and save config
-        if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
-            self.logger.save_config({"agent_name" : self.name, **c})
-
-            print("--------------------------------------------")
-            print(f"n_params: {self._count_params(self.DQN)}")
-            print("--------------------------------------------")
-
+    def __init__(self, c, agent_name):
+        super().__init__(c, agent_name, logging=True)
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():

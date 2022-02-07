@@ -14,6 +14,7 @@ from tud_env.envs.MountainCar import MountainCar
 from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.continuous.DDPG import DDPGAgent
 from tud_rl.agents.continuous.TD3 import TD3Agent
+from tud_rl.agents.continuous.SAC import SACAgent
 from tud_rl.agents.continuous.LSTMDDPG import LSTMDDPGAgent
 from tud_rl.agents.continuous.LSTMTD3 import LSTMTD3Agent
 from tud_rl.common.logging_plot import plot_from_progress
@@ -110,7 +111,7 @@ def train(c, agent_name):
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]
 
-    # mode and num actions
+    # mode and action details
     c["mode"] = "train"
     c["num_actions"] = env.action_space.shape[0]
     c["action_high"] = env.action_space.high[0]
@@ -134,7 +135,6 @@ def train(c, agent_name):
         s_hist = np.zeros((agent.history_length, agent.state_shape))
         a_hist = np.zeros((agent.history_length, agent.num_actions))
         hist_len = 0
-
 
     # get initial state and normalize it
     s = env.reset()
@@ -200,7 +200,8 @@ def train(c, agent_name):
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
             # reset noise after episode
-            agent.noise.reset()
+            if hasattr(agent, "noise"):
+                agent.noise.reset()
 
             # LSTM: reset history
             if "LSTM" in agent.name:
@@ -267,7 +268,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="ski_mdp.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="LSTMTD3")
+    parser.add_argument("--agent_name", type=str, default="TD3")
     args = parser.parse_args()
 
     # read config file

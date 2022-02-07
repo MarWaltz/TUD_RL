@@ -4,20 +4,11 @@ from tud_rl.common.logging_func import *
 
 
 class SCDQNAgent(DQNAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging=False)
+    def __init__(self, c, agent_name):
+        super().__init__(c, agent_name, logging=True)
 
         # attributes and hyperparameters
         self.sc_beta = c["agent"][agent_name]["sc_beta"]
-
-        # init logger and save config
-        if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
-            self.logger.save_config({"agent_name" : self.name, **c})
-
-            print("--------------------------------------------")
-            print(f"n_params: {self._count_params(self.DQN)}")
-            print("--------------------------------------------")
 
 
     def _compute_target(self, r, s2, d):

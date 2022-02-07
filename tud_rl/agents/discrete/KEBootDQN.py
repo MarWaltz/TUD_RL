@@ -6,21 +6,12 @@ from tud_rl.common.logging_func import *
 
 
 class KEBootDQNAgent(BootDQNAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging=False)
+    def __init__(self, c, agent_name):
+        super().__init__(c, agent_name, logging=True)
 
         # attributes and hyperparameter
         self.kernel       = c["agent"][agent_name]["kernel"]
         self.kernel_param = c["agent"][agent_name]["kernel_param"]
-
-        # init logger and save config
-        if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
-            self.logger.save_config({"agent_name" : self.name, **c})
-
-            print("--------------------------------------------")
-            print(f"n_params: {self._count_params(self.DQN)}")
-            print("--------------------------------------------")
 
         # checks
         assert self.kernel in ["test", "gaussian_cdf"], "Unknown kernel."
