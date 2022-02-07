@@ -565,3 +565,38 @@ class LSTM_GaussianActor(nn.Module):
         
         # return squashed action, it's logprob and logging info
         return pi_action, logp_pi, act_net_info
+
+
+#--------------------- TQC -------------------------------
+class TQC_Critics(nn.Module):
+    def __init__(self, state_shape, action_dim, n_quantiles, n_critics):
+        super().__init__()
+
+        self.n_quantiles = n_quantiles
+        self.n_critics = n_critics
+
+        self.net = nn.Sequential(
+            nn.Linear(state_shape + action_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512,512),
+            nn.ReLU(),
+            nn.Linear(512,512),
+            nn.ReLU(),
+            nn.Linear(512,n_quantiles)
+        )
+
+        self.nets = [self.net] * n_critics
+        
+    def forward(self, state, action):
+        """
+        Args:
+            state: torch.Size([batch_size, state_shape])
+            action torch.Size([batch_size, num_actions])
+
+        Returns:
+            torch.Size([batch_size, n_critics, n_quantiles])
+        """
+        sa = torch.cat((state,action),dim = 1).unsqueeze(1)
+
+        quantiles = torch.cat(tuple(net(sa) for net in self.nets),dim=1)
+        return quantiles

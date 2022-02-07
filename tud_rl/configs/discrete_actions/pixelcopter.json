@@ -6,26 +6,29 @@
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {}
+      "env_kwargs"        : {},
+      "info"              : ""
    }
    ,
 
    "agent": 
    {
-      "dqn"               : {"double" : false, "self_correcting_beta" : null, "grad_rescale" : false},
-      "ddqn"              : {"double" : true, "self_correcting_beta" : null, "grad_rescale" : false},
-      "scdqn_2"           : {"double" : false, "self_correcting_beta" : 2.0, "grad_rescale" : false},
-      "scdqn_3"           : {"double" : false, "self_correcting_beta" : 3.0, "grad_rescale" : false},
-      "scdqn_4"           : {"double" : false, "self_correcting_beta" : 4.0, "grad_rescale" : false},
-      "ac_cddqn_2"        : {"action_candidate_K" : 2, "grad_rescale" : false},
-      "ac_cddqn_3"        : {"action_candidate_K" : 3, "grad_rescale" : false},
-      "ac_cddqn_4"        : {"action_candidate_K" : 4, "grad_rescale" : false},
-      "boot_ddqn"         : {"double" : true, "kernel" : null, "kernel_param" : null, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_boot_dqn_T_5"  : {"double" : false, "kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_boot_dqn_T_10" : {"double" : false, "kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_boot_dqn_T_15" : {"double" : false, "kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_boot_dqn_T_25" : {"double" : false, "kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "our_boot_dqn_K"    : {"double" : false, "kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true}
+      "DQN"         : {},
+      "DDQN"        : {},
+      "SCDQN_a"     : {"sc_beta" : 2.0},
+      "SCDQN_b"     : {"sc_beta" : 3.0},
+      "SCDQN_c"     : {"sc_beta" : 4.0},
+      "ACCDDQN_a"   : {"AC_K" : 2},
+      "ACCDDQN_b"   : {"AC_K" : 3},
+      "ACCDDQN_c"   : {"AC_K" : 4},
+      "BootDQN"     : {"K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_a" : {"kernel" : "test", "kernel_param" : 0.05, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_b" : {"kernel" : "test", "kernel_param" : 0.10, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_c" : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_d" : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "KEBootDQN_e" : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "EnsembleDQN" : {"N" : 5, "N_to_update" : 1},
+      "MaxMinDQN"   : {"N" : 5, "N_to_update" : 1}
    }
    ,
 
@@ -38,14 +41,15 @@
   "input_norm_prior" : null,
   "gamma"            : 0.99,
   "eps_init"         : 1.0,
-  "eps_final"        : 0.01,
+  "eps_final"        : 0.1,
   "eps_decay_steps"  : 1e3,
   "tgt_update_freq"  : 200,
-  "net_struc_dqn"    : [[64, "relu"], [64, "relu"], "identity"],
+  "net_struc"        : [[64, "relu"], [64, "relu"], "identity"],
   "optimizer"        : "Adam",
   "loss"             : "MSELoss",
   "lr"               : 0.0001,
   "buffer_length"    : 1e4,
+  "grad_rescale"     : false,
   "grad_clip"        : false,
   "act_start_step"   : 5000,
   "upd_start_step"   : 5000,

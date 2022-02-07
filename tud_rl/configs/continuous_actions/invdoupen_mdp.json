@@ -13,25 +13,30 @@
 
    "agent": 
    {
-      "ddpg" : {"double_critic" : false, "tgt_pol_smooth" : false, "pol_upd_delay" : 1},
-      "td3"  : {"double_critic" : true, "tgt_pol_smooth" : true, "pol_upd_delay" : 2}
+      "DDPG"     : {},
+      "TD3"      : {"tgt_noise" : 0.2, "tgt_noise_clip" : 0.5, "pol_upd_delay" : 2},
+      "LSTMDDPG" : {"history_length" : 2, "use_past_actions" : false},
+      "LSTMTD3"  : {"tgt_noise" : 0.2, "tgt_noise_clip" : 0.5, "pol_upd_delay" : 2, "history_length" : 2, "use_past_actions" : false},
+      "SAC"      : {"lr_temp" : 0.0001, "temp_tuning" : true, "init_temp" : 0.2},
+      "LSTMSAC"  : {"history_length" : 2, "use_past_actions" : false, "lr_temp" : 0.0001, "temp_tuning" : true, "init_temp" : 0.2},
+      "TQC"      : {"lr_temp" : 0.0001, "temp_tuning" : true, "init_temp" : 0.2, "top_qs_to_drop" : 10, "n_qs" : 25, "n_critics" : 5}
    }
    ,
 
-  "seed"             : 212230,
-  "timesteps"        : 5e6,
+  "seed"             : 12,
+  "timesteps"        : 15e6,
   "epoch_length"     : 5e3,
   "eval_episodes"    : 10,
   "actor_weights"    : null,
   "critic_weights"   : null,
   "input_norm"       : false,
-  "input_norm_prior" : null,
-  "tgt_noise"        : 0.2,
-  "tgt_noise_clip"   : 0.5,
+  "input_norm_prior" : null, 
   "gamma"            : 0.99,
   "tau"              : 0.001,
   "net_struc_actor"  : [[256, "relu"], [256, "relu"], "tanh"],
   "net_struc_critic" : [[256, "relu"], [256, "relu"], "identity"],
+  "optimizer"        : "Adam",
+  "loss"             : "MSELoss",
   "lr_actor"         : 0.0001,
   "lr_critic"        : 0.0001,
   "buffer_length"    : 1e5,
