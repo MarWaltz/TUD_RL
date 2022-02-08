@@ -52,7 +52,7 @@ def evaluate_policy(test_env, test_agent, c):
     Q_est_all_eps = []
 
     # Sd of Q-ests of all (s,a) pairs of ALL episodes
-    Q_sd_all_eps = []
+    #Q_sd_all_eps = []
 
     # MC-vals of all (s,a) pairs of ALL episodes
     MC_all_eps = []
@@ -82,16 +82,16 @@ def evaluate_policy(test_env, test_agent, c):
 
             # get current Q estimate and its sd
             s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            q_ens = [net(s) for net in test_agent.EnsembleDQN]
-            q_ens = torch.stack(q_ens)
+            #q_ens = [net(s) for net in test_agent.EnsembleDQN]
+            #q_ens = torch.stack(q_ens)
 
-            Q_est = test_agent._ensemble_reduction(q_ens)[0][a].item()
-            Q_est_all_eps.append(Q_est)
+            #Q_est = test_agent._ensemble_reduction(q_ens)[0][a].item()
+            #Q_est_all_eps.append(Q_est)
 
-            Q_sd = torch.std(q_ens, dim=0)[0][a].item()
-            Q_sd_all_eps.append(Q_sd)
+            #Q_sd = torch.std(q_ens, dim=0)[0][a].item()
+            #Q_sd_all_eps.append(Q_sd)
 
-            #Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
+            Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -118,10 +118,11 @@ def evaluate_policy(test_env, test_agent, c):
         MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=test_agent.gamma)
         
     # compute bias
-    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
-    Q_sd = np.array(Q_sd_all_eps)
+    #bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
+    #Q_sd = np.array(Q_sd_all_eps)
 
-    return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias), np.corrcoef(bias, Q_sd)[0][1]
+    return rets, np.mean(Q_est_all_eps), np.mean(MC_all_eps)
+    #return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias), np.corrcoef(bias, Q_sd)[0][1]
 
 
 def train(c, agent_name):
@@ -236,7 +237,9 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            #eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, Q_est, MC_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -248,11 +251,14 @@ def train(c, agent_name):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
-            agent.logger.log_tabular("Avg_bias", avg_bias)
-            agent.logger.log_tabular("Std_bias", std_bias)
-            agent.logger.log_tabular("Max_bias", max_bias)
-            agent.logger.log_tabular("Min_bias", min_bias)
-            agent.logger.log_tabular("Bias_Unc_cor", bias_unc_cor)
+            agent.logger.log_tabular("Q_est", Q_est)
+            agent.logger.log_tabular("MC_ret", MC_ret)
+            
+            #agent.logger.log_tabular("Avg_bias", avg_bias)
+            #agent.logger.log_tabular("Std_bias", std_bias)
+            #agent.logger.log_tabular("Max_bias", max_bias)
+            #agent.logger.log_tabular("Min_bias", min_bias)
+            #agent.logger.log_tabular("Bias_Unc_cor", bias_unc_cor)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -275,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="EnsembleDQN")
+    parser.add_argument("--agent_name", type=str, default="DQN")
     args = parser.parse_args()
 
     # read config file
