@@ -65,7 +65,8 @@ class UniformReplayBuffer_BootDQN(UniformReplayBuffer):
                          state_shape   = state_shape, 
                          buffer_length = buffer_length, 
                          batch_size    = batch_size, 
-                         device        = device)
+                         device        = device,
+                         disc_actions  = True)
         """A simple replay buffer with uniform sampling. Incorporates bootstrapping masks."""
 
         self.K          = K

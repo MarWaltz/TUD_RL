@@ -59,12 +59,12 @@ class LSTMDDPGAgent(BaseAgent):
 
         # init actor and critic
         if self.state_type == "feature":
-            self.actor = LSTM_Actor(obs_dim          = self.state_shape,
+            self.actor = LSTM_Actor(state_shape      = self.state_shape,
                                     action_dim       = self.num_actions,
                                     use_past_actions = self.use_past_actions).to(self.device)
             
             if init_critic:
-                self.critic = LSTM_Critic(obs_dim          = self.state_shape,
+                self.critic = LSTM_Critic(state_shape      = self.state_shape,
                                           action_dim       = self.num_actions,
                                           use_past_actions = self.use_past_actions).to(self.device)
 

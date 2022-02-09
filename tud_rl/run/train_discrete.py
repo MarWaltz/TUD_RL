@@ -215,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="ACCDDQN_a")
+    parser.add_argument("--agent_name", type=str, default="BootDQN")
     args = parser.parse_args()
 
     # read config file
