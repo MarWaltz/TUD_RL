@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="ski_mdp.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TD3")
+    parser.add_argument("--agent_name", type=str, default="LSTMDDPG")
     args = parser.parse_args()
 
     # read config file

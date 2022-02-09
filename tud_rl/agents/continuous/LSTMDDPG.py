@@ -150,7 +150,7 @@ class LSTMDDPGAgent(BaseAgent):
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
         with torch.no_grad():
-            target_a, _ = self.target_actor(s=s2, o_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            target_a, _ = self.target_actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
                         
             # next Q-estimate
             Q_next = self.target_critic(s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, log_info=False)
