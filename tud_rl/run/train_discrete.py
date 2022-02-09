@@ -15,6 +15,7 @@ from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
 from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents.discrete.ACCDDQN import ACCDDQNAgent
 from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
@@ -214,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--agent_name", type=str, default="ACCDDQN_a")
     args = parser.parse_args()
 
     # read config file

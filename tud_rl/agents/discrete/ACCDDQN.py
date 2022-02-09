@@ -10,7 +10,7 @@ from tud_rl.common.logging_func import *
 from tud_rl.common.nets import MLP, MinAtar_DQN
 
 
-class AC_CDDQN_Agent(DQNAgent):
+class ACCDDQNAgent(DQNAgent):
     def __init__(self, c, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
@@ -100,7 +100,7 @@ class AC_CDDQN_Agent(DQNAgent):
 
             # compute candidate set based on QB
             QB_v2 = self.DQN_B(s2)
-            M_K = torch.argsort(QB_v2, dim=1, descending=True)[:, :self.action_candidate_K]
+            M_K = torch.argsort(QB_v2, dim=1, descending=True)[:, :self.AC_K]
 
             # get a_star_K
             QA_v2 = self.DQN_A(s2)
