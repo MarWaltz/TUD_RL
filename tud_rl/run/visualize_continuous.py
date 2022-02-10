@@ -10,8 +10,8 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from tud_env.envs.MountainCar import MountainCar
-from tud_env.wrappers.MinAtar_wrapper import MinAtar_wrapper
+from tud_rl.envs.MountainCar import MountainCar
+from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.continuous.DDPG import DDPGAgent
 from tud_rl.agents.continuous.TD3 import TD3Agent
 from tud_rl.agents.continuous.SAC import SACAgent
