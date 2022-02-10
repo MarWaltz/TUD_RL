@@ -1,17 +1,1 @@
-This is an implementation of reinforcement learning algorithms in PyTorch. Contains currently:
-
-AC-CDDQN
-
-(Double) DQN
-
-Bootstrapped DQN
- 
-SAC
-
-LSTM-SAC
-
-DDPG/TD3
-
-LSTM-DDPG/LSTM-TD3
-
-TQC
+'TUD_RL' implements several model-free off-policy reinforcement learning algorithms for discrete and continuous action spaces in PyTorch. An interface to write customized environments is available, including example environments.
