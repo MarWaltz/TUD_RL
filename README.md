@@ -1,1 +1,1 @@
-'TUD_RL' implements several model-free off-policy reinforcement learning algorithms for discrete and continuous action spaces in PyTorch. An interface to write customized environments is available, including example environments.
+'TUD_RL' implements several model-free off-policy deep reinforcement learning algorithms for discrete and continuous action spaces in PyTorch. An interface to write customized environments is available, including example environments.
