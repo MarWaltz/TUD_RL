@@ -19,9 +19,10 @@ from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.agents.discrete.TRYDQN import TRYDQNAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
-
+ 
 
 def get_MC_ret_from_rew(rews, gamma):
     """Returns for a given episode of rewards (list) the corresponding list of MC-returns under a specified discount factor."""
@@ -42,8 +43,10 @@ def get_MC_ret_from_rew(rews, gamma):
     return list(reversed(MC_list))
 
 
-def evaluate_policy(test_env, test_agent, c):
-    test_agent.mode = "test"
+def evaluate_policy(test_env, agent, c):
+    
+    # go greedy
+    agent.mode = "test"
 
     # final (undiscounted) sum of rewards of ALL episodes
     rets = []
@@ -51,8 +54,8 @@ def evaluate_policy(test_env, test_agent, c):
     # Q-ests of all (s,a) pairs of ALL episodes
     Q_est_all_eps = []
 
-    # Sd of Q-ests of all (s,a) pairs of ALL episodes
-    #Q_sd_all_eps = []
+    # Bias-ests of all (s,a) pairs of ALL episodes
+    Bias_est_all_eps = []
 
     # MC-vals of all (s,a) pairs of ALL episodes
     MC_all_eps = []
@@ -64,7 +67,7 @@ def evaluate_policy(test_env, test_agent, c):
 
         # potentially normalize it
         if c["input_norm"]:
-            s = test_agent.inp_normalizer.normalize(s, mode=test_agent.mode)
+            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
         d = False
@@ -78,20 +81,14 @@ def evaluate_policy(test_env, test_agent, c):
             eval_epi_steps += 1
 
             # select action
-            a = test_agent.select_action(s)
+            a = agent.select_action(s)
 
-            # get current Q estimate and its sd
+            # get current Q estimate
             s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            #q_ens = [net(s) for net in test_agent.EnsembleDQN]
-            #q_ens = torch.stack(q_ens)
+            Q_est_all_eps.append(agent.DQN(s)[0][a].item())
 
-            #Q_est = test_agent._ensemble_reduction(q_ens)[0][a].item()
-            #Q_est_all_eps.append(Q_est)
-
-            #Q_sd = torch.std(q_ens, dim=0)[0][a].item()
-            #Q_sd_all_eps.append(Q_sd)
-
-            Q_est_all_eps.append(test_agent.DQN(s)[0][a].item())
+            # get current bias estimate
+            Bias_est_all_eps.append(agent.bias_net(s)[0][a].item())
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -101,7 +98,7 @@ def evaluate_policy(test_env, test_agent, c):
 
             # potentially normalize s2
             if c["input_norm"]:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
+                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
             # s becomes s2
             s = s2
@@ -115,14 +112,86 @@ def evaluate_policy(test_env, test_agent, c):
         rets.append(cur_ret)
         
         # transform reward list in MC return list and append it to overall MC returns
-        MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=test_agent.gamma)
+        MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
         
-    # compute bias
-    #bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
-    #Q_sd = np.array(Q_sd_all_eps)
+    # compute difference between real and measured bias
+    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
+    bias_est = np.array(Bias_est_all_eps)
 
-    return rets, np.mean(Q_est_all_eps), np.mean(MC_all_eps)
+    # continue training
+    agent.mode = "train"
+
+    return rets, np.mean(bias - bias_est)
     #return rets, np.mean(bias), np.std(bias), np.max(bias), np.min(bias), np.corrcoef(bias, Q_sd)[0][1]
+
+
+def get_s_a_MC(env, agent, c):
+
+    # go greedy
+    agent.mode = "test"
+
+    # s and a of ALL episodes
+    s_all_eps = []
+    a_all_eps = []
+
+    # MC-vals of all (s,a) pairs of ALL episodes
+    MC_ret_all_eps = []
+    
+    for steps in range(c["agent"][agent.name]["MC_batch_size"]):
+
+        # get initial state
+        s = env.reset()
+
+        # potentially normalize it
+        if c["input_norm"]:
+            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
+
+        d = False
+
+        # rewards of ONE episode
+        rews_one_eps = []
+
+        epi_steps = 0
+
+        while not d:
+
+            epi_steps += 1
+
+            # select action
+            a = agent.select_action(s)
+
+            # perform step
+            s2, r, d, _ = env.step(a)
+
+            # save state, action, reward
+            s_all_eps.append(s)
+            a_all_eps.append(a)
+            rews_one_eps.append(r)
+
+            # potentially normalize s2
+            if c["input_norm"]:
+                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
+
+            # s becomes s2
+            s = s2
+
+            # break: end of episode / time limit in env
+            if d or epi_steps == c["env"]["max_episode_steps"]:
+                break
+
+            # break: enough MC
+            if (steps + 1) == c["agent"][agent.name]["MC_batch_size"]:
+                
+                # to make the MC valid, we use backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
+                rews_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
+        
+        # transform reward list in MC return list and append it to overall MC returns
+        MC_ret_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
+
+    # continue training
+    agent.mode = "train"
+
+    return np.stack(s_all_eps), np.expand_dims(a_all_eps, 1), np.expand_dims(MC_ret_all_eps, 1)
 
 
 def train(c, agent_name):
@@ -209,6 +278,9 @@ def train(c, agent_name):
             for _ in range(c["upd_every"]):
                 agent.train()
 
+                s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
+                agent.train_bias_net(s, a, MC)
+
         # s becomes s2
         s = s2
 
@@ -238,7 +310,7 @@ def train(c, agent_name):
 
             # evaluate agent with deterministic policy
             #eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
-            eval_ret, Q_est, MC_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
@@ -251,9 +323,12 @@ def train(c, agent_name):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
-            agent.logger.log_tabular("Q_est", Q_est)
-            agent.logger.log_tabular("MC_ret", MC_ret)
-            
+            agent.logger.log_tabular("Bias_val", with_min_and_max=True)
+            agent.logger.log_tabular("Bias_loss", average_only=True)
+            agent.logger.log_tabular("Diff_real_est_bias", Diff_real_est_bias)
+            #agent.logger.log_tabular("Q_est", Q_est)
+            #agent.logger.log_tabular("MC_ret", MC_ret)
+
             #agent.logger.log_tabular("Avg_bias", avg_bias)
             #agent.logger.log_tabular("Std_bias", std_bias)
             #agent.logger.log_tabular("Max_bias", max_bias)
@@ -281,7 +356,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--agent_name", type=str, default="TRYDQN_a")
     args = parser.parse_args()
 
     # read config file

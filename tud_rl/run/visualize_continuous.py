@@ -1,9 +1,6 @@
 import argparse
-import copy
 import json
-import pickle
 import random
-import time
 
 import gym
 import gym_minatar
@@ -105,7 +102,7 @@ def test(c, agent_name, actor_weights, critic_weights):
         c["state_shape"] = env.observation_space.shape[0]
 
     # mode and action details
-    c["mode"] = "train"
+    c["mode"] = "test"
     c["num_actions"] = env.action_space.shape[0]
     c["action_high"] = env.action_space.high[0]
     c["action_low"]  = env.action_space.low[0]
@@ -127,7 +124,7 @@ def test(c, agent_name, actor_weights, critic_weights):
         agent = eval(agent_name + "Agent")(c, agent_name)
 
     # visualization
-    visualize_policy(env=env, agent=copy.copy(agent), c=c)
+    visualize_policy(env=env, agent=agent, c=c)
    
 
 if __name__ == "__main__":

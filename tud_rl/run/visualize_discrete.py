@@ -105,7 +105,7 @@ def test(c, agent_name, dqn_weights):
         agent = eval(agent_name + "Agent")(c, agent_name)
 
     # visualization
-    visualize_policy(env=env, agent=copy.copy(agent), c=c)
+    visualize_policy(env=env, agent=agent, c=c)
 
 
 if __name__ == "__main__":

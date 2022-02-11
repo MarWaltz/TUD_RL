@@ -1,5 +1,4 @@
 import argparse
-import copy
 import json
 import pickle
 import random
@@ -24,8 +23,11 @@ from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
 
-def evaluate_policy(test_env, test_agent, c):
-    test_agent.mode = "test"
+def evaluate_policy(test_env, agent, c):
+
+    # go greedy
+    agent.mode = "test"
+    
     rets = []
     
     for _ in range(c["eval_episodes"]):
@@ -35,7 +37,7 @@ def evaluate_policy(test_env, test_agent, c):
 
         # potentially normalize it
         if c["input_norm"]:
-            s = test_agent.inp_normalizer.normalize(s, mode=test_agent.mode)
+            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
         d = False
@@ -46,14 +48,14 @@ def evaluate_policy(test_env, test_agent, c):
             eval_epi_steps += 1
 
             # select action
-            a = test_agent.select_action(s)
+            a = agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
 
             # potentially normalize s2
             if c["input_norm"]:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
+                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
             # s becomes s2
             s = s2
@@ -65,7 +67,10 @@ def evaluate_policy(test_env, test_agent, c):
         
         # append return
         rets.append(cur_ret)
-    
+
+    # continue training
+    agent.mode = "train"
+
     return rets
 
 
@@ -181,7 +186,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret = evaluate_policy(test_env=test_env, agent=agent, c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -215,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="BootDQN")
+    parser.add_argument("--agent_name", type=str, default="DQN")
     args = parser.parse_args()
 
     # read config file

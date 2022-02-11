@@ -14,6 +14,8 @@
    "agent": 
    {
       "DQN"         : {},
+      "TRYDQN_a"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : false},
+      "TRYDQN_b"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : true},
       "DDQN"        : {},
       "SCDQN_a"     : {"sc_beta" : 2.0},
       "SCDQN_b"     : {"sc_beta" : 3.0},

@@ -1,5 +1,4 @@
 import argparse
-import copy
 import json
 import pickle
 import random
@@ -23,16 +22,19 @@ from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.continuous_actions import __path__
 
 
-def evaluate_policy(test_env, test_agent, c):
-    test_agent.mode = "test"
+def evaluate_policy(test_env, agent, c):
+
+    # go greedy
+    agent.mode = "test"
+    
     rets = []
     
     for _ in range(c["eval_episodes"]):
 
         # LSTM: init history
-        if "LSTM" in test_agent.name:
-            s_hist = np.zeros((test_agent.history_length, test_agent.state_shape))
-            a_hist = np.zeros((test_agent.history_length, test_agent.num_actions))
+        if "LSTM" in agent.name:
+            s_hist = np.zeros((agent.history_length, agent.state_shape))
+            a_hist = np.zeros((agent.history_length, agent.num_actions))
             hist_len = 0
 
         # get initial state
@@ -40,7 +42,7 @@ def evaluate_policy(test_env, test_agent, c):
 
         # potentially normalize it
         if c["input_norm"]:
-            s = test_agent.inp_normalizer.normalize(s, mode=test_agent.mode)
+            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
         d = False
@@ -51,26 +53,26 @@ def evaluate_policy(test_env, test_agent, c):
             eval_epi_steps += 1
 
             # select action
-            if "LSTM" in test_agent.name:
-                a = test_agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
             else:
-                a = test_agent.select_action(s)
+                a = agent.select_action(s)
             
             # perform step
             s2, r, d, _ = test_env.step(a)
 
             # potentially normalize s2
             if c["input_norm"]:
-                s2 = test_agent.inp_normalizer.normalize(s2, mode=test_agent.mode)
+                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
             # LSTM: update history
-            if "LSTM" in test_agent.name:
-                if hist_len == test_agent.history_length:
+            if "LSTM" in agent.name:
+                if hist_len == agent.history_length:
                     s_hist = np.roll(s_hist, shift = -1, axis = 0)
-                    s_hist[test_agent.history_length - 1, :] = s
+                    s_hist[agent.history_length - 1, :] = s
 
                     a_hist = np.roll(a_hist, shift = -1, axis = 0)
-                    a_hist[test_agent.history_length - 1, :] = a
+                    a_hist[agent.history_length - 1, :] = a
                 else:
                     s_hist[hist_len] = s
                     a_hist[hist_len] = a
@@ -87,6 +89,9 @@ def evaluate_policy(test_env, test_agent, c):
         # append return
         rets.append(cur_ret)
     
+    # continue training
+    agent.mode = "train"
+
     return rets
 
 
@@ -229,7 +234,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret = evaluate_policy(test_env=test_env, agent=agent, c=c)
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
