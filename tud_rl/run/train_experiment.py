@@ -1,5 +1,4 @@
 import argparse
-import copy
 import json
 import pickle
 import random
@@ -136,8 +135,14 @@ def get_s_a_MC(env, agent, c):
 
     # MC-vals of all (s,a) pairs of ALL episodes
     MC_ret_all_eps = []
+
+    # init epi steps and rewards for ONE episode
+    epi_steps = 0
+    r_one_eps = []
     
-    for steps in range(c["agent"][agent.name]["MC_batch_size"]):
+    for _ in range(c["agent"][agent.name]["MC_batch_size"]):
+
+        epi_steps += 1
 
         # get initial state
         s = env.reset()
@@ -146,47 +151,48 @@ def get_s_a_MC(env, agent, c):
         if c["input_norm"]:
             s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
-        d = False
+        # select action
+        a = agent.select_action(s)
 
-        # rewards of ONE episode
-        rews_one_eps = []
+        # perform step
+        s2, r, d, _ = env.step(a)
 
-        epi_steps = 0
+        # save s, a, r
+        s_all_eps.append(s)
+        a_all_eps.append(a)
+        r_one_eps.append(r)
 
-        while not d:
+        # potentially normalize s2
+        if c["input_norm"]:
+            s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
-            epi_steps += 1
+        # s becomes s2
+        s = s2
 
-            # select action
-            a = agent.select_action(s)
+        # end of episode: for artificial time limit in env, we need to correct final reward to be a return
+        if epi_steps == c["env"]["max_episode_steps"]:
 
-            # perform step
-            s2, r, d, _ = env.step(a)
+            # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
+            r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
 
-            # save state, action, reward
-            s_all_eps.append(s)
-            a_all_eps.append(a)
-            rews_one_eps.append(r)
+        # end of episode: artificial or true done signal
+        if epi_steps == c["env"]["max_episode_steps"] or d:
 
-            # potentially normalize s2
-            if c["input_norm"]:
-                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
+            # transform rewards to returns and store them
+            MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=agent.gamma)
 
-            # s becomes s2
-            s = s2
+            # reset
+            epi_steps = 0
+            r_one_eps = []
 
-            # break: end of episode / time limit in env
-            if d or epi_steps == c["env"]["max_episode_steps"]:
-                break
+    # store MC from final unfinished episode
+    if len(r_one_eps) > 0:
 
-            # break: enough MC
-            if (steps + 1) == c["agent"][agent.name]["MC_batch_size"]:
-                
-                # to make the MC valid, we use backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-                rews_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
-        
-        # transform reward list in MC return list and append it to overall MC returns
-        MC_ret_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
+        # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
+        r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
+
+        # transform rewards to returns and store them
+        MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=agent.gamma)
 
     # continue training
     agent.mode = "train"
@@ -278,8 +284,9 @@ def train(c, agent_name):
             for _ in range(c["upd_every"]):
                 agent.train()
 
-                s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
-                agent.train_bias_net(s, a, MC)
+                if total_steps % 4 == 0:
+                    s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
+                    agent.train_bias_net(s, a, MC)
 
         # s becomes s2
         s = s2
@@ -310,7 +317,7 @@ def train(c, agent_name):
 
             # evaluate agent with deterministic policy
             #eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
-            eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
+            eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, agent=agent, c=c)
             
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)

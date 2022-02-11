@@ -60,7 +60,11 @@ class TRYDQNAgent(DQNAgent):
 
         # get target
         with torch.no_grad():
-            Q = self.DQN(s)
+
+            if self.tgt_to_upd_bias:
+                Q = self.target_DQN(s)
+            else:
+                Q = self.DQN(s)
             Q = torch.gather(input=Q, dim=1, index=a)
 
             y_bias = Q - MC
