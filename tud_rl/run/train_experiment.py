@@ -284,9 +284,10 @@ def train(c, agent_name):
             for _ in range(c["upd_every"]):
                 agent.train()
 
-                if total_steps % 4 == 0:
-                    s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
-                    agent.train_bias_net(s, a, MC)
+        # train bias
+        if total_steps % c["agent"][agent_name]["bias_upd_every"] == 0:
+            s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
+            agent.train_bias_net(s, a, MC)
 
         # s becomes s2
         s = s2
@@ -316,7 +317,6 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            #eval_ret, avg_bias, std_bias, max_bias, min_bias, bias_unc_cor = evaluate_policy(test_env=test_env, test_agent=copy.copy(agent), c=c)
             eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, agent=agent, c=c)
             
             for ret in eval_ret:
