@@ -119,7 +119,10 @@ class LSTMDDPGAgent(BaseAgent):
         hist_len: int
         
         returns: np.array with shape (action_dim,)
-        """        
+        """
+        # past actions will be on application scale
+        a_hist = self.act_normalizer.action_to_norm(a_hist)
+
         # reshape arguments and convert to tensors
         s = torch.tensor(s.astype(np.float32)).view(1, self.state_shape).to(self.device)
         s_hist = torch.tensor(s_hist.astype(np.float32)).view(1, self.history_length, self.state_shape).to(self.device)

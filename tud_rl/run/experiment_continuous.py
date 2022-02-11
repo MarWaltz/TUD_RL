@@ -8,20 +8,21 @@ import gym
 import gym_minatar
 import gym_pygame
 import numpy as np
+import pybulletgym
 import torch
+from tud_rl.agents.continuous.DDPG import DDPGAgent
+from tud_rl.agents.continuous.TRYDDPG import TRYDDPGAgent
+from tud_rl.agents.continuous.LSTMDDPG import LSTMDDPGAgent
+from tud_rl.agents.continuous.LSTMSAC import LSTMSACAgent
+from tud_rl.agents.continuous.LSTMTD3 import LSTMTD3Agent
+from tud_rl.agents.continuous.SAC import SACAgent
+from tud_rl.agents.continuous.TD3 import TD3Agent
+from tud_rl.agents.continuous.TQC import TQCAgent
+from tud_rl.common.logging_plot import plot_from_progress
+from tud_rl.configs.continuous_actions import __path__
 from tud_rl.envs.MountainCar import MountainCar
 from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
-from tud_rl.agents.discrete.BootDQN import BootDQNAgent
-from tud_rl.agents.discrete.DDQN import DDQNAgent
-from tud_rl.agents.discrete.DQN import DQNAgent
-from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
-from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
-from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
-from tud_rl.agents.discrete.SCDQN import SCDQNAgent
-from tud_rl.agents.discrete.TRYDQN import TRYDQNAgent
-from tud_rl.common.logging_plot import plot_from_progress
-from tud_rl.configs.discrete_actions import __path__
- 
+
 
 def get_MC_ret_from_rew(rews, gamma):
     """Returns for a given episode of rewards (list) the corresponding list of MC-returns under a specified discount factor."""
@@ -43,10 +44,10 @@ def get_MC_ret_from_rew(rews, gamma):
 
 
 def evaluate_policy(test_env, agent, c):
-    
+
     # go greedy
     agent.mode = "test"
-
+    
     # final (undiscounted) sum of rewards of ALL episodes
     rets = []
 
@@ -60,6 +61,12 @@ def evaluate_policy(test_env, agent, c):
     MC_all_eps = []
     
     for _ in range(c["eval_episodes"]):
+
+        # LSTM: init history
+        if "LSTM" in agent.name:
+            s_hist = np.zeros((agent.history_length, agent.state_shape))
+            a_hist = np.zeros((agent.history_length, agent.num_actions))
+            hist_len = 0
 
         # get initial state
         s = test_env.reset()
@@ -80,14 +87,15 @@ def evaluate_policy(test_env, agent, c):
             eval_epi_steps += 1
 
             # select action
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
 
-            # get current Q estimate
-            s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            Q_est_all_eps.append(agent.DQN(s)[0][a].item())
-
-            # get current bias estimate
-            B_est_all_eps.append(agent.bias_net(s)[0][a].item())
+            # get current Q and bias estimate
+            Q, B = agent.greedy_action_Q(s, with_bias=True)
+            Q_est_all_eps.append(Q)
+            B_est_all_eps.append(B)
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -99,6 +107,19 @@ def evaluate_policy(test_env, agent, c):
             if c["input_norm"]:
                 s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
+            # LSTM: update history
+            if "LSTM" in agent.name:
+                if hist_len == agent.history_length:
+                    s_hist = np.roll(s_hist, shift = -1, axis = 0)
+                    s_hist[agent.history_length - 1, :] = s
+
+                    a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                    a_hist[agent.history_length - 1, :] = a
+                else:
+                    s_hist[hist_len] = s
+                    a_hist[hist_len] = a
+                    hist_len += 1
+
             # s becomes s2
             s = s2
             cur_ret += r
@@ -109,10 +130,10 @@ def evaluate_policy(test_env, agent, c):
         
         # append return
         rets.append(cur_ret)
-        
+
         # transform reward list in MC return list and append it to overall MC returns
         MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
-        
+
     # compute difference between real and measured bias
     bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
     bias_est = np.array(B_est_all_eps)
@@ -139,10 +160,14 @@ def get_s_a_MC(env, agent, c):
     epi_steps = 0
     r_one_eps = []
 
-    # get initial state
-    s = env.reset()
+    # LSTM: init history
+    if "LSTM" in agent.name:
+        s_hist = np.zeros((agent.history_length, agent.state_shape))
+        a_hist = np.zeros((agent.history_length, agent.num_actions))
+        hist_len = 0
 
-    # potentially normalize it
+    # get initial state and normalize it
+    s = env.reset()
     if c["input_norm"]:
         s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
@@ -151,7 +176,10 @@ def get_s_a_MC(env, agent, c):
         epi_steps += 1
 
         # select action
-        a = agent.select_action(s)
+        if "LSTM" in agent.name:
+            a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+        else:
+            a = agent.select_action(s)
 
         # perform step
         s2, r, d, _ = env.step(a)
@@ -165,6 +193,19 @@ def get_s_a_MC(env, agent, c):
         if c["input_norm"]:
             s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
+        # LSTM: update history
+        if "LSTM" in agent.name:
+            if hist_len == agent.history_length:
+                s_hist = np.roll(s_hist, shift = -1, axis = 0)
+                s_hist[agent.history_length - 1, :] = s
+
+                a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                a_hist[agent.history_length - 1, :] = a
+            else:
+                s_hist[hist_len] = s
+                a_hist[hist_len] = a
+                hist_len += 1
+
         # s becomes s2
         s = s2
 
@@ -172,7 +213,7 @@ def get_s_a_MC(env, agent, c):
         if epi_steps == c["env"]["max_episode_steps"]:
 
             # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-            r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
+            r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2, with_bias=False)
 
         # end of episode: artificial or true done signal
         if epi_steps == c["env"]["max_episode_steps"] or d:
@@ -184,10 +225,14 @@ def get_s_a_MC(env, agent, c):
             epi_steps = 0
             r_one_eps = []
 
-            # get initial state
-            s = env.reset()
+            # LSTM: init history
+            if "LSTM" in agent.name:
+                s_hist = np.zeros((agent.history_length, agent.state_shape))
+                a_hist = np.zeros((agent.history_length, agent.num_actions))
+                hist_len = 0
 
-            # potentially normalize it
+            # get initial state and normalize it
+            s = env.reset()
             if c["input_norm"]:
                 s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
@@ -195,7 +240,7 @@ def get_s_a_MC(env, agent, c):
     if len(r_one_eps) > 0:
 
         # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-        r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
+        r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2, with_bias=False)
 
         # transform rewards to returns and store them
         MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=agent.gamma)
@@ -224,17 +269,16 @@ def train(c, agent_name):
 
     # get state_shape
     if c["env"]["state_type"] == "image":
-        assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
-
-        # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        raise NotImplementedError("Currently, image input is not available for continuous action spaces.")
     
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]
 
-    # mode and num actions
+    # mode and action details
     c["mode"] = "train"
-    c["num_actions"] = env.action_space.n
+    c["num_actions"] = env.action_space.shape[0]
+    c["action_high"] = env.action_space.high[0]
+    c["action_low"]  = env.action_space.low[0]
 
     # seeding
     env.seed(c["seed"])
@@ -248,6 +292,12 @@ def train(c, agent_name):
         agent = eval(agent_name[:-2] + "Agent")(c, agent_name)
     else:
         agent = eval(agent_name + "Agent")(c, agent_name)
+
+    # LSTM: init history
+    if "LSTM" in agent.name:
+        s_hist = np.zeros((agent.history_length, agent.state_shape))
+        a_hist = np.zeros((agent.history_length, agent.num_actions))
+        hist_len = 0
 
     # get initial state and normalize it
     s = env.reset()
@@ -265,9 +315,12 @@ def train(c, agent_name):
         
         # select action
         if total_steps < c["act_start_step"]:
-            a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
+            a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.num_actions)
         else:
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
         
         # perform step
         s2, r, d, _ = env.step(a)
@@ -285,15 +338,23 @@ def train(c, agent_name):
         # memorize
         agent.memorize(s, a, r, s2, d)
 
+        # LSTM: update history
+        if "LSTM" in agent.name:
+            if hist_len == agent.history_length:
+                s_hist = np.roll(s_hist, shift = -1, axis = 0)
+                s_hist[agent.history_length - 1, :] = s
+
+                a_hist = np.roll(a_hist, shift = -1, axis = 0)
+                a_hist[agent.history_length - 1, :] = a
+            else:
+                s_hist[hist_len] = s
+                a_hist[hist_len] = a
+                hist_len += 1
+
         # train
         if (total_steps >= c["upd_start_step"]) and (total_steps % c["upd_every"] == 0):
             for _ in range(c["upd_every"]):
                 agent.train()
-
-        # train bias
-        if total_steps % c["agent"][agent_name]["bias_upd_every"] == 0:
-            s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
-            agent.train_bias_net(s, a, MC)
 
         # s becomes s2
         s = s2
@@ -301,9 +362,15 @@ def train(c, agent_name):
         # end of episode handling
         if d or (epi_steps == c["env"]["max_episode_steps"]):
  
-            # reset active head for BootDQN
-            if "Boot" in agent_name:
-                agent.reset_active_head()
+            # reset noise after episode
+            if hasattr(agent, "noise"):
+                agent.noise.reset()
+
+            # LSTM: reset history
+            if "LSTM" in agent.name:
+                s_hist = np.zeros((agent.history_length, agent.state_shape))
+                a_hist = np.zeros((agent.history_length, agent.num_actions))
+                hist_len = 0
 
             # reset to initial state and normalize it
             s = env.reset()
@@ -324,7 +391,6 @@ def train(c, agent_name):
 
             # evaluate agent with deterministic policy
             eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, agent=agent, c=c)
-            
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
 
@@ -335,27 +401,28 @@ def train(c, agent_name):
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
-            agent.logger.log_tabular("Loss", average_only=True)
+            agent.logger.log_tabular("Critic_loss", average_only=True)
+            agent.logger.log_tabular("Actor_loss", average_only=True)
+
             agent.logger.log_tabular("Bias_val", with_min_and_max=True)
             agent.logger.log_tabular("Bias_loss", average_only=True)
             agent.logger.log_tabular("Diff_real_est_bias", Diff_real_est_bias)
-            #agent.logger.log_tabular("Q_est", Q_est)
-            #agent.logger.log_tabular("MC_ret", MC_ret)
 
-            #agent.logger.log_tabular("Avg_bias", avg_bias)
-            #agent.logger.log_tabular("Std_bias", std_bias)
-            #agent.logger.log_tabular("Max_bias", max_bias)
-            #agent.logger.log_tabular("Min_bias", min_bias)
-            #agent.logger.log_tabular("Bias_Unc_cor", bias_unc_cor)
+            if "LSTM" in agent.name:
+                agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
+                agent.logger.log_tabular("Critic_CurFE", with_min_and_max=False)
+                agent.logger.log_tabular("Critic_ExtMemory", with_min_and_max=False)
+
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=f"lr = {c['lr']}")
+            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=c["env"]["info"])
 
             # save weights
-            if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
-                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_DQN_weights.pth")
-    
+            torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
+            torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
+
             # save input normalizer values 
             if c["input_norm"]:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
@@ -366,25 +433,22 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="asterix.json")
-    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--config_file", type=str, default="halfcheetah.json")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TRYDQN_a")
+    parser.add_argument("--agent_name", type=str, default="DDPG")
     args = parser.parse_args()
 
     # read config file
     with open(__path__._path[0] + "/" + args.config_file) as f:
         c = json.load(f)
 
-    # potentially overwrite lr and seed
-    if args.lr is not None:
-        c["lr"] = args.lr
+    # potentially overwrite seed
     if args.seed is not None:
         c["seed"] = args.seed
 
     # convert certain keys in integers
-    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",\
-        "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
+    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
+         "upd_start_step", "upd_every", "batch_size"]:
         c[key] = int(c[key])
 
     # handle maximum episode steps
