@@ -39,8 +39,6 @@ def evaluate_policy(test_env, agent, c):
 
         # get initial state
         s = test_env.reset()
-
-        # potentially normalize it
         if c["input_norm"]:
             s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 

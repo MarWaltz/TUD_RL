@@ -1,9 +1,9 @@
 import csv
 
-import numpy as np
-import pandas as pd
 #matplotlib.use("agg")
 import matplotlib.pyplot as plt
+import pandas as pd
+from tud_rl.common.helper_fnc import exponential_smoothing
 
 
 def plot_from_progress(dir, alg, env_str, info=None):
@@ -26,19 +26,6 @@ def plot_from_progress(dir, alg, env_str, info=None):
     df = df.astype(float)
 
     runtime = df["Runtime_in_h"].iloc[-1].round(3)
-
-    # Note: This helper fnc could be defined outside of plot_from_progress(), 
-    #       but having just one function appears handy.
-    def exponential_smoothing(x, alpha=0.05):
-        s = np.zeros_like(x)
-
-        for idx, x_val in enumerate(x):
-            if idx == 0:
-                s[idx] = x[idx]
-            else:
-                s[idx] = alpha * x_val + (1-alpha) * s[idx-1]
-
-        return s
 
     # create plot
     fig, ax = plt.subplots(2, 2, figsize=(16, 9))
@@ -99,6 +86,11 @@ def plot_from_progress(dir, alg, env_str, info=None):
     if "Diff_real_est_bias" in df.columns:
         ax[1,1].plot(df["Timestep"], df["Diff_real_est_bias"])
         ax[1,1].set_ylabel("Diff_real_est_bias")
+    
+    if "eval_bias" in df.columns and "eval_bias_est" in df.columns:
+        ax[1,1].plot(df["Timestep"], df["eval_bias"], label="eval_bias")
+        ax[1,1].plot(df["Timestep"], df["eval_bias_est"], label="eval_bias_est")
+        ax[1,1].legend()
 
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")

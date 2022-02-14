@@ -14,10 +14,8 @@
    "agent": 
    {
       "DQN"         : {},
-      "TRYDQN_a"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : false, "bias_upd_every" : 3},
-      "TRYDQN_b"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : true, "bias_upd_every" : 3},
-      "TRYDQN_c"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : false, "bias_upd_every" : 1},
-      "TRYDQN_d"    : {"MC_batch_size" : 32, "tgt_to_upd_bias" : true, "bias_upd_every" : 1},
+      "TRYDQN_a"    : {"MC_batch_size" : 32, "MC_num_upd" : 10},
+      "TRYDQN_b"    : {"MC_batch_size" : 32, "MC_num_upd" : 100},
       "DDQN"        : {},
       "SCDQN_a"     : {"sc_beta" : 2.0},
       "SCDQN_b"     : {"sc_beta" : 3.0},
@@ -36,7 +34,7 @@
    }
    ,
 
-  "seed"             : 0,
+  "seed"             : 10,
   "timesteps"        : 5e6,
   "epoch_length"     : 1e4,
   "eval_episodes"    : 10,

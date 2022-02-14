@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import pickle
 import random
@@ -9,8 +10,6 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from tud_rl.envs.MountainCar import MountainCar
-from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
 from tud_rl.agents.discrete.DQN import DQNAgent
@@ -19,27 +18,11 @@ from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
 from tud_rl.agents.discrete.TRYDQN import TRYDQNAgent
+from tud_rl.common.helper_fnc import get_MC_ret_from_rew
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
- 
-
-def get_MC_ret_from_rew(rews, gamma):
-    """Returns for a given episode of rewards (list) the corresponding list of MC-returns under a specified discount factor."""
-
-    MC = 0
-    MC_list = []
-    
-    for r in reversed(rews):
-        # compute one-step backup
-        backup = r + gamma * MC
-        
-        # add to MCs
-        MC_list.append(backup)
-        
-        # update MC
-        MC = backup
-    
-    return list(reversed(MC_list))
+from tud_rl.envs.MountainCar import MountainCar
+from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 
 
 def evaluate_policy(test_env, agent, c):
@@ -63,12 +46,9 @@ def evaluate_policy(test_env, agent, c):
 
         # get initial state
         s = test_env.reset()
-
-        # potentially normalize it
         if c["input_norm"]:
             s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
-        cur_ret = 0
         d = False
         eval_epi_steps = 0
 
@@ -101,14 +81,13 @@ def evaluate_policy(test_env, agent, c):
 
             # s becomes s2
             s = s2
-            cur_ret += r
 
             # break option
             if eval_epi_steps == c["env"]["max_episode_steps"]:
                 break
         
         # append return
-        rets.append(cur_ret)
+        rets.append(sum(rews_one_eps))
         
         # transform reward list in MC return list and append it to overall MC returns
         MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
@@ -120,90 +99,7 @@ def evaluate_policy(test_env, agent, c):
     # continue training
     agent.mode = "train"
 
-    return rets, np.mean(bias - bias_est)
-
-
-def get_s_a_MC(env, agent, c):
-
-    # go greedy
-    agent.mode = "test"
-
-    # s and a of ALL episodes
-    s_all_eps = []
-    a_all_eps = []
-
-    # MC-vals of all (s,a) pairs of ALL episodes
-    MC_ret_all_eps = []
-
-    # init epi steps and rewards for ONE episode
-    epi_steps = 0
-    r_one_eps = []
-
-    # get initial state
-    s = env.reset()
-
-    # potentially normalize it
-    if c["input_norm"]:
-        s = agent.inp_normalizer.normalize(s, mode=agent.mode)
-
-    for _ in range(c["agent"][agent.name]["MC_batch_size"]):
-
-        epi_steps += 1
-
-        # select action
-        a = agent.select_action(s)
-
-        # perform step
-        s2, r, d, _ = env.step(a)
-
-        # save s, a, r
-        s_all_eps.append(s)
-        a_all_eps.append(a)
-        r_one_eps.append(r)
-
-        # potentially normalize s2
-        if c["input_norm"]:
-            s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
-
-        # s becomes s2
-        s = s2
-
-        # end of episode: for artificial time limit in env, we need to correct final reward to be a return
-        if epi_steps == c["env"]["max_episode_steps"]:
-
-            # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-            r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
-
-        # end of episode: artificial or true done signal
-        if epi_steps == c["env"]["max_episode_steps"] or d:
-
-            # transform rewards to returns and store them
-            MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=agent.gamma)
-
-            # reset
-            epi_steps = 0
-            r_one_eps = []
-
-            # get initial state
-            s = env.reset()
-
-            # potentially normalize it
-            if c["input_norm"]:
-                s = agent.inp_normalizer.normalize(s, mode=agent.mode)
-
-    # store MC from final unfinished episode
-    if len(r_one_eps) > 0:
-
-        # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-        r_one_eps[-1] += agent.gamma * agent.greedy_action_Q(s2)
-
-        # transform rewards to returns and store them
-        MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=agent.gamma)
-
-    # continue training
-    agent.mode = "train"
-
-    return np.stack(s_all_eps), np.expand_dims(a_all_eps, 1), np.expand_dims(MC_ret_all_eps, 1)
+    return rets, np.mean(bias), np.mean(bias_est)
 
 
 def train(c, agent_name):
@@ -249,6 +145,10 @@ def train(c, agent_name):
     else:
         agent = eval(agent_name + "Agent")(c, agent_name)
 
+    # for MC rollouts, give agent an env
+    if "TRY" in agent.name:
+        agent.MC_env = copy.deepcopy(test_env)
+
     # get initial state and normalize it
     s = env.reset()
     if c["input_norm"]:
@@ -290,11 +190,6 @@ def train(c, agent_name):
             for _ in range(c["upd_every"]):
                 agent.train()
 
-        # train bias
-        if total_steps % c["agent"][agent_name]["bias_upd_every"] == 0:
-            s, a, MC = get_s_a_MC(env=test_env, agent=agent, c=c)
-            agent.train_bias_net(s, a, MC)
-
         # s becomes s2
         s = s2
 
@@ -323,7 +218,7 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, Diff_real_est_bias = evaluate_policy(test_env=test_env, agent=agent, c=c)
+            eval_ret, bias, bias_est = evaluate_policy(test_env=test_env, agent=agent, c=c)
             
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
@@ -338,7 +233,8 @@ def train(c, agent_name):
             agent.logger.log_tabular("Loss", average_only=True)
             agent.logger.log_tabular("Bias_val", with_min_and_max=True)
             agent.logger.log_tabular("Bias_loss", average_only=True)
-            agent.logger.log_tabular("Diff_real_est_bias", Diff_real_est_bias)
+            agent.logger.log_tabular("eval_bias", bias)
+            agent.logger.log_tabular("eval_bias_est", bias_est)
             #agent.logger.log_tabular("Q_est", Q_est)
             #agent.logger.log_tabular("MC_ret", MC_ret)
 
@@ -369,7 +265,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TRYDQN_a")
+    parser.add_argument("--agent_name", type=str, default="TRYDQN_b")
     args = parser.parse_args()
 
     # read config file

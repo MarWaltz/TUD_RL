@@ -34,8 +34,6 @@ def evaluate_policy(test_env, agent, c):
 
         # get initial state
         s = test_env.reset()
-
-        # potentially normalize it
         if c["input_norm"]:
             s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
@@ -220,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--agent_name", type=str, default="TRYDQN")
     args = parser.parse_args()
 
     # read config file
