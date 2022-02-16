@@ -15,6 +15,7 @@ class TRYDQNAgent(DQNAgent):
         
         self.MC_batch_size = c["agent"][agent_name]["MC_batch_size"]
         self.MC_num_upd    = c["agent"][agent_name]["MC_num_upd"]
+        self.MC_lr         = c["agent"][agent_name]["MC_lr"]
 
         # init bias net
         if self.state_type == "image":
@@ -30,9 +31,9 @@ class TRYDQNAgent(DQNAgent):
 
         # define optimizer
         if self.optimizer == "Adam":
-            self.bias_optimizer = optim.Adam(self.bias_net.parameters(), lr=self.lr)
+            self.bias_optimizer = optim.Adam(self.bias_net.parameters(), lr=self.MC_lr)
         else:
-            self.bias_optimizer = optim.RMSprop(self.bias_net.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
+            self.bias_optimizer = optim.RMSprop(self.bias_net.parameters(), lr=self.MC_lr, alpha=0.95, centered=True, eps=0.01)
 
     def greedy_action_Q(self, s):
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))

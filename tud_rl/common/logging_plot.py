@@ -44,22 +44,20 @@ def plot_from_progress(dir, alg, env_str, info=None):
     ax[0,0].set_ylabel("Test return")
 
     # second axis
-    ax[0,1].plot(df["Timestep"], df["Avg_Q_val"])
-    ax[0,1].set_ylabel("Avg_Q_val")
-    ax[0,1].set_xlabel("Timestep")
+    if "Avg_Q_val" in df.columns:
+        ax[0,1].plot(df["Timestep"], df["Avg_Q_val"])
+        ax[0,1].set_ylabel("Avg_Q_val")
+        ax[0,1].set_xlabel("Timestep")
     
     # third axis
-    ax[1,0].set_xlabel("Timestep")
-    ax[1,0].set_ylabel("Loss")
+    if "Loss" in df.columns:
+        ax[1,0].set_xlabel("Timestep")
+        ax[1,0].set_ylabel("Loss")
 
     if "Critic_loss" in df.columns and "Actor_loss" in df.columns:
         ax[1,0].plot(df["Timestep"], df["Critic_loss"], label="Critic")
         ax[1,0].plot(df["Timestep"], df["Actor_loss"], label="Actor")
         ax[1,0].legend()
-
-    else:
-        ax[1,0].plot(df["Timestep"], df["Loss"])
-        ax[1,0].set_xlabel("Timestep")
 
     # fourth axis
     ax[1,1].set_xlabel("Timestep")
