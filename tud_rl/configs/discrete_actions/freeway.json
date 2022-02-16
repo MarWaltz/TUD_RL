@@ -2,7 +2,7 @@
    "env":
    {
       "name"              : "Freeway-MinAtar-v0",
-      "max_episode_steps" : -1,
+      "max_episode_steps" : 2501,
       "state_type"        : "image",
       "wrappers"          : ["MinAtar_wrapper"],
       "wrapper_kwargs"    : {"MinAtar_wrapper" : {}},
