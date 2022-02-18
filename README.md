@@ -155,12 +155,12 @@ If you use this code in of your projects or papers, please cite it as follows.
 
 ```
 @misc{Explorer,
-  author = {Lan, Qingfeng},
-  title = {A PyTorch Reinforcement Learning Framework for Exploring New Ideas},
-  year = {2019},
+  author = {Waltz, Martin and Paulig, Niklas},
+  title = {TUD-RL Algorithm Suite},
+  year = {2022},
   publisher = {GitHub},
   journal = {GitHub Repository},
-  howpublished = {\url{https://github.com/qlan3/Explorer}}
+  howpublished = {\url{https://github.com/MarWaltz/TUD_RL}}
 }
 ```
 
