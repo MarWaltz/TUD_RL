@@ -6,7 +6,7 @@ This Suite implements several model-free off-policy deep reinforcement learning 
 
 | Name             | Action Space |                                                                        Source |
 | ---------------- | :----------: | ----------------------------------------------------------------------------: |
-| DQN              |   Discrete   |                          [Minh et. al. 2014](https://arxiv.org/abs/1312.5602) |
+| DQN              |   Discrete   |                          [Minh et. al. 2015](https://www.nature.com/articles/nature14236) |
 | Double DQN       |   Discrete   |                  [van Hasselt et. al. 2015](https://arxiv.org/abs/1509.06461) |
 | Bootstrapped DQN |   Discrete   |                       [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
 | Ensemble DQN     |   Discrete   |       [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
