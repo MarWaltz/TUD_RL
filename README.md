@@ -134,9 +134,13 @@ Example (incomplete):
 {
     "env":
     {
-        "name":   "MyEnv",
-        "some":   "more",
-        "values": "here",
+        "name"              : "MyEnv",
+        "max_episode_steps" : 100,
+        "state_type"        : "feature",
+        "wrappers"          : [],
+        "wrapper_kwargs"    : {},
+        "env_kwargs"        : {},
+        "info"              : ""
     },
     "agent":
     {
