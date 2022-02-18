@@ -7,19 +7,19 @@ This Suite implements several model-free off-policy deep reinforcement learning 
 | Name             | Action Space |                                                                        Source |
 | ---------------- | :----------: | ----------------------------------------------------------------------------: |
 | DQN              |   Discrete   |                          [Minh et. al. 2014](https://arxiv.org/abs/1312.5602) |
-| Bootstrapped DQN |   Discrete   |                       [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
 | Double DQN       |   Discrete   |                  [van Hasselt et. al. 2015](https://arxiv.org/abs/1509.06461) |
+| Bootstrapped DQN |   Discrete   |                       [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
 | Ensemble DQN     |   Discrete   |       [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
 | Max Min DQN      |   Discrete   |                          [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
 | SCDQN            |   Discrete   |      [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
-| KDEBootDQN       |   Discrete   |                        [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
+| KE-BootDQN       |   Discrete   |                        [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
 |                  |
 | DDPG             |  Continuous  |                    [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
 | LSTM-DDPG        |  Continuous  |    [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
 | TD3              |  Continuous  |   [Fujimoto et. al. 2018](https://proceedings.mlr.press/v80/fujimoto18a.html) |
 | LSTM-TD3         |  Continuous  |    [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
 | SAC              |  Continuous  |                     [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
-| LSTM-SAC         |  Continuous  |                                                            Own Implementation |
+| LSTM-SAC         |  Continuous  |   Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
 | TQC              |  Continuous  | [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
 
 ## Prerequisites
