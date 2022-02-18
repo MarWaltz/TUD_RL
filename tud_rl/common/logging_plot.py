@@ -68,6 +68,12 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,1].axhline(y=df["MC_ret"].values[-1], color='r', linestyle='-', label="Final MC_ret")
         ax[1,1].legend()
 
+    if all(ele in df.columns for ele in ["Avg_bias_est", "Std_bias_est", "Max_bias_est", "Min_bias_est"]):
+        ax[1,1].plot(df["Timestep"], df["Avg_bias_est"], label="Avg. bias est")
+        ax[1,1].plot(df["Timestep"], df["Std_bias_est"], label="Std. bias est")
+        ax[1,1].plot(df["Timestep"], df["Max_bias_est"], label="Max. bias est")
+        ax[1,1].plot(df["Timestep"], df["Min_bias_est"], label="Min. bias est")
+
     if all(ele in df.columns for ele in ["Avg_bias", "Std_bias", "Max_bias", "Min_bias"]):
         ax[1,1].plot(df["Timestep"], df["Avg_bias"], label="Avg. bias")
         ax[1,1].plot(df["Timestep"], df["Std_bias"], label="Std. bias")

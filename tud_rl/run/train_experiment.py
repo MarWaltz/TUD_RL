@@ -37,7 +37,8 @@ def evaluate_policy(test_env, agent, c):
     Q_est_all_eps = []
 
     # Bias-ests of all (s,a) pairs of ALL episodes
-    B_est_all_eps = []
+    if "TRY" in agent.name:
+        B_est_all_eps = []
 
     # MC-vals of all (s,a) pairs of ALL episodes
     MC_all_eps = []
@@ -64,10 +65,22 @@ def evaluate_policy(test_env, agent, c):
 
             # get current Q estimate
             s = torch.tensor(s.astype(np.float32)).unsqueeze(0)
-            Q_est_all_eps.append(agent.DQN(s)[0][a].item())
+
+            if any([word in agent.name for word in ["Ensemble", "MaxMin"]]):
+
+                # forward through ensemble
+                q_ens = [net(s) for net in agent.EnsembleDQN] # list of torch.Size([batch_size, num_actions])
+                q_ens = torch.stack(q_ens) 
+
+                # reduction operator and Q selection
+                q = agent._ensemble_reduction(q_ens)
+                Q_est_all_eps.append(q[0][a].item())
+            else:
+                Q_est_all_eps.append(agent.DQN(s)[0][a].item())
 
             # get current bias estimate
-            B_est_all_eps.append(agent.bias_net(s)[0][a].item())
+            if "TRY" in agent.name:
+                B_est_all_eps.append(agent.bias_net(s)[0][a].item())
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -91,15 +104,19 @@ def evaluate_policy(test_env, agent, c):
         
         # transform reward list in MC return list and append it to overall MC returns
         MC_all_eps += get_MC_ret_from_rew(rews=rews_one_eps, gamma=agent.gamma)
-        
-    # compute difference between real and measured bias
-    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
-    bias_est = np.array(B_est_all_eps)
-
+    
     # continue training
     agent.mode = "train"
 
-    return rets, np.mean(bias), np.mean(bias_est)
+    # construct bias
+    bias = np.array(Q_est_all_eps) - np.array(MC_all_eps)
+
+    if "TRY" in agent.name:
+        bias_est = np.array(B_est_all_eps)
+        return rets, np.mean(bias), np.max(bias), np.min(bias), np.std(bias), np.mean(bias_est), np.max(bias_est), np.min(bias_est), np.std(bias_est)
+    
+    else:
+        return rets, np.mean(bias), np.max(bias), np.min(bias), np.std(bias)
 
 
 def train(c, agent_name):
@@ -218,7 +235,10 @@ def train(c, agent_name):
             epoch = (total_steps + 1) // c["epoch_length"]
 
             # evaluate agent with deterministic policy
-            eval_ret, bias, bias_est = evaluate_policy(test_env=test_env, agent=agent, c=c)
+            if "TRY" in agent.name:
+                eval_ret, avg_bias, max_bias, min_bias, std_bias, avg_bias_est, max_bias_est, min_bias_est, std_bias_est = evaluate_policy(test_env=test_env, agent=agent, c=c)
+            else:
+                eval_ret, avg_bias, max_bias, min_bias, std_bias = evaluate_policy(test_env=test_env, agent=agent, c=c)
             
             for ret in eval_ret:
                 agent.logger.store(Eval_ret=ret)
@@ -231,18 +251,18 @@ def train(c, agent_name):
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
             agent.logger.log_tabular("Loss", average_only=True)
-            agent.logger.log_tabular("Bias_val", with_min_and_max=True)
-            agent.logger.log_tabular("Bias_loss", average_only=True)
-            agent.logger.log_tabular("eval_bias", bias)
-            agent.logger.log_tabular("eval_bias_est", bias_est)
-            #agent.logger.log_tabular("Q_est", Q_est)
-            #agent.logger.log_tabular("MC_ret", MC_ret)
+            agent.logger.log_tabular("Avg_bias", avg_bias)
+            agent.logger.log_tabular("Max_bias", max_bias)
+            agent.logger.log_tabular("Min_bias", min_bias)
+            agent.logger.log_tabular("Std_bias", std_bias)
 
-            #agent.logger.log_tabular("Avg_bias", avg_bias)
-            #agent.logger.log_tabular("Std_bias", std_bias)
-            #agent.logger.log_tabular("Max_bias", max_bias)
-            #agent.logger.log_tabular("Min_bias", min_bias)
-            #agent.logger.log_tabular("Bias_Unc_cor", bias_unc_cor)
+            if "TRY" in agent.name:
+                agent.logger.log_tabular("Bias_val", with_min_and_max=True)
+                agent.logger.log_tabular("Bias_loss", average_only=True)
+                agent.logger.log_tabular("Avg_bias_est", avg_bias_est)
+                agent.logger.log_tabular("Max_bias_est", max_bias_est)
+                agent.logger.log_tabular("Min_bias_est", min_bias_est)
+                agent.logger.log_tabular("Std_bias_est", std_bias_est)
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
@@ -265,7 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="TRYDQN_b")
+    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
     args = parser.parse_args()
 
     # read config file
