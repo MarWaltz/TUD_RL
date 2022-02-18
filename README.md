@@ -12,6 +12,7 @@ This Suite implements several model-free off-policy deep reinforcement learning 
 | Ensemble DQN     |   Discrete   |       [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
 | Max Min DQN      |   Discrete   |                          [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
 | SCDQN            |   Discrete   |      [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
+| ACCDDQN          | Discrete   | [Jiang et. al. 2021](https://arxiv.org/abs/2105.00704)
 | KE-BootDQN       |   Discrete   |                        [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
 |                  |
 | DDPG             |  Continuous  |                    [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
