@@ -54,15 +54,13 @@ $ pip install -e .
 
 ### Configuration files
 
-In order to train an environment using this package you must specify a training configuration `.json` file and place it anywhere in `/tud_rl/configs` dependent on the type of action space (discrete, continuous) your environment implements.
+In order to train an environment using this package you must specify a training configuration `.json` file and place it in one of the two folders in `/tud_rl/configs` dependening on the type of action space (discrete, continuous) your environment implements.
 
 In this folder you also find a variety of different example configuration files.
 
 For an increased flexibility, please make yourself familiar with the different additional parameters each algorithm offers.
 
 ### Training
-
-After building your configuration file, you can simply run your desired algorithm from the command line.
 
 Depending on the type of your task (discrete, continuous), there are two different training scripts under `/tud_rl/run`
 
@@ -98,7 +96,7 @@ In order to integrate your own environment you have to create a new file in `/tu
 #### Empty custom env [minimal example]
 
 ```python
-# This file is named MyEnv.py
+# This file is named Dummy.py
 class MyEnv(gym.Env):
     def __init__(self):
         super().__init_()
@@ -124,7 +122,7 @@ See this [blog article](https://towardsdatascience.com/beginners-guide-to-custom
 Once your environment is specified you just need to add it to the `/tud_rl/envs/__init__.py` file. For example:
 
 ```python
-from tud_rl.envs.MyEnv import MyEnv
+from tud_rl.envs.Dummy import MyEnv
 ```
 
 You are now able to select your environment in your configuration file under the `env` cateory.
