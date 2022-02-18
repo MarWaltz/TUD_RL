@@ -13,12 +13,16 @@ class TRYDQNAgent(DQNAgent):
         # attributes and hyperparameters
         self.env_max_episode_steps = c["env"]["max_episode_steps"]
         
-        self.MC_batch_size = c["agent"][agent_name]["MC_batch_size"]
-        self.MC_num_upd    = c["agent"][agent_name]["MC_num_upd"]
-        self.MC_lr         = c["agent"][agent_name]["MC_lr"]
+        self.bias_one_param = c["agent"][agent_name]["bias_one_param"]
+        self.MC_batch_size  = c["agent"][agent_name]["MC_batch_size"]
+        self.MC_num_upd     = c["agent"][agent_name]["MC_num_upd"]
+        self.MC_lr          = c["agent"][agent_name]["MC_lr"]
 
         # init bias net
-        if self.state_type == "image":
+        if self.bias_one_param:
+            self.bias_beta = torch.zeros(1, requires_grad=True, device=self.device)
+
+        elif self.state_type == "image":
             self.bias_net = MinAtar_DQN(in_channels = self.state_shape[0],
                                         height      = self.state_shape[1],
                                         width       = self.state_shape[2],
@@ -30,10 +34,17 @@ class TRYDQNAgent(DQNAgent):
                                 net_struc = self.net_struc).to(self.device)
 
         # define optimizer
-        if self.optimizer == "Adam":
-            self.bias_optimizer = optim.Adam(self.bias_net.parameters(), lr=self.MC_lr)
+        if self.bias_one_param:
+            if self.optimizer == "Adam":
+                self.bias_optimizer = optim.Adam([self.bias_beta], lr=self.MC_lr)
+            else:
+                self.bias_optimizer = optim.RMSprop([self.bias_beta], lr=self.MC_lr, alpha=0.95, centered=True, eps=0.01)
+        
         else:
-            self.bias_optimizer = optim.RMSprop(self.bias_net.parameters(), lr=self.MC_lr, alpha=0.95, centered=True, eps=0.01)
+            if self.optimizer == "Adam":
+                self.bias_optimizer = optim.Adam(self.bias_net.parameters(), lr=self.MC_lr)
+            else:
+                self.bias_optimizer = optim.RMSprop(self.bias_net.parameters(), lr=self.MC_lr, alpha=0.95, centered=True, eps=0.01)
 
     def greedy_action_Q(self, s):
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
@@ -47,7 +58,11 @@ class TRYDQNAgent(DQNAgent):
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
-            Q_next = self.target_DQN(s2) - self.bias_net(s2)
+            if self.bias_one_param:
+                Q_next = self.target_DQN(s2) - self.bias_beta
+            else:
+                Q_next = self.target_DQN(s2) - self.bias_net(s2)
+            
             Q_next = torch.max(Q_next, dim=1).values.reshape(self.batch_size, 1)
             y = r + self.gamma * Q_next * (1 - d)
         return y
@@ -59,12 +74,12 @@ class TRYDQNAgent(DQNAgent):
                 self.target_DQN.load_state_dict(self.DQN.state_dict())
 
             for _ in range(self.MC_num_upd):
-                self._train_bias_net()
+                self._train_bias()
 
         # increase target-update cnt
         self.tgt_up_cnt += 1
 
-    def _train_bias_net(self):
+    def _train_bias(self):
         """Updates the bias network based on recent on-policy rollouts.
 
         Args:
@@ -72,20 +87,26 @@ class TRYDQNAgent(DQNAgent):
             a:  np.array([MC_batch_size, 1]))
             MC: np.array([MC_batch_size, 1])
         """
-        # perform rollouts
+        # perform rollouts - get 500 points
         s, a, MC = self._get_s_a_MC()
 
+        # sample random of those
+        idx = random.sample(range(500), self.MC_batch_size)
+
         # convert to tensors
-        s  = torch.tensor(s.astype(np.float32))
-        a  = torch.tensor(a.astype(np.int64))
-        MC = torch.tensor(MC.astype(np.float32))
+        s  = torch.tensor(s[idx].astype(np.float32))
+        a  = torch.tensor(a[idx].astype(np.int64))
+        MC = torch.tensor(MC[idx].astype(np.float32))
 
         # clear gradients
         self.bias_optimizer.zero_grad()
 
         # bias estimate
-        B = self.bias_net(s)
-        B = torch.gather(input=B, dim=1, index=a)
+        if self.bias_one_param:
+            B = self.bias_beta
+        else:
+            B = self.bias_net(s)
+            B = torch.gather(input=B, dim=1, index=a)
 
         # get target
         with torch.no_grad():
@@ -96,7 +117,10 @@ class TRYDQNAgent(DQNAgent):
             y_bias = Q - MC
         
         # loss
-        bias_loss = self._compute_loss(B, y_bias)
+        if self.bias_one_param:
+            bias_loss = torch.mean((B - y_bias)**2)
+        else:
+            bias_loss = self._compute_loss(B, y_bias)
 
         # compute gradients
         bias_loss.backward()
@@ -129,7 +153,7 @@ class TRYDQNAgent(DQNAgent):
         if self.input_norm:
             s = self.inp_normalizer.normalize(s, mode=self.mode)
 
-        for _ in range(self.MC_batch_size):
+        for _ in range(500):
 
             epi_steps += 1
 
