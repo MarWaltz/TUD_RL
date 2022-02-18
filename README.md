@@ -86,13 +86,13 @@ In your configuration file you can define one or more agents that you want to us
 $ python TUD_RL/tud_rl/run/train_continuous.py --config_file="asterix.json" --agent_name="DQN"
 ```
 
-## Gym envionment integration
+## Gym environment integration
 
-This package provides an interface to specify your own custom training environment based on the OpenAI framework. Once this is done no further adjustment is needed and you can start training as described in the section above.
+This package provides an interface to specify your own custom training environment based on the OpenAI framework. Once this is done, no further adjustment is needed and you can start training as described in the section above.
 
 ### Structure
 
-In order to intgrate your own environment you have to create a new file in `/tud_rl/envs`. In that file you need to specify a class for your environment that at least implements three methods as seen in the following blueprint:
+In order to integrate your own environment you have to create a new file in `/tud_rl/envs`. In that file you need to specify a class for your environment that at least implements three methods as seen in the following blueprint:
 
 #### Empty custom env [minimal example]
 
