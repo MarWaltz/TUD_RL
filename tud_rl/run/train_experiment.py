@@ -80,7 +80,10 @@ def evaluate_policy(test_env, agent, c):
 
             # get current bias estimate
             if "TRY" in agent.name:
-                B_est_all_eps.append(agent.bias_net(s)[0][a].item())
+                if agent.bias_one_param:
+                    B_est_all_eps.append(agent.bias_beta.detach().numpy())
+                else:
+                    B_est_all_eps.append(agent.bias_net(s)[0][a].item())
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -285,7 +288,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="asterix.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="MaxMinDQN")
+    parser.add_argument("--agent_name", type=str, default="TRYDQN_v")
     args = parser.parse_args()
 
     # read config file
