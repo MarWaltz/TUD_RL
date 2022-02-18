@@ -153,8 +153,8 @@ Example (incomplete):
 
 If you use this code in of your projects or papers, please cite it as follows.
 
-```
-@misc{Explorer,
+~~~bibtex
+@misc{TUDRL,
   author = {Waltz, Martin and Paulig, Niklas},
   title = {TUD-RL Algorithm Suite},
   year = {2022},
@@ -162,5 +162,5 @@ If you use this code in of your projects or papers, please cite it as follows.
   journal = {GitHub Repository},
   howpublished = {\url{https://github.com/MarWaltz/TUD_RL}}
 }
-```
+~~~
 
