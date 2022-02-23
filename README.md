@@ -97,9 +97,10 @@ In order to integrate your own environment you have to create a new file in `/tu
 
 ```python
 # This file is named Dummy.py
+import gym
 class MyEnv(gym.Env):
     def __init__(self):
-        super().__init_()
+        super().__init__()
         """Your code"""
 
     def reset():
@@ -119,10 +120,19 @@ See this [blog article](https://towardsdatascience.com/beginners-guide-to-custom
 
 ### Integration of custom environment into TUD_RL
 
-Once your environment is specified you just need to add it to the `/tud_rl/envs/__init__.py` file. For example:
+Once your environment is specified you just need to add it to the `/tud_rl/envs/__init__.py` file,
 
 ```python
 from tud_rl.envs.Dummy import MyEnv
+```
+
+and register it with gym in order to add it to the list of callable environments. The registration is done in the `/tud_rl/__init.py` file by selecting the name your environment will be called with, and the entry point for gym to know where your custom environment is located:
+
+```python
+register(
+    id="MyEnv-v0", 
+    entry_point="tud_rl.envs:MyEnv",
+)
 ```
 
 You are now able to select your environment in your configuration file under the `env` cateory.
@@ -133,7 +143,7 @@ Example (incomplete):
 {
     "env":
     {
-        "name"              : "MyEnv",
+        "name"              : "MyEnv-v0",
         "max_episode_steps" : 100,
         "state_type"        : "feature",
         "wrappers"          : [],
