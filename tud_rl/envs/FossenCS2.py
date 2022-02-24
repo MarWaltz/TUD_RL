@@ -15,6 +15,7 @@ class FossenCS2(gym.Env):
         self.observation_space  = spaces.Box(low=np.array([-1], dtype=np.float32), high=np.array([1], dtype=np.float32))
         self.action_space       = spaces.Box(low=np.array([-1], dtype=np.float32), high=np.array([1], dtype=np.float32))
         self._max_episode_steps = 1e8
+        self.r = 0
 
         # CS2 parameters (from Skjetne et al. (2005) in Automatica) | Note: Adjustet according to Fabian.
         self.length = 1.3 * 20  # to see something
@@ -160,14 +161,20 @@ class FossenCS2(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        self._set_dynamics()
+        self._spawn_objects()
+        self._spawn_agent()
         self._set_state()
 
         return self.state
    
 
-    def _set_dynamics(self):
-        """Initializes positions and velocities of agent and vessels."""
+    def _spawn_objects(self):
+        """Initializes objects such as the target, vessels, static obstacles, etc."""
+        self.goal = np.array([450., 450.])
+
+
+    def _spawn_agent(self):
+        """Initializes positions and velocities of agent."""
         
         # motion init (for own ship)
         self.eta = np.array([100., 100., self._deg_to_rad(0.)])        # x (in m),   y (in m),   psi (in rad)   in NE-system
@@ -175,6 +182,35 @@ class FossenCS2(gym.Env):
 
         # thrust init for OS
         self.tau = np.array([2., 0., 0.])   # thrust in u-direction, thrust in v-direction, force moment for r
+
+        # initial euclidean distance to goal
+        self.ED_goal_init = np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
+
+
+    def _set_state(self):      
+        """State consists of: u, v, r, heading, heading_error, ED_goal."""
+        self.state = np.array([self.nu[0], self.nu[1], self.nu[2], self.eta[2], self._get_phi_e(), self._ED_to_goal()])
+
+
+    def step(self, a):
+        """Takes an action and performs one step in the environment.
+        Returns reward, new_state, done, {}."""
+
+        # update control tau
+        self._upd_tau(a)
+
+        # update update dynamics
+        self._upd_dynamics()
+
+        # compute state, reward, done        
+        self._set_state()
+        self._calculate_reward()
+        d = self._done()
+
+        # increase step cnt
+        self.step_cnt += 1
+        
+        return self.state, self.r, d, {}
 
 
     def _upd_dynamics(self):
@@ -202,73 +238,124 @@ class FossenCS2(gym.Env):
         self.sim_t += self.delta_t
 
 
-    def _set_state(self):      
-        self.state = None
-
-
     def _upd_tau(self, a):
-        """Action 'a' is a np.array([a1, a2]). Both a1, a2 take values in 0, 1, 2. They correspond to:
+        """Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
         
-        a1: 0 - keep thrust as is | 1 - decrease thrust            | 2 - increase thrust
-        a2: 0 - no rudder force   | 1 - rudder force from one side | 2 - rudder force from other side  
+        0 - keep thrust as is | no rudder force 
+        1 - keep thrust as is | rudder force from one side
+        2 - keep thrust as is | rudder force from other side
+        
+        3 - decrease thrust   | no rudder force 
+        4 - decrease thrust   | rudder force from one side
+        5 - decrease thrust   | rudder force from other side
+        
+        6 - increase thrust   | no rudder force 
+        7 - increase thrust   | rudder force from one side
+        8 - increase thrust   | rudder force from other side
         """
-        a1, a2 = a
-        
-        assert a1 in [0, 1, 2] and a2 in [0, 1, 2], "Unknown actions."
+        assert a in range(9), "Unknown control command."
 
-        # thrust for surge (u)
-        if a1 == 0:
+        # keep thrust as is
+        if a == 0:
             pass
-        elif a1 == 1:
+
+        elif a == 1:
+            self.tau[2] = -self.tau_r
+        
+        elif a == 2:
+            self.tau[2] = self.tau_r
+        
+        # decrease thrust
+        elif a == 3:
             self.tau[0] -= self.delta_tau_u
-        else:
+        
+        elif a == 4:
+            self.tau[0] -= self.delta_tau_u
+            self.tau[2] = -self.tau_r
+        
+        elif a == 5:
+            self.tau[0] -= self.delta_tau_u
+            self.tau[2] = self.tau_r
+        
+        # increase thrust:
+        elif a == 6:
             self.tau[0] += self.delta_tau_u
         
-        # clip it to surge max
+        elif a == 7:
+            self.tau[0] += self.delta_tau_u
+            self.tau[2] = -self.tau_r
+
+        elif a == 8:
+            self.tau[0] += self.delta_tau_u
+            self.tau[2] = self.tau_r
+
+        # clip thrust to surge max
         if self.tau[0] > self.tau_u_max:
             self.tau[0] = self.tau_u_max
         
         elif self.tau[0] < -self.tau_u_max:
             self.tau[0] = -self.tau_u_max
-
-        # yaw moment
-        if a2 == 0:
-            pass
-        elif a2 == 1:
-            self.tau[2] = -self.tau_r
-        else:
-            self.tau[2] = self.tau_r
-
   
-    def step(self, a):
-        """Takes an action and performs one step in the environment.
-        Returns reward, new_state, done, {}."""
-
-        # update control tau
-        self._upd_tau(a)
-
-        # update update dynamics
-        self._upd_dynamics()
-
-        # compute state, reward, done        
-        self._set_state()
-        self._calculate_reward()
-        d = self._done()
-
-        # increase step cnt
-        self.step_cnt += 1
-        
-        return self.state, self.r, d, {}
-    
 
     def _calculate_reward(self):
-        """Returns reward of the current state."""   
-        self.r = None
-    
+        """Returns reward of the current state."""
+
+        # ---- Path planning reward (Xu et al. 2022) -----
+
+        # 1. Distance reward
+        ED = self._ED_to_goal()
+        r_dist = - ED / self.ED_goal_init
+
+        # 2. Heading reward
+        phi_e_abs = np.abs(self._get_phi_e())
+
+        if phi_e_abs <= np.pi:
+            r_head = - phi_e_abs / np.pi
+        else:
+            r_head = - (2*np.pi - phi_e_abs) / np.pi
+        
+        # overall reward
+        self.r = r_dist + r_head
+        
+        #print("Phi_e:", self._rad_to_deg(phi_e_abs))
+        #print("Dist r:", r_dist)
+        #print("Head r:", r_head)
+        #print("ED:",  ED)
+        #print("Reward:", self.r)
+        #print("\n")
+
+
+    def _get_phi_e(self):
+        """Calculate the heading error, which is the heading angle towards the goal minus the current ship heading."""
+
+        # calculate angle from current (x, y) towards goal in NE system
+        ED = self._ED_to_goal()
+        phi_d = np.arccos(np.abs(self.goal[0] - self.eta[0]) / ED)
+
+        # x_goal < x_agent
+        if self.goal[0] < self.eta[0]:
+            
+            if self.goal[1] >= self.eta[1]:
+                phi_d = np.pi - phi_d
+            else:
+                phi_d = np.pi + phi_d
+        
+        # x_goal >= x_agent
+        else:
+            if self.goal[1] < self.eta[1]:
+                phi_d = 2*np.pi - phi_d
+
+        return phi_d - self.eta[2]
+
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        return None
+        return True if self._ED_to_goal() <= 25 else False
+
+
+    def _ED_to_goal(self):
+        """Computes the euclidean distance to the goal."""
+        return np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
 
 
     def render(self):
@@ -300,7 +387,10 @@ class FossenCS2(gym.Env):
             rect = patches.Rectangle((self.eta[0]-self.length/2, self.eta[1]-self.width/2), self.length, self.width, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
             self.ax0.add_patch(rect)
             self.ax0.text(self.eta[0] + 10, self.eta[1] + 10, self.__str__())
-            plt.pause(0.1)
+            plt.pause(0.5)
+
+            # set goal
+            self.ax0.scatter(self.goal[0], self.goal[1], color="blue")
 
             """
             # set agent and vessels
