@@ -12,10 +12,14 @@ class FossenCS2(gym.Env):
         super().__init__()
 
         # to be filled
-        self.observation_space  = spaces.Box(low=np.array([-1], dtype=np.float32), high=np.array([1], dtype=np.float32))
-        self.action_space       = spaces.Box(low=np.array([-1], dtype=np.float32), high=np.array([1], dtype=np.float32))
-        self._max_episode_steps = 1e8
+        self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
+                                             high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
+        self.action_space       = spaces.Discrete(3) #9
+        self._max_episode_steps = 1000
         self.r = 0
+        self.r_head = 0
+        self.r_dist = 0
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
 
         # CS2 parameters (from Skjetne et al. (2005) in Automatica) | Note: Adjustet according to Fabian.
         self.length = 1.3 * 20  # to see something
@@ -64,7 +68,7 @@ class FossenCS2(gym.Env):
         self.M_inv = np.linalg.inv(self.M)
 
         # simulation settings
-        self.delta_t     = .5               # simulation time interval (in s)
+        self.delta_t     = 0.5              # simulation time interval (in s)
         self.x_max       = 500              # maximum x-coordinate (in m)
         self.y_max       = 500              # maximum y-coordinate (in m)
         self.delta_tau_u = .5               # thrust change in u-direction (in N)
@@ -164,6 +168,7 @@ class FossenCS2(gym.Env):
         self._spawn_objects()
         self._spawn_agent()
         self._set_state()
+        self.state_init = self.state
 
         return self.state
    
@@ -189,7 +194,12 @@ class FossenCS2(gym.Env):
 
     def _set_state(self):      
         """State consists of: u, v, r, heading, heading_error, ED_goal."""
-        self.state = np.array([self.nu[0], self.nu[1], self.nu[2], self.eta[2], self._get_phi_e(), self._ED_to_goal()])
+        self.state = np.array([self.nu[0], 
+                               self.nu[1],
+                               self.nu[2], 
+                               self.eta[2] / (2*np.pi), 
+                               self._get_psi_e() / (2*np.pi), 
+                               self._ED_to_goal() / self.ED_goal_init])
 
 
     def step(self, a):
@@ -253,7 +263,8 @@ class FossenCS2(gym.Env):
         7 - increase thrust   | rudder force from one side
         8 - increase thrust   | rudder force from other side
         """
-        assert a in range(9), "Unknown control command."
+        assert a in range(4), "Unknown action."
+        #assert a in range(9), "Unknown control command."
 
         # keep thrust as is
         if a == 0:
@@ -307,50 +318,67 @@ class FossenCS2(gym.Env):
         r_dist = - ED / self.ED_goal_init
 
         # 2. Heading reward
-        phi_e_abs = np.abs(self._get_phi_e())
+        psi_e_abs = np.abs(self._get_psi_e())
 
-        if phi_e_abs <= np.pi:
-            r_head = - phi_e_abs / np.pi
+        if psi_e_abs <= np.pi:
+            r_head = - psi_e_abs / np.pi
         else:
-            r_head = - (2*np.pi - phi_e_abs) / np.pi
+            r_head = - (2*np.pi - psi_e_abs) / np.pi
         
         # overall reward
+        self.r_dist = r_dist
+        self.r_head = r_head
         self.r = r_dist + r_head
-        
-        #print("Phi_e:", self._rad_to_deg(phi_e_abs))
-        #print("Dist r:", r_dist)
-        #print("Head r:", r_head)
-        #print("ED:",  ED)
-        #print("Reward:", self.r)
-        #print("\n")
 
 
-    def _get_phi_e(self):
+    def _get_psi_e(self):
         """Calculate the heading error, which is the heading angle towards the goal minus the current ship heading."""
 
-        # calculate angle from current (x, y) towards goal in NE system
+        return self._get_psi_d() - self._clip_angle(self.eta[2])
+
+
+    def _clip_angle(self, angle):
+        """Clips an angle from [-2pi, 2pi] to [0, 2pi]."""
+
+        if angle < 0:
+            return 2*np.pi + angle
+        return angle
+
+
+    def _get_psi_d(self):
+        """Calculate the heading angle of the agent towards the goal."""
+        
         ED = self._ED_to_goal()
-        phi_d = np.arccos(np.abs(self.goal[0] - self.eta[0]) / ED)
+        psi_d = np.arccos(np.abs(self.goal[0] - self.eta[0]) / ED)
 
         # x_goal < x_agent
         if self.goal[0] < self.eta[0]:
             
             if self.goal[1] >= self.eta[1]:
-                phi_d = np.pi - phi_d
+                psi_d = np.pi - psi_d
             else:
-                phi_d = np.pi + phi_d
+                psi_d = np.pi + psi_d
         
         # x_goal >= x_agent
         else:
             if self.goal[1] < self.eta[1]:
-                phi_d = 2*np.pi - phi_d
-
-        return phi_d - self.eta[2]
+                psi_d = 2*np.pi - psi_d
+        
+        return psi_d
 
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        return True if self._ED_to_goal() <= 25 else False
+        if any([self._ED_to_goal() <= 25,
+                self.eta[0] < 0,
+                self.eta[0] >= self.x_max,
+                self.eta[1] < 0,
+                self.eta[1] >= self.y_max,
+                self.step_cnt >= self._max_episode_steps]):
+
+                return True
+
+        return False
 
 
     def _ED_to_goal(self):
@@ -366,12 +394,12 @@ class FossenCS2(gym.Env):
 
             # check whether figure has been initialized
             if len(plt.get_fignums()) == 0:
-                self.fig = plt.figure(figsize=(10, 10))
-                self.gs  = self.fig.add_gridspec(1, 1)
+                self.fig = plt.figure(figsize=(10, 7))
+                self.gs  = self.fig.add_gridspec(2, 2)
                 self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
-                #self.ax1 = self.fig.add_subplot(self.gs[1, 0]) # empty
-                #self.ax2 = self.fig.add_subplot(self.gs[1, 1]) # empty
-                #self.ax3 = self.fig.add_subplot(self.gs[0, 1]) # empty
+                self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
+                self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
+                self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # empty
                 plt.ion()
                 plt.show()
             
@@ -387,11 +415,56 @@ class FossenCS2(gym.Env):
             rect = patches.Rectangle((self.eta[0]-self.length/2, self.eta[1]-self.width/2), self.length, self.width, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
             self.ax0.add_patch(rect)
             self.ax0.text(self.eta[0] + 10, self.eta[1] + 10, self.__str__())
-            plt.pause(0.5)
+            self.ax0.text(self.goal[0] - 40, self.goal[1] - 40, r"$\psi_d$" + f": {np.round(self._rad_to_deg(self._get_psi_d()),3)}°")
 
             # set goal
             self.ax0.scatter(self.goal[0], self.goal[1], color="blue")
 
+            # ----- reward plot ----
+            if self.step_cnt == 0:
+                self.ax1.clear()
+                self.ax1.old_time = 0
+                self.ax1.old_r_head = 0
+                self.ax1.old_r_dist = 0
+
+            self.ax1.set_xlim(0, self._max_episode_steps)
+            self.ax1.set_ylim(-1.25, 0.1)
+            self.ax1.set_xlabel("Timestep in episode")
+            self.ax1.set_ylabel("Reward")
+
+            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
+            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
+            
+            if self.step_cnt == 0:
+                self.ax1.legend()
+
+            self.ax1.old_time = self.step_cnt
+            self.ax1.old_r_head = self.r_head
+            self.ax1.old_r_dist = self.r_dist
+
+
+            # ---- state plot ----
+            if self.step_cnt == 0:
+                self.ax2.clear()
+                self.ax2.old_time = 0
+                self.ax2.old_state = self.state_init
+
+            self.ax2.set_xlim(0, self._max_episode_steps)
+            self.ax2.set_ylim(-1, 1.1)
+            self.ax2.set_xlabel("Timestep in episode")
+            self.ax2.set_ylabel("State information")
+
+            for i in range(len(self.state)):
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
+                               color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
+                               label=self.state_names[i])          
+            if self.step_cnt == 0:
+                self.ax2.legend()
+
+            self.ax2.old_time = self.step_cnt
+            self.ax2.old_state = self.state
+
+            plt.pause(0.01)
             """
             # set agent and vessels
             self.ax0.scatter(self.agent_x, self.agent_y, color = "red")

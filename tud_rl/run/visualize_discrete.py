@@ -11,6 +11,7 @@ import gym_pygame
 import numpy as np
 import torch
 from tud_rl.envs.MountainCar import MountainCar
+from tud_rl.envs.FossenCS2 import FossenCS2
 from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
@@ -47,6 +48,7 @@ def visualize_policy(env, agent, c):
 
             # select action
             a = agent.select_action(s)
+            a = 2
             
             # perform step
             s2, r, d, _ = env.step(a)
@@ -112,8 +114,8 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="asterix.json")
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--config_file", type=str, default="FossenCS2.json")
+    parser.add_argument("--agent_name", type=str, default="DDQN")
     parser.add_argument("--dqn_weights", type=str, default="DQN_weights.pth")
     args = parser.parse_args()
 

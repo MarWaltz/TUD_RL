@@ -51,6 +51,7 @@ def plot_from_progress(dir, alg, env_str, info=None):
     
     # third axis
     if "Loss" in df.columns:
+        ax[1,0].plot(df["Timestep"], df["Loss"])
         ax[1,0].set_xlabel("Timestep")
         ax[1,0].set_ylabel("Loss")
 

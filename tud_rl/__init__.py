@@ -14,3 +14,8 @@ register(
     id="ObstacleAvoidance-v0", 
     entry_point="tud_rl.envs:ObstacleAvoidance",
 )
+
+register(
+    id="FossenCS2-v0", 
+    entry_point="tud_rl.envs:FossenCS2",
+)
