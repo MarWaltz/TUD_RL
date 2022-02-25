@@ -14,7 +14,7 @@ class FossenCS2(gym.Env):
         # gym definitions
         self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
                                              high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
-        self.action_space       = spaces.Discrete(3) #9
+        self.action_space = spaces.Discrete(3) #9
 
         # custom inits
         self._max_episode_steps = 5e3
@@ -25,8 +25,8 @@ class FossenCS2(gym.Env):
         self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
 
         # CS2 parameters (from Skjetne et al. (2004) in CAMS)
-        self.length = 1.3 * 20     # to see something
-        self.width  = 0.2 * 20     # to see something
+        self.length = 1.255 * 20     # to see something
+        self.width  = 0.29 * 20      # to see something
         
         self.m      =  23.8
         self.I_z    =  1.76
@@ -55,6 +55,36 @@ class FossenCS2(gym.Env):
         self.N_lvlv =  3.95645
         self.N_v    =  0.03130
 
+        # CS2 parameters for translating revolutions per second (n = n1 = n2) and rudder angle (delta = delta1 = delta2) into tau
+        # (from Skjetne et al. (2004) in MIC)
+        self.l_xT1 = -0.499
+        self.l_yT1 = -0.078
+        self.l_xT2 = -0.499
+        self.l_yT2 =  0.078
+        self.l_xT3 =  0.466
+        self.l_yT3 =  0.000
+        self.l_xR1 = -0.549
+        self.l_yR1 = -0.078
+        self.l_xR2 = -0.549
+        self.l_yR2 =  0.078
+
+        self.L_d_p  = 6.43306
+        self.L_dd_p = 5.83594
+        self.L_d_m  = 3.19573
+        self.L_dd_m = 2.34356
+        self.T_nn_p = 3.65034e-3
+        self.T_nu_p = 1.52468e-4
+        self.T_nn_m = 5.10256e-3
+        self.T_nu_m = 4.55822e-2
+        self.T_n3n3 = 1.56822e-4
+
+        self.B = np.array([[1, 1, 0, 0, 0],
+                           [0, 0, 1, 1, 1],
+                           [np.abs(self.l_yT1), -np.abs(self.l_yT2), np.abs(self.l_xT3), -np.abs(self.l_xR1), -np.abs(self.l_xR2)]])
+
+        # diameter of propellers in m (from PhD-thesis of Karl-Petter W. Lindegaard)
+        self.d_prop = 60e-3
+
         # mass matrix (rigid body + added mass) and its inverse
         self.M_RB = np.array([[self.m, 0, 0],
                               [0, self.m, self.m * self.x_g],
@@ -66,9 +96,12 @@ class FossenCS2(gym.Env):
         self.M_inv = np.linalg.inv(self.M)
 
         # simulation settings
-        self.delta_t     = 0.1              # simulation time interval (in s)
-        self.x_max       = 500              # maximum x-coordinate (in m)
-        self.y_max       = 500              # maximum y-coordinate (in m)
+        self.delta_t = 0.1              # simulation time interval (in s)
+        self.x_max   = 400              # maximum x-coordinate (in m)
+        self.y_max   = 400              # maximum y-coordinate (in m)
+        self.n_prop  = 1000             # revolutions per second of the two main propellers
+        self.n_bow   = 0                # revolutions per second of the bow thruster
+
         self.delta_tau_u = .5               # thrust change in u-direction (in N)
         self.tau_u_max   = 5.               # maximum tau in u-direction (in N)
         self.tau_r       = .5               # base moment to rudder (in Nm)
@@ -184,13 +217,37 @@ class FossenCS2(gym.Env):
         
         # motion init (for own ship)
         self.eta = np.array([100., 100., self._deg_to_rad(0.)])        # x (in m),   y (in m),   psi (in rad)   in NE-system
-        self.nu  = np.array([0.55, 0., 0.])                            # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+        self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         # thrust init for OS
         self.tau = np.array([2., 0., 0.])   # thrust in u-direction, thrust in v-direction, force moment for r
 
         # initial euclidean distance to goal
         self.ED_goal_init = np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
+
+
+    def _get_tau_from_n_delta(self, delta):
+        """Translates revolutions per second (n) and rudder angle (delta in rad) into tau."""
+
+        u = self.nu[0]
+        n = self.n_prop
+
+        # compute T1, T2 (same value since n = n1 = n2)
+        n_bar_u = np.max([0, self.T_nu_p / self.T_nn_p * u])
+        n_bar_l = np.min([0, self.T_nu_m / self.T_nn_m * u])
+
+        if n >= n_bar_u:
+            T12 = self.T_nn_p * np.abs(n) * n - self.T_nu_p * np.abs(n) * u
+        elif n <= n_bar_l:
+            T12 = self.T_nn_m * np.abs(n) * n - self.T_nu_m * np.abs(n) * u
+        else:
+            T12 = 0
+
+        # compute T3
+        T3 = self.T_n3n3 * np.abs(self.n_bow) * self.n_bow
+
+        # compute u_rud12
+        pass
 
 
     def _set_state(self):      
@@ -265,7 +322,6 @@ class FossenCS2(gym.Env):
         8 - increase thrust   | rudder force from other side
         """
         assert a in range(4), "Unknown action."
-        #assert a in range(9), "Unknown control command."
 
         # store action for rendering
         self.action = a
@@ -325,12 +381,12 @@ class FossenCS2(gym.Env):
         r_head = - self._get_abs_psi_e() / np.pi
 
         # 3. Goal reach reward
-        r_goal = 10 if self._ED_to_goal() <= 25 else 0
+        #r_goal = 10 if self._ED_to_goal() <= 25 else 0
         
         # overall reward
         self.r_dist = r_dist
         self.r_head = r_head
-        self.r = r_dist + r_head + r_goal
+        self.r = r_dist + r_head #+ r_goal
 
 
     def _get_abs_psi_e(self):
