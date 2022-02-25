@@ -11,19 +11,22 @@ class FossenCS2(gym.Env):
     def __init__(self):
         super().__init__()
 
-        # to be filled
+        # gym definitions
         self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
                                              high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
         self.action_space       = spaces.Discrete(3) #9
-        self._max_episode_steps = 1000
+
+        # custom inits
+        self._max_episode_steps = 5e3
         self.r = 0
         self.r_head = 0
         self.r_dist = 0
+        self.action = 0
         self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
 
-        # CS2 parameters (from Skjetne et al. (2005) in Automatica) | Note: Adjustet according to Fabian.
-        self.length = 1.3 * 20  # to see something
-        self.width  = 0.2 * 20 
+        # CS2 parameters (from Skjetne et al. (2004) in CAMS)
+        self.length = 1.3 * 20     # to see something
+        self.width  = 0.2 * 20     # to see something
         
         self.m      =  23.8
         self.I_z    =  1.76
@@ -34,17 +37,12 @@ class FossenCS2(gym.Env):
         self.Y_v    = -0.88965
         self.Y_lvlv = -36.47287
 
-        #self.Y_r    =  0.1079
-        #self.N_v    =  0.1052
-        #self.N_lvlv =  5.0437
         self.X_dotu = -2.
         self.Y_dotv = -10.
         self.Y_dotr =  0.
         self.N_dotv =  0.
         self.N_dotr = -1.
 
-        # further CS2 parameters (from Skjetne et al. (2004) in CAMS)
-        # Note: This paper has slightly different values for some of the parameters above.
         self.Y_lrlv = -0.805
         self.Y_r    = -7.250
         self.Y_lvlr = -0.845
@@ -53,7 +51,7 @@ class FossenCS2(gym.Env):
         self.N_lrlv =  0.130
         self.N_r    = -1.900
         self.N_lvlr =  0.080
-        self.N_lrlr =  0.750 # SIGN ?
+        self.N_lrlr = -0.750
         self.N_lvlv =  3.95645
         self.N_v    =  0.03130
 
@@ -68,7 +66,7 @@ class FossenCS2(gym.Env):
         self.M_inv = np.linalg.inv(self.M)
 
         # simulation settings
-        self.delta_t     = 0.5              # simulation time interval (in s)
+        self.delta_t     = 0.1              # simulation time interval (in s)
         self.x_max       = 500              # maximum x-coordinate (in m)
         self.y_max       = 500              # maximum y-coordinate (in m)
         self.delta_tau_u = .5               # thrust change in u-direction (in N)
@@ -171,11 +169,14 @@ class FossenCS2(gym.Env):
         self.state_init = self.state
 
         return self.state
-   
+
 
     def _spawn_objects(self):
         """Initializes objects such as the target, vessels, static obstacles, etc."""
-        self.goal = np.array([450., 450.])
+        
+        #self.goal = np.array([200., 200.])
+        self.goal = np.array([np.random.uniform(self.x_max - 300, self.x_max),
+                              np.random.uniform(self.y_max - 300, self.y_max)])
 
 
     def _spawn_agent(self):
@@ -198,7 +199,7 @@ class FossenCS2(gym.Env):
                                self.nu[1],
                                self.nu[2], 
                                self.eta[2] / (2*np.pi), 
-                               self._get_psi_e() / (2*np.pi), 
+                               self._get_sign_psi_e() * self._get_abs_psi_e() / (np.pi), 
                                self._ED_to_goal() / self.ED_goal_init])
 
 
@@ -266,6 +267,9 @@ class FossenCS2(gym.Env):
         assert a in range(4), "Unknown action."
         #assert a in range(9), "Unknown control command."
 
+        # store action for rendering
+        self.action = a
+
         # keep thrust as is
         if a == 0:
             pass
@@ -318,23 +322,46 @@ class FossenCS2(gym.Env):
         r_dist = - ED / self.ED_goal_init
 
         # 2. Heading reward
-        psi_e_abs = np.abs(self._get_psi_e())
+        r_head = - self._get_abs_psi_e() / np.pi
 
-        if psi_e_abs <= np.pi:
-            r_head = - psi_e_abs / np.pi
-        else:
-            r_head = - (2*np.pi - psi_e_abs) / np.pi
+        # 3. Goal reach reward
+        r_goal = 10 if self._ED_to_goal() <= 25 else 0
         
         # overall reward
         self.r_dist = r_dist
         self.r_head = r_head
-        self.r = r_dist + r_head
+        self.r = r_dist + r_head + r_goal
 
 
-    def _get_psi_e(self):
-        """Calculate the heading error, which is the heading angle towards the goal minus the current ship heading."""
+    def _get_abs_psi_e(self):
+        """Calculates the absolute value of the heading error (goal_angle - heading)."""
+        
+        psi_e_abs = np.abs(self._get_psi_d() - self._clip_angle(self.eta[2]))
 
-        return self._get_psi_d() - self._clip_angle(self.eta[2])
+        if psi_e_abs <= np.pi:
+            return psi_e_abs
+        else:
+            return 2*np.pi - psi_e_abs
+    
+
+    def _get_sign_psi_e(self):
+        """Calculates the sign of the heading error."""
+
+        psi_d = self._get_psi_d()
+        psi   = self._clip_angle(self.eta[2])
+
+        if psi_d <= np.pi:
+
+            if psi_d <= psi <= psi_d + np.pi:
+                return -1
+            else:
+                return 1
+        
+        else:
+            if psi_d - np.pi <= psi <= psi_d:
+                return 1
+            else:
+                return -1
 
 
     def _clip_angle(self, angle):
@@ -346,7 +373,7 @@ class FossenCS2(gym.Env):
 
 
     def _get_psi_d(self):
-        """Calculate the heading angle of the agent towards the goal."""
+        """Calculates the heading angle of the agent towards the goal. Perspective as in unit circle."""
         
         ED = self._ED_to_goal()
         psi_d = np.arccos(np.abs(self.goal[0] - self.eta[0]) / ED)
@@ -390,7 +417,7 @@ class FossenCS2(gym.Env):
         """Renders the current environment."""
 
         # plot every nth timestep
-        if self.step_cnt % 1 == 0: 
+        if self.step_cnt % 2 == 0: 
 
             # check whether figure has been initialized
             if len(plt.get_fignums()) == 0:
@@ -399,7 +426,7 @@ class FossenCS2(gym.Env):
                 self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
                 self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
                 self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
-                self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # empty
+                self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
                 plt.ion()
                 plt.show()
             
@@ -463,6 +490,23 @@ class FossenCS2(gym.Env):
 
             self.ax2.old_time = self.step_cnt
             self.ax2.old_state = self.state
+
+
+            # ---- state plot ----
+            if self.step_cnt == 0:
+                self.ax3.clear()
+                self.ax3.old_time = 0
+                self.ax3.old_action = 0
+
+            self.ax3.set_xlim(0, self._max_episode_steps)
+            self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
+            self.ax3.set_xlabel("Timestep in episode")
+            self.ax3.set_ylabel("Action (discrete)")
+
+            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.action], color="black")
+
+            self.ax3.old_time = self.step_cnt
+            self.ax3.old_action = self.action
 
             plt.pause(0.01)
             """
