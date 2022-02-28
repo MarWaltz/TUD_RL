@@ -56,6 +56,7 @@ class FossenCS2(gym.Env):
         self.N_v    =  0.03130
 
         # CS2 parameters for translating revolutions per second (n = n1 = n2) and rudder angle (delta = delta1 = delta2) into tau
+        # Bow thruster of CS2 is assumed to yield zero force
         # (from Skjetne et al. (2004) in MIC)
         self.l_xT1 = -0.499
         self.l_yT1 = -0.078
@@ -82,8 +83,9 @@ class FossenCS2(gym.Env):
                            [0, 0, 1, 1, 1],
                            [np.abs(self.l_yT1), -np.abs(self.l_yT2), np.abs(self.l_xT3), -np.abs(self.l_xR1), -np.abs(self.l_xR2)]])
 
-        # diameter of propellers in m (from PhD-thesis of Karl-Petter W. Lindegaard)
-        self.d_prop = 60e-3
+        self.d_prop = 60e-3   # diameter of propellers in m (from PhD-thesis of Karl-Petter W. Lindegaard)
+        self.ku  = 0.5        # induced velocity factor
+        self.rho = 1014       # density of sea water (in kg/m3)
 
         # mass matrix (rigid body + added mass) and its inverse
         self.M_RB = np.array([[self.m, 0, 0],
@@ -99,12 +101,18 @@ class FossenCS2(gym.Env):
         self.delta_t = 0.1              # simulation time interval (in s)
         self.x_max   = 400              # maximum x-coordinate (in m)
         self.y_max   = 400              # maximum y-coordinate (in m)
-        self.n_prop  = 1000             # revolutions per second of the two main propellers
+        self.n_prop  = 100               # revolutions per second of the two main propellers
         self.n_bow   = 0                # revolutions per second of the bow thruster
 
-        self.delta_tau_u = .5               # thrust change in u-direction (in N)
-        self.tau_u_max   = 5.               # maximum tau in u-direction (in N)
-        self.tau_r       = .5               # base moment to rudder (in Nm)
+        #self.delta_tau_u = .5                    # thrust change in u-direction (in N)
+        #self.tau_u_max     = 5.                  # maximum tau in u-direction (in N)
+        #self.tau_r       = .5                    # base moment to rudder (in Nm)
+
+        # clipping values (from Xu et al. (2022) in Neurocomputing)
+        self.u_max = 3.5                          # maximum surge velocity (in m/s) 
+        self.u_dot_max = 0.4                      # maximum surge acceleration (in m/s2)
+        self.rud_angle_max = self._deg_to_rad(30) # maximum rudder angle (in rad)
+        
 
 
     def __str__(self) -> str:
@@ -220,14 +228,16 @@ class FossenCS2(gym.Env):
         self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         # thrust init for OS
-        self.tau = np.array([2., 0., 0.])   # thrust in u-direction, thrust in v-direction, force moment for r
+        #self.tau = np.array([2., 0., 0.])   # thrust in u-direction, thrust in v-direction, force moment for r
+        self.rud_angle = 0
+        self._set_tau_from_n_delta()
 
         # initial euclidean distance to goal
         self.ED_goal_init = np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
 
 
-    def _get_tau_from_n_delta(self, delta):
-        """Translates revolutions per second (n) and rudder angle (delta in rad) into tau."""
+    def _set_tau_from_n_delta(self):
+        """Translates revolutions per second (n) and rudder angle (delta in rad) into tau. Currently, n is fixed."""
 
         u = self.nu[0]
         n = self.n_prop
@@ -247,7 +257,19 @@ class FossenCS2(gym.Env):
         T3 = self.T_n3n3 * np.abs(self.n_bow) * self.n_bow
 
         # compute u_rud12
-        pass
+        if u >= 0:
+            u_rud12 = u + self.ku * (np.sqrt(np.max([0, 8 / (np.pi * self.rho * self.d_prop**2) * T12 + u**2])) - u)
+        else:
+            u_rud12 = u
+        
+        # compute L12
+        if u_rud12 >= 0:
+            L12 = (self.L_d_p * self.rud_angle - self.L_dd_p * np.abs(self.rud_angle) * self.rud_angle) * np.abs(u_rud12) * u_rud12
+        else:
+            L12 = (self.L_d_m * self.rud_angle - self.L_dd_m * np.abs(self.rud_angle) * self.rud_angle) * np.abs(u_rud12) * u_rud12
+        
+        # compute tau
+        self.tau = np.dot(self.B, np.array([T12, T12, T3, L12, L12]))
 
 
     def _set_state(self):      
@@ -267,7 +289,7 @@ class FossenCS2(gym.Env):
         # update control tau
         self._upd_tau(a)
 
-        # update update dynamics
+        # update dynamics
         self._upd_dynamics()
 
         # compute state, reward, done        
@@ -289,6 +311,9 @@ class FossenCS2(gym.Env):
         M_nu_dot = self.tau - np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu)# - self._g_of_nu(nu)# + self._tau_w_of_t(self.sim_t)
         nu_dot = np.dot(self.M_inv, M_nu_dot)
 
+        # clip u_dot to maximum acceleration
+        nu_dot[0] = np.clip(nu_dot[0], -self.u_dot_max, self.u_dot_max)
+
         # get new velocity (BODY-system)
         self.nu += nu_dot * self.delta_t
 
@@ -298,7 +323,10 @@ class FossenCS2(gym.Env):
         # get new positions (NE-system)
         self.eta += eta_dot * self.delta_t
 
-        # clip heading to [-2pi, 2pi]
+        # clip surge velocity
+        self.nu[0] = np.clip(self.nu[0], -self.u_max, self.u_max)
+
+        # transform heading to [-2pi, 2pi]
         if np.abs(self.eta[2]) > 2*np.pi:
             self.eta[2] = np.sign(self.eta[2]) * (abs(self.eta[2]) - 2*np.pi)
 
@@ -307,66 +335,32 @@ class FossenCS2(gym.Env):
 
 
     def _upd_tau(self, a):
-        """Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
+        """Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
         
-        0 - keep thrust as is | no rudder force 
-        1 - keep thrust as is | rudder force from one side
-        2 - keep thrust as is | rudder force from other side
-        
-        3 - decrease thrust   | no rudder force 
-        4 - decrease thrust   | rudder force from one side
-        5 - decrease thrust   | rudder force from other side
-        
-        6 - increase thrust   | no rudder force 
-        7 - increase thrust   | rudder force from one side
-        8 - increase thrust   | rudder force from other side
+        0 - keep rudder angle as is
+        1 - increase rudder angle by 5 degree
+        2 - decrease rudder angle by 5 degree
         """
-        assert a in range(4), "Unknown action."
+        assert a in range(3), "Unknown action."
 
         # store action for rendering
         self.action = a
 
-        # keep thrust as is
-        if a == 0:
-            pass
-
-        elif a == 1:
-            self.tau[2] = -self.tau_r
-        
+        # update angle
+        if a == 1:
+            self.rud_angle += self._deg_to_rad(5)
         elif a == 2:
-            self.tau[2] = self.tau_r
+            self.rud_angle -= self._deg_to_rad(5)
         
-        # decrease thrust
-        elif a == 3:
-            self.tau[0] -= self.delta_tau_u
-        
-        elif a == 4:
-            self.tau[0] -= self.delta_tau_u
-            self.tau[2] = -self.tau_r
-        
-        elif a == 5:
-            self.tau[0] -= self.delta_tau_u
-            self.tau[2] = self.tau_r
-        
-        # increase thrust:
-        elif a == 6:
-            self.tau[0] += self.delta_tau_u
-        
-        elif a == 7:
-            self.tau[0] += self.delta_tau_u
-            self.tau[2] = -self.tau_r
+        # clip it
+        self.rud_angle = np.clip(self.rud_angle, -self.rud_angle_max, self.rud_angle_max)
 
-        elif a == 8:
-            self.tau[0] += self.delta_tau_u
-            self.tau[2] = self.tau_r
+        # update the control tau
+        self._set_tau_from_n_delta()
 
         # clip thrust to surge max
-        if self.tau[0] > self.tau_u_max:
-            self.tau[0] = self.tau_u_max
-        
-        elif self.tau[0] < -self.tau_u_max:
-            self.tau[0] = -self.tau_u_max
-  
+        #self.tau[0] = np.clip(self.tau[0], -self.tau_u_max, self.tau_u_max)
+
 
     def _calculate_reward(self):
         """Returns reward of the current state."""
@@ -548,7 +542,7 @@ class FossenCS2(gym.Env):
             self.ax2.old_state = self.state
 
 
-            # ---- state plot ----
+            # ---- action plot ----
             if self.step_cnt == 0:
                 self.ax3.clear()
                 self.ax3.old_time = 0
@@ -565,52 +559,75 @@ class FossenCS2(gym.Env):
             self.ax3.old_action = self.action
 
             plt.pause(0.01)
-            """
-            # set agent and vessels
-            self.ax0.scatter(self.agent_x, self.agent_y, color = "red")
-            self.ax0.scatter(self.obst_x, self.obst_y + self.goalwidth/2, color = "green")
-            self.ax0.scatter(self.obst_x, self.obst_y - self.goalwidth/2, color = "green")
-            self.ax0.scatter(self.obst_x, self.obst_y_future + self.goalwidth/2, color = "yellow")
-            self.ax0.scatter(self.obst_x, self.obst_y_future - self.goalwidth/2, color = "yellow")            
-            
-            # ---- STATE PLOT ----
-            # clear prior axes, set limits
-            self.ax1.clear()
-            self.ax1.set_xlim(-200, 1000)
-            self.ax0.set_ylim(-self.max_goal_end_y*1.1, self.max_goal_end_y*1.1)
-            
-            # add agent and states
-            self.ax1.scatter(0, self.agent_y, color = "red")
-            self.ax1.set_xlabel("TTC-x")
-            self.ax1.set_ylabel("y")
- 
 
-            # ---- REWARD PLOT ----
-            if self.current_timestep == 0:
-                self.ax2.clear()
-                self.ax2.old_time = 0
-                self.ax2.old_reward = 0
-            self.ax2.set_xlim(1, self.max_temporal_dist + 20)
-            self.ax2.set_ylim(0, 100)
-            self.ax2.set_xlabel("Timestep in episode")
-            self.ax2.set_ylabel("Reward")
-            self.ax2.plot([self.ax2.old_time, self.current_timestep], [self.ax2.old_reward, self.reward], color = "black")
-            self.ax2.old_time = self.current_timestep
-            self.ax2.old_reward = self.reward
+    """def _upd_tau(self, a):
+        Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
+        
+        0 - keep thrust as is | no rudder force 
+        1 - keep thrust as is | rudder force from one side
+        2 - keep thrust as is | rudder force from other side
+        
+        3 - decrease thrust   | no rudder force 
+        4 - decrease thrust   | rudder force from one side
+        5 - decrease thrust   | rudder force from other side
+        
+        6 - increase thrust   | no rudder force 
+        7 - increase thrust   | rudder force from one side
+        8 - increase thrust   | rudder force from other side
 
-            # ---- ACTION PLOT ----
-            if self.current_timestep == 0:
-                self.ax3.clear()
-                self.ax3.old_time = 0
-                self.ax3.old_action = 0
-            self.ax2.set_xlim(1, self.max_temporal_dist + 20)
-            self.ax3.set_ylim(-self.ay_max, self.ay_max)
-            self.ax3.set_xlabel("Timestep in episode")
-            self.ax3.set_ylabel("Agent a_y")
-            self.ax3.plot([self.ax3.old_time, self.current_timestep], [self.ax3.old_action, self.agent_ay], color = "black")
-            self.ax3.old_time = self.current_timestep
-            self.ax3.old_action = self.agent_ay
-            
-            # delay plotting for ease of user
-            plt.pause(self.plot_delay)
-            """
+        assert a in range(4), "Unknown action."
+
+        # store action for rendering
+        self.action = a
+
+        # keep thrust as is
+        if a == 0:
+            pass
+
+        elif a == 1:
+            self.tau[2] = -self.tau_r
+        
+        elif a == 2:
+            self.tau[2] = self.tau_r
+        
+        # decrease thrust
+        elif a == 3:
+            self.tau[0] -= self.delta_tau_u
+        
+        elif a == 4:
+            self.tau[0] -= self.delta_tau_u
+            self.tau[2] = -self.tau_r
+        
+        elif a == 5:
+            self.tau[0] -= self.delta_tau_u
+            self.tau[2] = self.tau_r
+        
+        # increase thrust:
+        elif a == 6:
+            self.tau[0] += self.delta_tau_u
+        
+        elif a == 7:
+            self.tau[0] += self.delta_tau_u
+            self.tau[2] = -self.tau_r
+
+        elif a == 8:
+            self.tau[0] += self.delta_tau_u
+            self.tau[2] = self.tau_r
+
+        # clip thrust to surge max
+        if self.tau[0] > self.tau_u_max:
+            self.tau[0] = self.tau_u_max
+        
+        elif self.tau[0] < -self.tau_u_max:
+            self.tau[0] = -self.tau_u_max"""
+
+x = FossenCS2()
+x.reset()
+while True:
+    x.render()
+    s2, r, d, _ = x.step(0)
+    #print(x)
+    
+    #import sys
+    #import time
+    #time.sleep(0.5)
