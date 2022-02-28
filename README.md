@@ -165,7 +165,7 @@ If you use this code in of your projects or papers, please cite it as follows.
 ~~~bibtex
 @misc{TUDRL,
   author = {Waltz, Martin and Paulig, Niklas},
-  title = {TUD-RL Algorithm Suite},
+  title = {RL Dresden Algorithm Suite},
   year = {2022},
   publisher = {GitHub},
   journal = {GitHub Repository},
