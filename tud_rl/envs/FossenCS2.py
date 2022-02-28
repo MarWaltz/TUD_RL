@@ -39,8 +39,8 @@ class FossenCS2(gym.Env):
 
         self.X_dotu = -2.
         self.Y_dotv = -10.
-        self.Y_dotr =  0.
-        self.N_dotv =  0.
+        self.Y_dotr = -0.
+        self.N_dotv = -0.
         self.N_dotr = -1.
 
         self.Y_lrlv = -0.805
@@ -98,27 +98,26 @@ class FossenCS2(gym.Env):
         self.M_inv = np.linalg.inv(self.M)
 
         # simulation settings
-        self.delta_t = 0.1              # simulation time interval (in s)
-        self.x_max   = 400              # maximum x-coordinate (in m)
-        self.y_max   = 400              # maximum y-coordinate (in m)
-        self.n_prop  = 100               # revolutions per second of the two main propellers
-        self.n_bow   = 0                # revolutions per second of the bow thruster
-
-        #self.delta_tau_u = .5                    # thrust change in u-direction (in N)
-        #self.tau_u_max     = 5.                  # maximum tau in u-direction (in N)
-        #self.tau_r       = .5                    # base moment to rudder (in Nm)
+        self.delta_t = 0.5                           # simulation time interval (in s)
+        self.x_max   = 400                           # maximum x-coordinate (in m)
+        self.y_max   = 400                           # maximum y-coordinate (in m)
+        self.n_prop  = 2000 / 60 * self.delta_t      # revolutions per second of the two main propellers
+        self.n_bow   =    0 / 60 * self.delta_t      # revolutions per second of the bow thruster
 
         # clipping values (from Xu et al. (2022) in Neurocomputing)
-        self.u_max = 3.5                          # maximum surge velocity (in m/s) 
-        self.u_dot_max = 0.4                      # maximum surge acceleration (in m/s2)
-        self.rud_angle_max = self._deg_to_rad(30) # maximum rudder angle (in rad)
+        self.u_max     = 3.5 * self.delta_t          # maximum linear velocity      (in m/s, clips u, v) 
+        self.u_dot_max = 0.4 * self.delta_t          # maximum linear acceleration  (in m/s2, clips u_dot, v_dot)
+        self.r_max     = 0.2 * self.delta_t          # maximum angular velocity     (in rad/s, clips r)
+        self.r_dot_max = 0.05 * self.delta_t         # maximum angular acceleration (in rad/s2, clips r_dot)
         
+        self.rud_angle_max = self._deg_to_rad(35)                  # maximum rudder angle (in rad)
+        self.rud_angle_inc = self._deg_to_rad(5) * self.delta_t    # rudder angle change (rad/s)
 
 
     def __str__(self) -> str:
         ste = f"Step: {self.step_cnt}"
         pos = f"x: {np.round(self.eta[0], 3)}, y: {np.round(self.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(self._rad_to_deg(self.eta[2]), 3)}°"
-        vel = f"u: {np.round(self.nu[0], 3)}, v: {np.round(self.nu[1], 3)}, r: {np.round(self.nu[2], 3)}"
+        vel = f"u: {np.round(self.nu[0] / self.delta_t, 3)}, v: {np.round(self.nu[1] / self.delta_t, 3)}, r: {np.round(self.nu[2] / self.delta_t, 3)}"
         return ste + "\n" + pos + "\n" + vel
 
 
@@ -272,11 +271,11 @@ class FossenCS2(gym.Env):
         self.tau = np.dot(self.B, np.array([T12, T12, T3, L12, L12]))
 
 
-    def _set_state(self):      
+    def _set_state(self):
         """State consists of: u, v, r, heading, heading_error, ED_goal."""
-        self.state = np.array([self.nu[0], 
-                               self.nu[1],
-                               self.nu[2], 
+        self.state = np.array([self.nu[0] / self.u_max, 
+                               self.nu[1] / self.u_max,
+                               self.nu[2] / self.r_max, 
                                self.eta[2] / (2*np.pi), 
                                self._get_sign_psi_e() * self._get_abs_psi_e() / (np.pi), 
                                self._ED_to_goal() / self.ED_goal_init])
@@ -288,6 +287,7 @@ class FossenCS2(gym.Env):
 
         # update control tau
         self._upd_tau(a)
+        print(self.tau)
 
         # update dynamics
         self._upd_dynamics()
@@ -311,20 +311,22 @@ class FossenCS2(gym.Env):
         M_nu_dot = self.tau - np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu)# - self._g_of_nu(nu)# + self._tau_w_of_t(self.sim_t)
         nu_dot = np.dot(self.M_inv, M_nu_dot)
 
-        # clip u_dot to maximum acceleration
-        nu_dot[0] = np.clip(nu_dot[0], -self.u_dot_max, self.u_dot_max)
+        # clip u_dot, v_dot to maximum linear acceleration and r_dot to maximum angular acceleration
+        nu_dot[0:2] = np.clip(nu_dot[0:2], -self.u_dot_max, self.u_dot_max)
+        nu_dot[2]   = np.clip(nu_dot[2], -self.r_dot_max, self.r_dot_max)
 
         # get new velocity (BODY-system)
         self.nu += nu_dot * self.delta_t
+
+        # clip u, v to maximum linear velocity and r to maximum angular velocity
+        self.nu[0:2] = np.clip(self.nu[0:2], -self.u_max, self.u_max)
+        self.nu[2]   = np.clip(self.nu[2], -self.r_max, self.r_max)
 
         # calculate eta_dot via rotation
         eta_dot = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
         # get new positions (NE-system)
         self.eta += eta_dot * self.delta_t
-
-        # clip surge velocity
-        self.nu[0] = np.clip(self.nu[0], -self.u_max, self.u_max)
 
         # transform heading to [-2pi, 2pi]
         if np.abs(self.eta[2]) > 2*np.pi:
@@ -338,8 +340,8 @@ class FossenCS2(gym.Env):
         """Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
         
         0 - keep rudder angle as is
-        1 - increase rudder angle by 5 degree
-        2 - decrease rudder angle by 5 degree
+        1 - increase rudder angle by 5 degree per second
+        2 - decrease rudder angle by 5 degree per second
         """
         assert a in range(3), "Unknown action."
 
@@ -348,18 +350,15 @@ class FossenCS2(gym.Env):
 
         # update angle
         if a == 1:
-            self.rud_angle += self._deg_to_rad(5)
+            self.rud_angle += self.rud_angle_inc
         elif a == 2:
-            self.rud_angle -= self._deg_to_rad(5)
+            self.rud_angle -= self.rud_angle_inc
         
         # clip it
         self.rud_angle = np.clip(self.rud_angle, -self.rud_angle_max, self.rud_angle_max)
 
         # update the control tau
         self._set_tau_from_n_delta()
-
-        # clip thrust to surge max
-        #self.tau[0] = np.clip(self.tau[0], -self.tau_u_max, self.tau_u_max)
 
 
     def _calculate_reward(self):
@@ -467,7 +466,7 @@ class FossenCS2(gym.Env):
         """Renders the current environment."""
 
         # plot every nth timestep
-        if self.step_cnt % 2 == 0: 
+        if self.step_cnt % 1 == 0: 
 
             # check whether figure has been initialized
             if len(plt.get_fignums()) == 0:
@@ -485,8 +484,8 @@ class FossenCS2(gym.Env):
             self.ax0.clear()
             self.ax0.set_xlim(0, self.x_max)
             self.ax0.set_ylim(0, self.y_max)
-            self.ax0.set_xlabel("x")
-            self.ax0.set_ylabel("y")
+            self.ax0.set_xlabel("x (North)")
+            self.ax0.set_ylabel("y (East)")
 
             # set ship
             rect = patches.Rectangle((self.eta[0]-self.length/2, self.eta[1]-self.width/2), self.length, self.width, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
@@ -496,6 +495,11 @@ class FossenCS2(gym.Env):
 
             # set goal
             self.ax0.scatter(self.goal[0], self.goal[1], color="blue")
+
+            # reverse plot to be in line with Skjetne et al. (2004) illustration
+            #self.ax0.set_ylim(self.ax0.get_ylim()[::-1])
+            #self.ax0.xaxis.tick_top()
+            #self.ax0.xaxis.set_label_position('top') 
 
             # ----- reward plot ----
             if self.step_cnt == 0:
@@ -620,14 +624,4 @@ class FossenCS2(gym.Env):
         
         elif self.tau[0] < -self.tau_u_max:
             self.tau[0] = -self.tau_u_max"""
-
-x = FossenCS2()
-x.reset()
-while True:
-    x.render()
-    s2, r, d, _ = x.step(0)
-    #print(x)
-    
-    #import sys
-    #import time
-    #time.sleep(0.5)
+""""""
