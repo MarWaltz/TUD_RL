@@ -17,7 +17,7 @@ class FossenCS2(gym.Env):
         self.action_space = spaces.Discrete(3) #9
 
         # custom inits
-        self._max_episode_steps = 5e3
+        self._max_episode_steps = 1e3
         self.r = 0
         self.r_head = 0
         self.r_dist = 0
@@ -562,7 +562,7 @@ class FossenCS2(gym.Env):
             self.ax3.old_time = self.step_cnt
             self.ax3.old_action = self.action
 
-            plt.pause(0.01)
+            plt.pause(0.001)
 
     """def _upd_tau(self, a):
         Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:

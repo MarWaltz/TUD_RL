@@ -48,7 +48,7 @@ def visualize_policy(env, agent, c):
 
             # select action
             a = agent.select_action(s)
-            a = 2
+            #a = 2
             
             # perform step
             s2, r, d, _ = env.step(a)
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="FossenCS2.json")
     parser.add_argument("--agent_name", type=str, default="DDQN")
-    parser.add_argument("--dqn_weights", type=str, default="DQN_weights.pth")
+    parser.add_argument("--dqn_weights", type=str, default="DDQN_weights.pth")
     args = parser.parse_args()
 
     # read config file
