@@ -2,7 +2,7 @@
    "env":
    {
       "name"              : "FossenCS2-v0",
-      "max_episode_steps" : 5e3,
+      "max_episode_steps" : 1e3,
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
@@ -40,7 +40,7 @@
    "dqn_weights"      : null,
    "input_norm"       : false,
    "input_norm_prior" : null,
-   "gamma"            : 0.99,
+   "gamma"            : 0.999,
    "eps_init"         : 1.0,
    "eps_final"        : 0.1,
    "eps_decay_steps"  : 1e6,

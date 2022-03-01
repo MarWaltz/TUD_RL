@@ -12,9 +12,9 @@ class FossenCS2(gym.Env):
         super().__init__()
 
         # gym definitions
-        self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
-                                             high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
-        self.action_space = spaces.Discrete(3) #9
+        self.observation_space  = spaces.Box(low  = np.array([-1, -1, -1, -1, -1, -np.inf], dtype=np.float32), 
+                                             high = np.array([ 1,  1,  1,  1,  1,  np.inf], dtype=np.float32))
+        self.action_space = spaces.Discrete(3)
 
         # custom inits
         self._max_episode_steps = 1e3
@@ -25,8 +25,8 @@ class FossenCS2(gym.Env):
         self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
 
         # CS2 parameters (from Skjetne et al. (2004) in CAMS)
-        self.length = 1.255 * 20     # to see something
-        self.width  = 0.29 * 20      # to see something
+        self.length = 1.255 * 1     # to see something
+        self.width  = 0.29 * 1      # to see something
         
         self.m      =  23.8
         self.I_z    =  1.76
@@ -99,15 +99,15 @@ class FossenCS2(gym.Env):
 
         # simulation settings
         self.delta_t = 0.5                           # simulation time interval (in s)
-        self.x_max   = 400                           # maximum x-coordinate (in m)
-        self.y_max   = 400                           # maximum y-coordinate (in m)
+        self.x_max   = 50                            # maximum x-coordinate (in m)
+        self.y_max   = 50                            # maximum y-coordinate (in m)
         self.n_prop  = 2000 / 60 * self.delta_t      # revolutions per second of the two main propellers
         self.n_bow   =    0 / 60 * self.delta_t      # revolutions per second of the bow thruster
 
         # clipping values (from Xu et al. (2022) in Neurocomputing)
         self.u_max     = 3.5 * self.delta_t          # maximum linear velocity      (in m/s, clips u, v) 
         self.u_dot_max = 0.4 * self.delta_t          # maximum linear acceleration  (in m/s2, clips u_dot, v_dot)
-        self.r_max     = 0.2 * self.delta_t          # maximum angular velocity     (in rad/s, clips r)
+        self.r_max     = 0.3 * self.delta_t          # maximum angular velocity     (in rad/s, clips r)
         self.r_dot_max = 0.05 * self.delta_t         # maximum angular acceleration (in rad/s2, clips r_dot)
         
         self.rud_angle_max = self._deg_to_rad(35)                  # maximum rudder angle (in rad)
@@ -136,7 +136,7 @@ class FossenCS2(gym.Env):
         C_A = np.array([[0, 0, self.Y_dotv * v + self.Y_dotr * r],
                         [0, 0, - self.X_dotu * u],
                         [-self.Y_dotv * v - self.Y_dotr * r, self.X_dotu * u, 0]])
-        
+        C_RB = 0
         return C_RB + C_A
 
 
@@ -215,15 +215,15 @@ class FossenCS2(gym.Env):
         """Initializes objects such as the target, vessels, static obstacles, etc."""
         
         #self.goal = np.array([200., 200.])
-        self.goal = np.array([np.random.uniform(self.x_max - 300, self.x_max),
-                              np.random.uniform(self.y_max - 300, self.y_max)])
+        self.goal = np.array([np.random.uniform(self.x_max - 25, self.x_max),
+                              np.random.uniform(self.y_max - 25, self.y_max)])
 
 
     def _spawn_agent(self):
         """Initializes positions and velocities of agent."""
         
         # motion init (for own ship)
-        self.eta = np.array([100., 100., self._deg_to_rad(0.)])        # x (in m),   y (in m),   psi (in rad)   in NE-system
+        self.eta = np.array([10., 10., self._deg_to_rad(0.)])          # x (in m),   y (in m),   psi (in rad)   in NE-system
         self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         # thrust init for OS
@@ -287,7 +287,6 @@ class FossenCS2(gym.Env):
 
         # update control tau
         self._upd_tau(a)
-        print(self.tau)
 
         # update dynamics
         self._upd_dynamics()
@@ -330,7 +329,7 @@ class FossenCS2(gym.Env):
 
         # transform heading to [-2pi, 2pi]
         if np.abs(self.eta[2]) > 2*np.pi:
-            self.eta[2] = np.sign(self.eta[2]) * (abs(self.eta[2]) - 2*np.pi)
+            self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
 
         # increase overall simulation time
         self.sim_t += self.delta_t
@@ -445,7 +444,7 @@ class FossenCS2(gym.Env):
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        if any([self._ED_to_goal() <= 25,
+        if any([self._ED_to_goal() <= 5,
                 self.eta[0] < 0,
                 self.eta[0] >= self.x_max,
                 self.eta[1] < 0,
@@ -482,16 +481,17 @@ class FossenCS2(gym.Env):
             # ---- ship movement ----
             # clear prior axes, set limits and add labels and title
             self.ax0.clear()
-            self.ax0.set_xlim(0, self.x_max)
-            self.ax0.set_ylim(0, self.y_max)
+            self.ax0.set_xlim(0, self.x_max - 25)
+            self.ax0.set_ylim(0, self.y_max - 25)
             self.ax0.set_xlabel("x (North)")
             self.ax0.set_ylabel("y (East)")
 
             # set ship
             rect = patches.Rectangle((self.eta[0]-self.length/2, self.eta[1]-self.width/2), self.length, self.width, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
+            #rect = patches.Rectangle((self.eta[1]-self.width/2, self.eta[0]-self.length/2), self.width, self.length, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
             self.ax0.add_patch(rect)
-            self.ax0.text(self.eta[0] + 10, self.eta[1] + 10, self.__str__())
-            self.ax0.text(self.goal[0] - 40, self.goal[1] - 40, r"$\psi_d$" + f": {np.round(self._rad_to_deg(self._get_psi_d()),3)}°")
+            self.ax0.text(self.eta[0] + 2.5, self.eta[1] + 2.5, self.__str__())
+            self.ax0.text(self.x_max - 5, self.y_max - 5, r"$\psi_d$" + f": {np.round(self._rad_to_deg(self._get_psi_d()),3)}°")
 
             # set goal
             self.ax0.scatter(self.goal[0], self.goal[1], color="blue")
@@ -549,18 +549,30 @@ class FossenCS2(gym.Env):
             # ---- action plot ----
             if self.step_cnt == 0:
                 self.ax3.clear()
+                self.ax3_twin = self.ax3.twinx()
                 self.ax3.old_time = 0
                 self.ax3.old_action = 0
+                self.ax3.old_rud_angle = 0
 
             self.ax3.set_xlim(0, self._max_episode_steps)
             self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
+            self.ax3.set_yticks(range(self.action_space.n))
+            self.ax3.set_yticklabels(range(self.action_space.n))
             self.ax3.set_xlabel("Timestep in episode")
             self.ax3.set_ylabel("Action (discrete)")
 
-            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.action], color="black")
+            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.action], color="black", alpha=0.5)
+
+            # add rudder angle plot
+            self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self._rad_to_deg(self.ax3.old_rud_angle), self._rad_to_deg(self.rud_angle)], color="blue")
+            self.ax3_twin.set_ylim(-self._rad_to_deg(self.rud_angle_max) - 5, self._rad_to_deg(self.rud_angle_max) + 5)
+            self.ax3_twin.set_yticks(range(-int(self._rad_to_deg(self.rud_angle_max)), int(self._rad_to_deg(self.rud_angle_max)) + 5, 5))
+            self.ax3_twin.set_yticklabels(range(-int(self._rad_to_deg(self.rud_angle_max)), int(self._rad_to_deg(self.rud_angle_max)) + 5, 5))
+            self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
 
             self.ax3.old_time = self.step_cnt
             self.ax3.old_action = self.action
+            self.ax3.old_rud_angle = self.rud_angle
 
             plt.pause(0.001)
 
@@ -624,4 +636,3 @@ class FossenCS2(gym.Env):
         
         elif self.tau[0] < -self.tau_u_max:
             self.tau[0] = -self.tau_u_max"""
-""""""
