@@ -10,7 +10,7 @@ import gym_pygame
 import numpy as np
 import torch
 from tud_rl.envs.MountainCar import MountainCar
-from tud_rl.envs.FossenCS2 import FossenCS2
+from tud_rl.envs.FossenCS2 import *
 from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
@@ -219,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="FossenCS2.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--agent_name", type=str, default="DDQN")
     args = parser.parse_args()
 
     # read config file

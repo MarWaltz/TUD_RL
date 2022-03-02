@@ -5,28 +5,21 @@ from gym import spaces
 from matplotlib import pyplot as plt
 
 
-class FossenCS2(gym.Env):
-    """Class environment with initializer, step, reset, and render method."""
-    
-    def __init__(self):
-        super().__init__()
+class CyberShipII:
+    """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
+    Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-        # gym definitions
-        self.observation_space  = spaces.Box(low  = np.array([-1, -1, -1, -1, -1, -np.inf], dtype=np.float32), 
-                                             high = np.array([ 1,  1,  1,  1,  1,  np.inf], dtype=np.float32))
-        self.action_space = spaces.Discrete(3)
+    def __init__(self, delta_t) -> None:
 
-        # custom inits
-        self._max_episode_steps = 1e3
-        self.r = 0
-        self.r_head = 0
-        self.r_dist = 0
+        #------------------------- Parameter/Settings -----------------------------------
+
+        # store simulation step size and dummy action for rendering
+        self.delta_t = delta_t
         self.action = 0
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
 
-        # CS2 parameters (from Skjetne et al. (2004) in CAMS)
-        self.length = 1.255 * 1     # to see something
-        self.width  = 0.29 * 1      # to see something
+        # CyberShip II parameters
+        self.length = 1.255
+        self.width  = 0.29
         
         self.m      =  23.8
         self.I_z    =  1.76
@@ -55,9 +48,8 @@ class FossenCS2(gym.Env):
         self.N_lvlv =  3.95645
         self.N_v    =  0.03130
 
-        # CS2 parameters for translating revolutions per second (n = n1 = n2) and rudder angle (delta = delta1 = delta2) into tau
+        # parameters for translating revolutions per second (n = n1 = n2) and rudder angle (delta = delta1 = delta2) into tau
         # Bow thruster of CS2 is assumed to yield zero force
-        # (from Skjetne et al. (2004) in MIC)
         self.l_xT1 = -0.499
         self.l_yT1 = -0.078
         self.l_xT2 = -0.499
@@ -83,9 +75,11 @@ class FossenCS2(gym.Env):
                            [0, 0, 1, 1, 1],
                            [np.abs(self.l_yT1), -np.abs(self.l_yT2), np.abs(self.l_xT3), -np.abs(self.l_xR1), -np.abs(self.l_xR2)]])
 
-        self.d_prop = 60e-3   # diameter of propellers in m (from PhD-thesis of Karl-Petter W. Lindegaard)
-        self.ku  = 0.5        # induced velocity factor
-        self.rho = 1014       # density of sea water (in kg/m3)
+        self.d_prop = 60e-3                          # diameter of propellers in m (from PhD-thesis of Karl-Petter W. Lindegaard)
+        self.ku  = 0.5                               # induced velocity factor
+        self.rho = 1014                              # density of sea water (in kg/m3)
+        self.n_prop  = 2000 / 60 * self.delta_t      # revolutions per second of the two main propellers
+        self.n_bow   =    0 / 60 * self.delta_t      # revolutions per second of the bow thruster
 
         # mass matrix (rigid body + added mass) and its inverse
         self.M_RB = np.array([[self.m, 0, 0],
@@ -95,37 +89,26 @@ class FossenCS2(gym.Env):
                               [0, -self.Y_dotv, -self.Y_dotr],
                               [0, -self.N_dotv, -self.N_dotr]])
         self.M = self.M_RB + self.M_A
-        self.M_inv = np.linalg.inv(self.M)
-
-        # simulation settings
-        self.delta_t = 0.5                           # simulation time interval (in s)
-        self.x_max   = 50                            # maximum x-coordinate (in m)
-        self.y_max   = 50                            # maximum y-coordinate (in m)
-        self.n_prop  = 2000 / 60 * self.delta_t      # revolutions per second of the two main propellers
-        self.n_bow   =    0 / 60 * self.delta_t      # revolutions per second of the bow thruster
-
-        # clipping values (from Xu et al. (2022) in Neurocomputing)
-        self.u_max     = 3.5 * self.delta_t          # maximum linear velocity      (in m/s, clips u, v) 
-        self.u_dot_max = 0.4 * self.delta_t          # maximum linear acceleration  (in m/s2, clips u_dot, v_dot)
-        self.r_max     = 0.3 * self.delta_t          # maximum angular velocity     (in rad/s, clips r)
-        self.r_dot_max = 0.05 * self.delta_t         # maximum angular acceleration (in rad/s2, clips r_dot)
+        self.M_inv = np.linalg.inv(self.M)   
         
-        self.rud_angle_max = self._deg_to_rad(35)                  # maximum rudder angle (in rad)
-        self.rud_angle_inc = self._deg_to_rad(5) * self.delta_t    # rudder angle change (rad/s)
+        # rudder angle max (in rad) and increment (in rad/s)
+        self.rud_angle_max = self._deg_to_rad(35)
+        self.rud_angle_inc = self._deg_to_rad(5) * self.delta_t
 
 
-    def __str__(self) -> str:
-        ste = f"Step: {self.step_cnt}"
-        pos = f"x: {np.round(self.eta[0], 3)}, y: {np.round(self.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(self._rad_to_deg(self.eta[2]), 3)}°"
-        vel = f"u: {np.round(self.nu[0] / self.delta_t, 3)}, v: {np.round(self.nu[1] / self.delta_t, 3)}, r: {np.round(self.nu[2] / self.delta_t, 3)}"
-        return ste + "\n" + pos + "\n" + vel
+        #------------------------- Motion Initialization -----------------------------------
+        self.eta = np.array([10., 10., np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
+        self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+
+        self.rud_angle = 0
+        self._set_tau_from_n_delta()
 
 
-    def _C_of_nu(self, nu):
-        """Computes centripetal/coriolis matrix for given velocities. Source: Xu et. al (2022)."""
+    def _C_of_nu(self):
+        """Computes centripetal/coriolis matrix for given velocities."""
 
         # unpacking
-        u, v, r = nu
+        u, v, r = self.nu
 
         # rigid-body
         C_RB = np.array([[0, 0, -self.m * (self.x_g * r + v)],
@@ -133,18 +116,18 @@ class FossenCS2(gym.Env):
                          [self.m * (self.x_g * r + v), - self.m * u, 0]])
         
         # added mass
-        C_A = np.array([[0, 0, self.Y_dotv * v + self.Y_dotr * r],
+        C_A = np.array([[0, 0, self.Y_dotv * v + 0.5 * (self.N_dotv + self.Y_dotr) * r],
                         [0, 0, - self.X_dotu * u],
-                        [-self.Y_dotv * v - self.Y_dotr * r, self.X_dotu * u, 0]])
-        C_RB = 0
+                        [-self.Y_dotv * v - 0.5 * (self.N_dotv + self.Y_dotr) * r, self.X_dotu * u, 0]])
+
         return C_RB + C_A
 
 
-    def _D_of_nu(self, nu):
-        """Computes damping matrix for given velocities. Source: Xu et. al (2022)."""
+    def _D_of_nu(self):
+        """Computes damping matrix for given velocities."""
         
         # unpacking
-        u, v, r = nu
+        u, v, r = self.nu
 
         # components
         d11 = -self.X_u - self.X_lulu * np.abs(u) - self.X_uuu * u**2
@@ -158,81 +141,14 @@ class FossenCS2(gym.Env):
                          [0, d32, d33]])
 
 
-    def _g_of_nu(self, nu):
-        """Computes hydrostatic forces for velocities. Might be not feasible for 3 DOF model according to Fossen (2021). Source: Xu et. al (2022)."""
-        
-        # unpacking
-        u, v, r = nu
-
-        # components
-        g1 = 0.0279 * u * v**2 + 0.0342 * v**2 * r
-        g2 = 0.0912 * u**2 * v
-        g3 = 0.0156 * u * r**2 + 0.0278 *u * r * v**3
-
-        return np.array([g1, g2, g3])
-
-
-    def _tau_w_of_t(self, t):
-        """Computes time-varying environmental disturbances. Source: Xu et. al (2022)."""
-        
-        tau_w1 = 2 * np.cos(0.5*t) * np.cos(t) + 0.3 * np.cos(0.5*t) * np.sin(0.5*t) - 3
-        tau_w2 = 0.01 * np.sin(0.1*t)
-        tau_w3 = 0.6 * np.sin(1.1*t) * np.cos(0.3*t)
-
-        return np.array([tau_w1, tau_w2, tau_w3])
-
-
-    def _T_of_psi(self, psi):
+    def _T_of_psi(self):
         """Computes rotation matrix for given heading (in rad)."""
+
+        psi = self.eta[2]
+        
         return np.array([[np.cos(psi), -np.sin(psi), 0],
                          [np.sin(psi),  np.cos(psi), 0],
                          [0, 0, 1]])
-
-    def _deg_to_rad(self, angle):
-        """Takes angle in degree an transforms it to radiant."""
-        return angle * np.pi / 180
-
-
-    def _rad_to_deg(self, angle):
-        """Takes angle in degree an transforms it to radiant."""
-        return angle * 180 / np.pi
-
-
-    def reset(self):
-        """Resets environment to initial state."""
-        self.step_cnt = 0           # simulation step counter
-        self.sim_t    = 0           # overall passed simulation time (in s)
-
-        self._spawn_objects()
-        self._spawn_agent()
-        self._set_state()
-        self.state_init = self.state
-
-        return self.state
-
-
-    def _spawn_objects(self):
-        """Initializes objects such as the target, vessels, static obstacles, etc."""
-        
-        #self.goal = np.array([200., 200.])
-        self.goal = np.array([np.random.uniform(self.x_max - 25, self.x_max),
-                              np.random.uniform(self.y_max - 25, self.y_max)])
-
-
-    def _spawn_agent(self):
-        """Initializes positions and velocities of agent."""
-        
-        # motion init (for own ship)
-        self.eta = np.array([10., 10., self._deg_to_rad(0.)])          # x (in m),   y (in m),   psi (in rad)   in NE-system
-        self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
-
-        # thrust init for OS
-        #self.tau = np.array([2., 0., 0.])   # thrust in u-direction, thrust in v-direction, force moment for r
-        self.rud_angle = 0
-        self._set_tau_from_n_delta()
-
-        # initial euclidean distance to goal
-        self.ED_goal_init = np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
 
 
     def _set_tau_from_n_delta(self):
@@ -271,68 +187,30 @@ class FossenCS2(gym.Env):
         self.tau = np.dot(self.B, np.array([T12, T12, T3, L12, L12]))
 
 
-    def _set_state(self):
-        """State consists of: u, v, r, heading, heading_error, ED_goal."""
-        self.state = np.array([self.nu[0] / self.u_max, 
-                               self.nu[1] / self.u_max,
-                               self.nu[2] / self.r_max, 
-                               self.eta[2] / (2*np.pi), 
-                               self._get_sign_psi_e() * self._get_abs_psi_e() / (np.pi), 
-                               self._ED_to_goal() / self.ED_goal_init])
-
-
-    def step(self, a):
-        """Takes an action and performs one step in the environment.
-        Returns reward, new_state, done, {}."""
-
-        # update control tau
-        self._upd_tau(a)
-
-        # update dynamics
-        self._upd_dynamics()
-
-        # compute state, reward, done        
-        self._set_state()
-        self._calculate_reward()
-        d = self._done()
-
-        # increase step cnt
-        self.step_cnt += 1
-        
-        return self.state, self.r, d, {}
-
-
-    def _upd_dynamics(self):
+    def _upd_dynamics(self, euler=True):
         """Updates positions and velocities for next simulation step. Uses basic Euler method."""
 
-        # calculate nu_dot by solving Fossen's equation
-        nu = self.nu
-        M_nu_dot = self.tau - np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu)# - self._g_of_nu(nu)# + self._tau_w_of_t(self.sim_t)
-        nu_dot = np.dot(self.M_inv, M_nu_dot)
+        if euler:
 
-        # clip u_dot, v_dot to maximum linear acceleration and r_dot to maximum angular acceleration
-        nu_dot[0:2] = np.clip(nu_dot[0:2], -self.u_dot_max, self.u_dot_max)
-        nu_dot[2]   = np.clip(nu_dot[2], -self.r_dot_max, self.r_dot_max)
+            # calculate nu_dot by solving Fossen's equation
+            M_nu_dot = self.tau - np.dot(self._C_of_nu() + self._D_of_nu(), self.nu)
+            nu_dot = np.dot(self.M_inv, M_nu_dot)
 
-        # get new velocity (BODY-system)
-        self.nu += nu_dot * self.delta_t
+            # get new velocity (BODY-system)
+            self.nu += nu_dot * self.delta_t
 
-        # clip u, v to maximum linear velocity and r to maximum angular velocity
-        self.nu[0:2] = np.clip(self.nu[0:2], -self.u_max, self.u_max)
-        self.nu[2]   = np.clip(self.nu[2], -self.r_max, self.r_max)
+            # calculate eta_dot via rotation
+            eta_dot = np.dot(self._T_of_psi(), self.nu)
 
-        # calculate eta_dot via rotation
-        eta_dot = np.dot(self._T_of_psi(self.eta[2]), self.nu)
+            # get new positions (NE-system)
+            self.eta += eta_dot * self.delta_t
 
-        # get new positions (NE-system)
-        self.eta += eta_dot * self.delta_t
-
-        # transform heading to [-2pi, 2pi]
-        if np.abs(self.eta[2]) > 2*np.pi:
-            self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
-
-        # increase overall simulation time
-        self.sim_t += self.delta_t
+            # transform heading to [-2pi, 2pi]
+            if np.abs(self.eta[2]) > 2*np.pi:
+                self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
+            
+        else:
+            raise NotImplementedError("Currently, only euler integration is available.")
 
 
     def _upd_tau(self, a):
@@ -360,56 +238,14 @@ class FossenCS2(gym.Env):
         self._set_tau_from_n_delta()
 
 
-    def _calculate_reward(self):
-        """Returns reward of the current state."""
-
-        # ---- Path planning reward (Xu et al. 2022) -----
-
-        # 1. Distance reward
-        ED = self._ED_to_goal()
-        r_dist = - ED / self.ED_goal_init
-
-        # 2. Heading reward
-        r_head = - self._get_abs_psi_e() / np.pi
-
-        # 3. Goal reach reward
-        #r_goal = 10 if self._ED_to_goal() <= 25 else 0
-        
-        # overall reward
-        self.r_dist = r_dist
-        self.r_head = r_head
-        self.r = r_dist + r_head #+ r_goal
+    def _deg_to_rad(self, angle):
+        """Takes angle in degree an transforms it to radiant."""
+        return angle * np.pi / 180
 
 
-    def _get_abs_psi_e(self):
-        """Calculates the absolute value of the heading error (goal_angle - heading)."""
-        
-        psi_e_abs = np.abs(self._get_psi_d() - self._clip_angle(self.eta[2]))
-
-        if psi_e_abs <= np.pi:
-            return psi_e_abs
-        else:
-            return 2*np.pi - psi_e_abs
-    
-
-    def _get_sign_psi_e(self):
-        """Calculates the sign of the heading error."""
-
-        psi_d = self._get_psi_d()
-        psi   = self._clip_angle(self.eta[2])
-
-        if psi_d <= np.pi:
-
-            if psi_d <= psi <= psi_d + np.pi:
-                return -1
-            else:
-                return 1
-        
-        else:
-            if psi_d - np.pi <= psi <= psi_d:
-                return 1
-            else:
-                return -1
+    def _rad_to_deg(self, angle):
+        """Takes angle in degree an transforms it to radiant."""
+        return angle * 180 / np.pi
 
 
     def _clip_angle(self, angle):
@@ -420,35 +256,185 @@ class FossenCS2(gym.Env):
         return angle
 
 
-    def _get_psi_d(self):
-        """Calculates the heading angle of the agent towards the goal. Perspective as in unit circle."""
-        
-        ED = self._ED_to_goal()
-        psi_d = np.arccos(np.abs(self.goal[0] - self.eta[0]) / ED)
 
-        # x_goal < x_agent
-        if self.goal[0] < self.eta[0]:
-            
-            if self.goal[1] >= self.eta[1]:
-                psi_d = np.pi - psi_d
-            else:
-                psi_d = np.pi + psi_d
+class FossenCS2(gym.Env):
+    """This environment implements the nonlinear ship manoeuvering model (3 DOF) proposed in Skjetne et al. (2004) 
+    in Modeling, Identification and Control."""
+
+    def __init__(self):
+        super().__init__()
+
+        # gym definitions
+        self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
+                                             high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
+        self.action_space = spaces.Discrete(3)
+
+        # custom inits
+        self._max_episode_steps = 1e3
+        self.r = 0
+        self.r_head = 0
+        self.r_dist = 0
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
+
+        # simulation settings
+        self.delta_t = 0.5       # simulation time interval (in s)
+        self.N_max   = 50        # maximum N-coordinate (in m)
+        self.E_max   = 50        # maximum E-coordinate (in m)
+
+
+    def reset(self):
+        """Resets environment to initial state."""
+        self.step_cnt = 0           # simulation step counter
+        self.sim_t    = 0           # overall passed simulation time (in s)
+
+        # init objects
+        self._spawn_objects()
         
-        # x_goal >= x_agent
+        # init agent (OS for 'Own Ship') and calculate initial distance to goal
+        self.OS = CyberShipII(delta_t = self.delta_t)
+        self.OS_goal_ED_init = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        
+        # init state
+        self._set_state()
+        self.state_init = self.state
+
+        return self.state
+
+
+    def _spawn_objects(self):
+        """Initializes objects such as the goal, vessels, static obstacles, etc."""
+        
+        self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
+                     "E" : np.random.uniform(self.E_max - 25, self.E_max)}
+        #self.goal = {"N" : 20, "E" : 20}
+
+    def _set_state(self):
+        """State consists of: u, v, r, heading, heading_error, ED_goal (all from agent's perspective)."""
+
+        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+
+        self.state = np.array([self.OS.nu[0], 
+                               self.OS.nu[1],
+                               self.OS.nu[2], 
+                               self.OS.eta[2] / (2*np.pi), 
+                               self._get_sign_psi_e() * self._get_abs_psi_e() / (np.pi), 
+                               OS_goal_ED / self.OS_goal_ED_init])
+
+
+    def step(self, a):
+        """Takes an action and performs one step in the environment.
+        Returns reward, new_state, done, {}."""
+
+        # update control tau
+        self.OS._upd_tau(a)
+
+        # update agent dynamics
+        self.OS._upd_dynamics()
+
+        # update environmental dynamics, e.g., other vessels
+        pass
+
+        # compute state, reward, done        
+        self._set_state()
+        self._calculate_reward()
+        d = self._done()
+
+        # increase step cnt and overall simulation time
+        self.step_cnt += 1
+        self.sim_t += self.delta_t
+        
+        return self.state, self.r, d, {}
+
+
+    def _calculate_reward(self):
+        """Returns reward of the current state."""
+
+        # ---- Path planning reward (Xu et al. 2022) -----
+
+        # 1. Distance reward
+        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        r_dist = - OS_goal_ED / self.OS_goal_ED_init
+
+        # 2. Heading reward
+        r_head = - self._get_abs_psi_e() / np.pi
+
+        # overall reward
+        self.r_dist = r_dist
+        self.r_head = r_head
+        self.r = r_dist + r_head
+
+
+    def _get_abs_psi_e(self):
+        """Calculates the absolute value of the heading error (goal_angle - heading)."""
+        
+        psi_e_abs = np.abs(self._get_psi_g() - self.OS._clip_angle(self.OS.eta[2]))
+
+        if psi_e_abs <= np.pi:
+            return psi_e_abs
         else:
-            if self.goal[1] < self.eta[1]:
-                psi_d = 2*np.pi - psi_d
+            return 2*np.pi - psi_e_abs
+    
+
+    def _get_sign_psi_e(self):
+        """Calculates the sign of the heading error."""
+
+        psi_g = self._get_psi_g()
+        psi   = self.OS._clip_angle(self.OS.eta[2])
+
+        if psi_g <= np.pi:
+
+            if psi_g <= psi <= psi_g + np.pi:
+                return -1
+            else:
+                return 1
         
-        return psi_d
+        else:
+            if psi_g - np.pi <= psi <= psi_g:
+                return 1
+            else:
+                return -1
+
+
+    def _get_psi_g(self):
+        """Calculates the heading angle of the agent towards the goal."""
+        
+        # compute ED to goal
+        ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+
+        # differentiate between goal position from NE perspective centered at the agent
+        if self.OS.eta[0] <= self.goal["N"]:
+
+            # I. quadrant
+            if self.OS.eta[1] <= self.goal["E"]:
+                psi_g = np.arccos((self.goal["N"] - self.OS.eta[0]) / ED)
+
+            # II. quadrant
+            else:
+                psi_g = 2*np.pi - np.arccos((self.goal["N"] - self.OS.eta[0]) / ED)
+
+        else:
+
+            # III. quadrant
+            if self.OS.eta[1] >= self.goal["E"]:
+                psi_g = np.pi + np.arccos((self.OS.eta[0] - self.goal["N"]) / ED)
+            
+            # IV. quadrant
+            else:
+                psi_g = np.pi - np.arccos((self.OS.eta[0] - self.goal["N"]) / ED)
+
+        return psi_g
 
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        if any([self._ED_to_goal() <= 5,
-                self.eta[0] < 0,
-                self.eta[0] >= self.x_max,
-                self.eta[1] < 0,
-                self.eta[1] >= self.y_max,
+
+        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+
+        if any([OS_goal_ED <= 2.5,
+                self.OS.eta[0] < 0,
+                self.OS.eta[0] >= self.N_max,
+                self.OS.eta[1] < 0,
+                self.OS.eta[1] >= self.E_max,
                 self.step_cnt >= self._max_episode_steps]):
 
                 return True
@@ -456,9 +442,16 @@ class FossenCS2(gym.Env):
         return False
 
 
-    def _ED_to_goal(self):
-        """Computes the euclidean distance to the goal."""
-        return np.sqrt((self.goal[0] - self.eta[0])**2 + (self.goal[1] - self.eta[1])**2)
+    def _ED(self, N0, E0, N1, E1):
+        """Computes the euclidean distance between two coordinates in the NE-system."""
+        return np.sqrt((N0 - N1)**2 + (E0 - E1)**2)
+
+
+    def __str__(self) -> str:
+        ste = f"Step: {self.step_cnt}"
+        pos = f"N: {np.round(self.OS.eta[0], 3)}, E: {np.round(self.OS.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(self.OS._rad_to_deg(self.OS.eta[2]), 3)}°"
+        vel = f"u: {np.round(self.OS.nu[0], 3)}, v: {np.round(self.OS.nu[1], 3)}, r: {np.round(self.OS.nu[2], 3)}"
+        return ste + "\n" + pos + "\n" + vel
 
 
     def render(self):
@@ -481,25 +474,25 @@ class FossenCS2(gym.Env):
             # ---- ship movement ----
             # clear prior axes, set limits and add labels and title
             self.ax0.clear()
-            self.ax0.set_xlim(0, self.x_max - 25)
-            self.ax0.set_ylim(0, self.y_max - 25)
-            self.ax0.set_xlabel("x (North)")
-            self.ax0.set_ylabel("y (East)")
+            self.ax0.set_xlim(0, self.E_max)
+            self.ax0.set_ylim(0, self.N_max)
+            self.ax0.set_xlabel("East")
+            self.ax0.set_ylabel("North")
 
-            # set ship
-            rect = patches.Rectangle((self.eta[0]-self.length/2, self.eta[1]-self.width/2), self.length, self.width, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
-            #rect = patches.Rectangle((self.eta[1]-self.width/2, self.eta[0]-self.length/2), self.width, self.length, self._rad_to_deg(self.eta[2]), linewidth=1, edgecolor='r', facecolor='none')
+            # set OS
+            N = self.OS.eta[0]
+            E = self.OS.eta[1]
+            
+            rect = patches.Rectangle((E-self.OS.width/2, N-self.OS.length/2), self.OS.width, self.OS.length, -self.OS._rad_to_deg(self.OS.eta[2]), 
+                                      linewidth=1, edgecolor='r', facecolor='none')
+            # Note: negate angle since we define it clock-wise, contrary to plt
+            
             self.ax0.add_patch(rect)
-            self.ax0.text(self.eta[0] + 2.5, self.eta[1] + 2.5, self.__str__())
-            self.ax0.text(self.x_max - 5, self.y_max - 5, r"$\psi_d$" + f": {np.round(self._rad_to_deg(self._get_psi_d()),3)}°")
+            self.ax0.text(E + 2.5, N + 2.5, self.__str__())
+            self.ax0.text(self.E_max - 5, self.N_max - 5, r"$\psi_g$" + f": {np.round(self.OS._rad_to_deg(self._get_psi_g()),3)}°")
 
-            # set goal
-            self.ax0.scatter(self.goal[0], self.goal[1], color="blue")
-
-            # reverse plot to be in line with Skjetne et al. (2004) illustration
-            #self.ax0.set_ylim(self.ax0.get_ylim()[::-1])
-            #self.ax0.xaxis.tick_top()
-            #self.ax0.xaxis.set_label_position('top') 
+            # set goal (stored as NE)
+            self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")
 
             # ----- reward plot ----
             if self.step_cnt == 0:
@@ -523,7 +516,6 @@ class FossenCS2(gym.Env):
             self.ax1.old_r_head = self.r_head
             self.ax1.old_r_dist = self.r_dist
 
-
             # ---- state plot ----
             if self.step_cnt == 0:
                 self.ax2.clear()
@@ -531,7 +523,7 @@ class FossenCS2(gym.Env):
                 self.ax2.old_state = self.state_init
 
             self.ax2.set_xlim(0, self._max_episode_steps)
-            self.ax2.set_ylim(-1, 1.1)
+            #self.ax2.set_ylim(-1, 1.1)
             self.ax2.set_xlabel("Timestep in episode")
             self.ax2.set_ylabel("State information")
 
@@ -544,7 +536,6 @@ class FossenCS2(gym.Env):
 
             self.ax2.old_time = self.step_cnt
             self.ax2.old_state = self.state
-
 
             # ---- action plot ----
             if self.step_cnt == 0:
@@ -561,78 +552,29 @@ class FossenCS2(gym.Env):
             self.ax3.set_xlabel("Timestep in episode")
             self.ax3.set_ylabel("Action (discrete)")
 
-            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.action], color="black", alpha=0.5)
+            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
 
             # add rudder angle plot
-            self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self._rad_to_deg(self.ax3.old_rud_angle), self._rad_to_deg(self.rud_angle)], color="blue")
-            self.ax3_twin.set_ylim(-self._rad_to_deg(self.rud_angle_max) - 5, self._rad_to_deg(self.rud_angle_max) + 5)
-            self.ax3_twin.set_yticks(range(-int(self._rad_to_deg(self.rud_angle_max)), int(self._rad_to_deg(self.rud_angle_max)) + 5, 5))
-            self.ax3_twin.set_yticklabels(range(-int(self._rad_to_deg(self.rud_angle_max)), int(self._rad_to_deg(self.rud_angle_max)) + 5, 5))
+            self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.OS._rad_to_deg(self.ax3.old_rud_angle), self.OS._rad_to_deg(self.OS.rud_angle)], color="blue")
+            self.ax3_twin.set_ylim(-self.OS._rad_to_deg(self.OS.rud_angle_max) - 5, self.OS._rad_to_deg(self.OS.rud_angle_max) + 5)
+            self.ax3_twin.set_yticks(range(-int(self.OS._rad_to_deg(self.OS.rud_angle_max)), int(self.OS._rad_to_deg(self.OS.rud_angle_max)) + 5, 5))
+            self.ax3_twin.set_yticklabels(range(-int(self.OS._rad_to_deg(self.OS.rud_angle_max)), int(self.OS._rad_to_deg(self.OS.rud_angle_max)) + 5, 5))
             self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
 
             self.ax3.old_time = self.step_cnt
-            self.ax3.old_action = self.action
-            self.ax3.old_rud_angle = self.rud_angle
+            self.ax3.old_action = self.OS.action
+            self.ax3.old_rud_angle = self.OS.rud_angle
 
             plt.pause(0.001)
 
-    """def _upd_tau(self, a):
-        Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
-        
-        0 - keep thrust as is | no rudder force 
-        1 - keep thrust as is | rudder force from one side
-        2 - keep thrust as is | rudder force from other side
-        
-        3 - decrease thrust   | no rudder force 
-        4 - decrease thrust   | rudder force from one side
-        5 - decrease thrust   | rudder force from other side
-        
-        6 - increase thrust   | no rudder force 
-        7 - increase thrust   | rudder force from one side
-        8 - increase thrust   | rudder force from other side
+"""
+x = FossenCS2()
+x.reset()
+x.render()
+x.OS.rud_angle = x.OS._deg_to_rad(0)
 
-        assert a in range(4), "Unknown action."
-
-        # store action for rendering
-        self.action = a
-
-        # keep thrust as is
-        if a == 0:
-            pass
-
-        elif a == 1:
-            self.tau[2] = -self.tau_r
-        
-        elif a == 2:
-            self.tau[2] = self.tau_r
-        
-        # decrease thrust
-        elif a == 3:
-            self.tau[0] -= self.delta_tau_u
-        
-        elif a == 4:
-            self.tau[0] -= self.delta_tau_u
-            self.tau[2] = -self.tau_r
-        
-        elif a == 5:
-            self.tau[0] -= self.delta_tau_u
-            self.tau[2] = self.tau_r
-        
-        # increase thrust:
-        elif a == 6:
-            self.tau[0] += self.delta_tau_u
-        
-        elif a == 7:
-            self.tau[0] += self.delta_tau_u
-            self.tau[2] = -self.tau_r
-
-        elif a == 8:
-            self.tau[0] += self.delta_tau_u
-            self.tau[2] = self.tau_r
-
-        # clip thrust to surge max
-        if self.tau[0] > self.tau_u_max:
-            self.tau[0] = self.tau_u_max
-        
-        elif self.tau[0] < -self.tau_u_max:
-            self.tau[0] = -self.tau_u_max"""
+for _ in range(10000):
+    x.step(0)
+    print(x)
+    x.render()
+"""
