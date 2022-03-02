@@ -98,8 +98,8 @@ class CyberShipII:
 
 
         #------------------------- Motion Initialization -----------------------------------
-        self.eta = np.array([10., 10., 0.]) #np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
-        self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+        self.eta = np.array([10., 10., np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
+        self.nu  = np.array([np.random.uniform(0, 1), 0., 0.])         # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         self.rud_angle = 0
         self._set_tau_from_n_delta()
@@ -287,17 +287,36 @@ class CyberShipII:
         return angle
 
 
+class StaticObstacle:
+    """A static circle-shaped obstacle."""
+    
+    def __init__(self, N_max, E_max, max_radius=5) -> None:
+        
+        # spawning point
+        self.N = np.random.uniform(15, N_max)
+        self.E = np.random.uniform(15, E_max)
+
+        # size
+        self.radius = np.random.uniform(1, max_radius)
+        self.radius_norm = self.radius / max_radius
+
 
 class FossenCS2(gym.Env):
-    """This environment implements the nonlinear ship manoeuvering model (3 DOF) proposed in Skjetne et al. (2004) 
-    in Modeling, Identification and Control."""
+    """This environment contains an agent steering a CyberShip II."""
 
     def __init__(self):
         super().__init__()
 
+        # simulation settings
+        self.delta_t = 0.5       # simulation time interval (in s)
+        self.N_max   = 50        # maximum N-coordinate (in m)
+        self.E_max   = 50        # maximum E-coordinate (in m)
+        self.N_statO = 2         # number of static obstacles
+
         # gym definitions
-        self.observation_space  = spaces.Box(low  = np.array([-np.inf, -np.inf, -np.inf, -1, -1, -np.inf], dtype=np.float32), 
-                                             high = np.array([ np.inf,  np.inf,  np.inf,  1,  1,  np.inf], dtype=np.float32))
+        obs_size = 6 + self.N_statO * 3
+        self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
+                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Discrete(3)
 
         # custom inits
@@ -305,25 +324,25 @@ class FossenCS2(gym.Env):
         self.r = 0
         self.r_head = 0
         self.r_dist = 0
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"]
-
-        # simulation settings
-        self.delta_t = 0.5       # simulation time interval (in s)
-        self.N_max   = 50        # maximum N-coordinate (in m)
-        self.E_max   = 50        # maximum E-coordinate (in m)
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"] #+ sum([[f"ED_{i}", f"angle_{i}", f"radius_{i}"] for i in range(self.N_statO)], [])
 
 
     def reset(self):
         """Resets environment to initial state."""
+
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        # init objects
-        self._spawn_objects()
+        # init goal
+        self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
+                     "E" : np.random.uniform(self.E_max - 25, self.E_max)}
         
+        # init static objects
+        self.statOs = [StaticObstacle(N_max=self.N_max, E_max=self.E_max) for _ in range(self.N_statO)]
+
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(delta_t = self.delta_t)
-        self.OS_goal_ED_init = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        self.OS = CyberShipII(delta_t=self.delta_t)
+        self.OS_goal_ED_init = self._ED(N1=self.goal["N"], E1=self.goal["E"])
         
         # init state
         self._set_state()
@@ -332,24 +351,46 @@ class FossenCS2(gym.Env):
         return self.state
 
 
-    def _spawn_objects(self):
-        """Initializes objects such as the goal, vessels, static obstacles, etc."""
-        
-        self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
-                     "E" : np.random.uniform(self.E_max - 25, self.E_max)}
-        #self.goal = {"N" : 20, "E" : 20}
-
     def _set_state(self):
-        """State consists of: u, v, r, heading, heading_error, ED_goal (all from agent's perspective)."""
+        """State consists of (all from agent's perspective): 
+        
+        OS related:
+        u, v, r, heading
 
-        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        Goal related:
+        heading_error, ED_goal
 
-        self.state = np.array([self.OS.nu[0], 
-                               self.OS.nu[1],
-                               self.OS.nu[2], 
-                               self.OS.eta[2] / (2*np.pi), 
-                               self._get_sign_psi_e() * self._get_abs_psi_e() / (np.pi), 
+        Static obstacle related (for each, sorted by ED):
+        ED_stat_O, angle from agent's view, radius (norm)
+        """
+
+        #--- OS related ---
+        state_OS = np.append(self.OS.nu, self.OS.eta[2] / (2*np.pi))
+
+        #--- goal related ---
+        OS_goal_ED = self._ED(N1=self.goal["N"], E1=self.goal["E"])
+
+        state_goal = np.array([self._get_psi_e_to_point(N1=self.goal["N"], E1=self.goal["E"]) / (np.pi), 
                                OS_goal_ED / self.OS_goal_ED_init])
+        
+        #--- static obstacle related ---
+        state_statOs = []
+
+        for obs in self.statOs:
+
+            # ED_stat_O | angle from agent's view | radius (norm)
+            ED_norm  = self._ED(N1=obs.N, E1=obs.E) / self.OS_goal_ED_init
+            head_err = self._get_psi_e_to_point(N1=obs.N, E1=obs.E)
+            r_norm   = obs.radius_norm
+
+            state_statOs.append([ED_norm, head_err, r_norm])
+        
+        # sort according to ascending euclidean distance to agent
+        state_statOs = np.array(sorted(state_statOs, key=lambda x: x[0]))
+        state_statOs = state_statOs.flatten(order="F")
+
+        #--- combine state ---
+        self.state = np.concatenate([state_OS, state_goal, state_statOs])
 
 
     def step(self, a):
@@ -383,11 +424,11 @@ class FossenCS2(gym.Env):
         # ---- Path planning reward (Xu et al. 2022) -----
 
         # 1. Distance reward
-        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        OS_goal_ED = self._ED(N1=self.goal["N"], E1=self.goal["E"])
         r_dist = - OS_goal_ED / self.OS_goal_ED_init
 
         # 2. Heading reward
-        r_head = - self._get_abs_psi_e() / np.pi
+        r_head = - self._get_abs_psi_e_to_point(N1=self.goal["N"], E1=self.goal["E"]) / np.pi
 
         # overall reward
         self.r_dist = r_dist
@@ -395,22 +436,39 @@ class FossenCS2(gym.Env):
         self.r = r_dist + r_head
 
 
-    def _get_abs_psi_e(self):
-        """Calculates the absolute value of the heading error (goal_angle - heading)."""
-        
-        psi_e_abs = np.abs(self._get_psi_g() - self.OS._clip_angle(self.OS.eta[2]))
+    def _get_psi_e_to_point(self, N1, E1):
+        """Computes heading error of the agent towards a point (N1, E1)."""
 
+        value = self._get_abs_psi_e_to_point(N1=N1, E1=E1)
+        sign  = self._get_sign_psi_e_to_point(N1=N1, E1=E1)
+
+        return sign * value
+
+
+    def _get_abs_psi_e_to_point(self, N1, E1):
+        """Calculates the absolute value of the heading error of the agent towards the given point (N1, E1) (target_angle - heading)."""
+
+        # compute angle of (N1, E1)
+        psi_g = self._get_psi_to_point(N1=N1, E1=E1)
+
+        # compute absolute heading error
+        psi_e_abs = np.abs(psi_g - self.OS._clip_angle(self.OS.eta[2]))
+
+        # keep it in [0, pi]
         if psi_e_abs <= np.pi:
             return psi_e_abs
         else:
             return 2*np.pi - psi_e_abs
-    
 
-    def _get_sign_psi_e(self):
-        """Calculates the sign of the heading error."""
 
-        psi_g = self._get_psi_g()
-        psi   = self.OS._clip_angle(self.OS.eta[2])
+    def _get_sign_psi_e_to_point(self, N1, E1):
+        """Calculates the sign of the heading error of the agent towards the given point (N1, E1)."""
+        
+        # compute angle of (N1, E1)
+        psi_g = self._get_psi_to_point(N1=N1, E1=E1)
+        
+        # get heading of agent
+        psi = self.OS._clip_angle(self.OS.eta[2])
 
         if psi_g <= np.pi:
 
@@ -426,40 +484,45 @@ class FossenCS2(gym.Env):
                 return -1
 
 
-    def _get_psi_g(self):
-        """Calculates the heading angle of the agent towards the goal."""
+    def _get_psi_to_point(self, N1, E1):
+        """Calculates the angle between agent and a point (N1, E1) in the NE-system. 
+        True zero is along the N-axis. Perspective centered at the agent."""
         
+        # quick access
+        N0 = self.OS.eta[0]
+        E0 = self.OS.eta[1]
+
         # compute ED to goal
-        ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        ED = self._ED(N1=N1, E1=E1)
 
         # differentiate between goal position from NE perspective centered at the agent
-        if self.OS.eta[0] <= self.goal["N"]:
+        if N0 <= N1:
 
             # I. quadrant
-            if self.OS.eta[1] <= self.goal["E"]:
-                psi_g = np.arccos((self.goal["N"] - self.OS.eta[0]) / ED)
+            if E0 <= E1:
+                psi_2P = np.arccos((N1 - N0) / ED)
 
             # II. quadrant
             else:
-                psi_g = 2*np.pi - np.arccos((self.goal["N"] - self.OS.eta[0]) / ED)
+                psi_2P = 2*np.pi - np.arccos((N1 - N0) / ED)
 
         else:
 
             # III. quadrant
-            if self.OS.eta[1] >= self.goal["E"]:
-                psi_g = np.pi + np.arccos((self.OS.eta[0] - self.goal["N"]) / ED)
+            if E0 >= E1:
+                psi_2P = np.pi + np.arccos((N0 - N1) / ED)
             
             # IV. quadrant
             else:
-                psi_g = np.pi - np.arccos((self.OS.eta[0] - self.goal["N"]) / ED)
+                psi_2P = np.pi - np.arccos((N0 - N1) / ED)
 
-        return psi_g
+        return psi_2P
 
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
 
-        OS_goal_ED = self._ED(N0 = self.OS.eta[0], E0 = self.OS.eta[1], N1 = self.goal["N"], E1 = self.goal["E"])
+        OS_goal_ED = self._ED(N1=self.goal["N"], E1=self.goal["E"])
 
         if any([OS_goal_ED <= 2.5,
                 self.OS.eta[0] < 0,
@@ -473,9 +536,9 @@ class FossenCS2(gym.Env):
         return False
 
 
-    def _ED(self, N0, E0, N1, E1):
-        """Computes the euclidean distance between two coordinates in the NE-system."""
-        return np.sqrt((N0 - N1)**2 + (E0 - E1)**2)
+    def _ED(self, N1, E1):
+        """Computes the euclidean distance of the agent to a point in the NE-system."""
+        return np.sqrt((self.OS.eta[0] - N1)**2 + (self.OS.eta[1] - E1)**2)
 
 
     def __str__(self) -> str:
@@ -520,10 +583,16 @@ class FossenCS2(gym.Env):
             
             self.ax0.add_patch(rect)
             self.ax0.text(E + 2.5, N + 2.5, self.__str__())
-            self.ax0.text(self.E_max - 5, self.N_max - 5, r"$\psi_g$" + f": {np.round(self.OS._rad_to_deg(self._get_psi_g()),3)}°")
+            self.ax0.text(self.E_max - 5, self.N_max - 5, 
+                          r"$\psi_g$" + f": {np.round(self.OS._rad_to_deg(self._get_psi_to_point(N1=self.goal['N'], E1=self.goal['E'])),3)}°")
 
             # set goal (stored as NE)
             self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")
+
+            # set static obstacles
+            for obs in self.statOs:
+                circ = patches.Circle((obs.E, obs.N), radius=obs.radius, color="green")
+                self.ax0.add_patch(circ)
 
             # ----- reward plot ----
             if self.step_cnt == 0:
@@ -558,7 +627,7 @@ class FossenCS2(gym.Env):
             self.ax2.set_xlabel("Timestep in episode")
             self.ax2.set_ylabel("State information")
 
-            for i in range(len(self.state)):
+            for i in range(6):
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
                                label=self.state_names[i])          
@@ -598,14 +667,14 @@ class FossenCS2(gym.Env):
 
             plt.pause(0.001)
 
-"""
+
 x = FossenCS2()
 x.reset()
 x.render()
-x.OS.rud_angle = x.OS._deg_to_rad(5)
+x.OS.rud_angle = x.OS._deg_to_rad(0)
 
 for _ in range(10000):
     x.step(0)
     print(x)
     x.render()
-"""
+
