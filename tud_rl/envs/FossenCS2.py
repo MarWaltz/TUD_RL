@@ -93,8 +93,8 @@ class CyberShipII:
         self.M_inv = np.linalg.inv(self.M)   
         
         # rudder angle max (in rad) and increment (in rad/s)
-        self.rud_angle_max = self._deg_to_rad(35)
-        self.rud_angle_inc = self._deg_to_rad(5) * self.delta_t
+        self.rud_angle_max = self._dtr(35)
+        self.rud_angle_inc = self._dtr(5) * self.delta_t
 
 
         #------------------------- Motion Initialization -----------------------------------
@@ -269,12 +269,12 @@ class CyberShipII:
         self._set_tau_from_n_delta()
 
 
-    def _deg_to_rad(self, angle):
+    def _dtr(self, angle):
         """Takes angle in degree an transforms it to radiant."""
         return angle * np.pi / 180
 
 
-    def _rad_to_deg(self, angle):
+    def _rtd(self, angle):
         """Takes angle in degree an transforms it to radiant."""
         return angle * 180 / np.pi
 
@@ -324,6 +324,7 @@ class FossenCS2(gym.Env):
         self.r = 0
         self.r_head = 0
         self.r_dist = 0
+        self.r_coll = 0
         self.state_names = ["u", "v", "r", r"$\Psi$", r"$\Psi_e$", "ED"] #+ sum([[f"ED_{i}", f"angle_{i}", f"radius_{i}"] for i in range(self.N_statO)], [])
 
 
@@ -430,10 +431,14 @@ class FossenCS2(gym.Env):
         # 2. Heading reward
         r_head = - self._get_abs_psi_e_to_point(N1=self.goal["N"], E1=self.goal["E"]) / np.pi
 
+        # --- Collision reward ----
+        r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]) else 0
+
         # overall reward
         self.r_dist = r_dist
         self.r_head = r_head
-        self.r = r_dist + r_head
+        self.r_coll = r_coll
+        self.r = r_dist + r_head + r_coll
 
 
     def _get_psi_e_to_point(self, N1, E1):
@@ -522,16 +527,22 @@ class FossenCS2(gym.Env):
     def _done(self):
         """Returns boolean flag whether episode is over."""
 
+        # goal reached
         OS_goal_ED = self._ED(N1=self.goal["N"], E1=self.goal["E"])
+        if OS_goal_ED <= 2.5:
+            return True
 
-        if any([OS_goal_ED <= 2.5,
-                self.OS.eta[0] < 0,
-                self.OS.eta[0] >= self.N_max,
-                self.OS.eta[1] < 0,
-                self.OS.eta[1] >= self.E_max,
-                self.step_cnt >= self._max_episode_steps]):
+        # out of the simulation area
+        if self.OS.eta[0] < 0 or self.OS.eta[0] >= self.N_max or self.OS.eta[1] < 0 or self.OS.eta[1] >= self.E_max:
+            return True
+        
+        # collision with a static obstacle
+        #if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]):
+        #    return True
 
-                return True
+        # artificial done signal
+        if self.step_cnt >= self._max_episode_steps:
+            return True
 
         return False
 
@@ -543,7 +554,7 @@ class FossenCS2(gym.Env):
 
     def __str__(self) -> str:
         ste = f"Step: {self.step_cnt}"
-        pos = f"N: {np.round(self.OS.eta[0], 3)}, E: {np.round(self.OS.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(self.OS._rad_to_deg(self.OS.eta[2]), 3)}°"
+        pos = f"N: {np.round(self.OS.eta[0], 3)}, E: {np.round(self.OS.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(self.OS._rtd(self.OS.eta[2]), 3)}°"
         vel = f"u: {np.round(self.OS.nu[0], 3)}, v: {np.round(self.OS.nu[1], 3)}, r: {np.round(self.OS.nu[2], 3)}"
         return ste + "\n" + pos + "\n" + vel
 
@@ -577,22 +588,27 @@ class FossenCS2(gym.Env):
             N = self.OS.eta[0]
             E = self.OS.eta[1]
             
-            rect = patches.Rectangle((E-self.OS.width/2, N-self.OS.length/2), self.OS.width, self.OS.length, -self.OS._rad_to_deg(self.OS.eta[2]), 
-                                      linewidth=1, edgecolor='r', facecolor='none')
+            rect = patches.Rectangle((E-self.OS.width/2, N-self.OS.length/2), self.OS.width, self.OS.length, -self.OS._rtd(self.OS.eta[2]), 
+                                      linewidth=1, edgecolor='red', facecolor='none')
             # Note: negate angle since we define it clock-wise, contrary to plt
             
             self.ax0.add_patch(rect)
             self.ax0.text(E + 2.5, N + 2.5, self.__str__())
-            self.ax0.text(self.E_max - 5, self.N_max - 5, 
-                          r"$\psi_g$" + f": {np.round(self.OS._rad_to_deg(self._get_psi_to_point(N1=self.goal['N'], E1=self.goal['E'])),3)}°")
 
             # set goal (stored as NE)
             self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")
+            self.ax0.text(self.goal["E"], self.goal["N"] + 2,
+                          r"$\psi_g$" + f": {np.round(self.OS._rtd(self._get_psi_to_point(N1=self.goal['N'], E1=self.goal['E'])),3)}°",
+                          horizontalalignment='center', verticalalignment='center', color='blue')
+
 
             # set static obstacles
-            for obs in self.statOs:
-                circ = patches.Circle((obs.E, obs.N), radius=obs.radius, color="green")
+            for obs_id, obs in enumerate(self.statOs):
+                circ = patches.Circle((obs.E, obs.N), radius=obs.radius, edgecolor='green', facecolor='none', alpha=0.75)
                 self.ax0.add_patch(circ)
+                self.ax0.text(obs.E, obs.N, str(obs_id), horizontalalignment='center', verticalalignment='center', color='green')
+                self.ax0.text(obs.E, obs.N - 3, r"$\psi_g$" + f": {np.round(self.OS._rtd(self._get_psi_to_point(N1=obs.N, E1=obs.E)),3)}°",
+                              horizontalalignment='center', verticalalignment='center', color='green')
 
             # ----- reward plot ----
             if self.step_cnt == 0:
@@ -600,6 +616,7 @@ class FossenCS2(gym.Env):
                 self.ax1.old_time = 0
                 self.ax1.old_r_head = 0
                 self.ax1.old_r_dist = 0
+                self.ax1.old_r_coll = 0
 
             self.ax1.set_xlim(0, self._max_episode_steps)
             self.ax1.set_ylim(-1.25, 0.1)
@@ -608,6 +625,7 @@ class FossenCS2(gym.Env):
 
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
+            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
             
             if self.step_cnt == 0:
                 self.ax1.legend()
@@ -615,6 +633,7 @@ class FossenCS2(gym.Env):
             self.ax1.old_time = self.step_cnt
             self.ax1.old_r_head = self.r_head
             self.ax1.old_r_dist = self.r_dist
+            self.ax1.old_r_coll = self.r_coll
 
             # ---- state plot ----
             if self.step_cnt == 0:
@@ -655,10 +674,10 @@ class FossenCS2(gym.Env):
             self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
 
             # add rudder angle plot
-            self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.OS._rad_to_deg(self.ax3.old_rud_angle), self.OS._rad_to_deg(self.OS.rud_angle)], color="blue")
-            self.ax3_twin.set_ylim(-self.OS._rad_to_deg(self.OS.rud_angle_max) - 5, self.OS._rad_to_deg(self.OS.rud_angle_max) + 5)
-            self.ax3_twin.set_yticks(range(-int(self.OS._rad_to_deg(self.OS.rud_angle_max)), int(self.OS._rad_to_deg(self.OS.rud_angle_max)) + 5, 5))
-            self.ax3_twin.set_yticklabels(range(-int(self.OS._rad_to_deg(self.OS.rud_angle_max)), int(self.OS._rad_to_deg(self.OS.rud_angle_max)) + 5, 5))
+            self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.OS._rtd(self.ax3.old_rud_angle), self.OS._rtd(self.OS.rud_angle)], color="blue")
+            self.ax3_twin.set_ylim(-self.OS._rtd(self.OS.rud_angle_max) - 5, self.OS._rtd(self.OS.rud_angle_max) + 5)
+            self.ax3_twin.set_yticks(range(-int(self.OS._rtd(self.OS.rud_angle_max)), int(self.OS._rtd(self.OS.rud_angle_max)) + 5, 5))
+            self.ax3_twin.set_yticklabels(range(-int(self.OS._rtd(self.OS.rud_angle_max)), int(self.OS._rtd(self.OS.rud_angle_max)) + 5, 5))
             self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
 
             self.ax3.old_time = self.step_cnt
@@ -666,15 +685,14 @@ class FossenCS2(gym.Env):
             self.ax3.old_rud_angle = self.OS.rud_angle
 
             plt.pause(0.001)
-
-
+"""
 x = FossenCS2()
 x.reset()
 x.render()
-x.OS.rud_angle = x.OS._deg_to_rad(0)
+x.OS.rud_angle = x.OS._dtr(0)
 
 for _ in range(10000):
     x.step(0)
     print(x)
     x.render()
-
+"""
