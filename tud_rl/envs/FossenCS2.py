@@ -3,6 +3,7 @@ import matplotlib.patches as patches
 import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
+from scipy.integrate import solve_ivp
 
 
 class CyberShipII:
@@ -97,18 +98,18 @@ class CyberShipII:
 
 
         #------------------------- Motion Initialization -----------------------------------
-        self.eta = np.array([10., 10., np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
+        self.eta = np.array([10., 10., 0.]) #np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
         self.nu  = np.array([0., 0., 0.])                              # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         self.rud_angle = 0
         self._set_tau_from_n_delta()
 
 
-    def _C_of_nu(self):
+    def _C_of_nu(self, nu):
         """Computes centripetal/coriolis matrix for given velocities."""
 
         # unpacking
-        u, v, r = self.nu
+        u, v, r = nu
 
         # rigid-body
         C_RB = np.array([[0, 0, -self.m * (self.x_g * r + v)],
@@ -123,11 +124,11 @@ class CyberShipII:
         return C_RB + C_A
 
 
-    def _D_of_nu(self):
+    def _D_of_nu(self, nu):
         """Computes damping matrix for given velocities."""
         
         # unpacking
-        u, v, r = self.nu
+        u, v, r = nu
 
         # components
         d11 = -self.X_u - self.X_lulu * np.abs(u) - self.X_uuu * u**2
@@ -141,11 +142,9 @@ class CyberShipII:
                          [0, d32, d33]])
 
 
-    def _T_of_psi(self):
+    def _T_of_psi(self, psi):
         """Computes rotation matrix for given heading (in rad)."""
 
-        psi = self.eta[2]
-        
         return np.array([[np.cos(psi), -np.sin(psi), 0],
                          [np.sin(psi),  np.cos(psi), 0],
                          [0, 0, 1]])
@@ -187,30 +186,62 @@ class CyberShipII:
         self.tau = np.dot(self.B, np.array([T12, T12, T3, L12, L12]))
 
 
-    def _upd_dynamics(self, euler=True):
+    def _ship_dynamic(self, t, y):
+        """Returns eta_dot and nu_dot according to the nonlinear ship manoeuvering model. Forms the basis for ODE integration.
+
+        Args:
+            t (time):    integration time
+            y (array):   array containing [N, E, psi, u, v, r] (which is [eta, nu])
+        """
+
+        # unpack values
+        eta = y[:3]
+        nu  = y[3:]
+
+        # find nu_dot
+        M_nu_dot = self.tau - np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu)
+        nu_dot = np.dot(self.M_inv, M_nu_dot)
+
+        # find eta_dot
+        eta_dot = np.dot(self._T_of_psi(eta[2]), nu)
+
+        return np.concatenate([eta_dot, nu_dot])
+
+
+    def _upd_dynamics(self, euler=False):
         """Updates positions and velocities for next simulation step. Uses basic Euler method."""
 
         if euler:
 
             # calculate nu_dot by solving Fossen's equation
-            M_nu_dot = self.tau - np.dot(self._C_of_nu() + self._D_of_nu(), self.nu)
+            M_nu_dot = self.tau - np.dot(self._C_of_nu(self.nu) + self._D_of_nu(self.nu), self.nu)
             nu_dot = np.dot(self.M_inv, M_nu_dot)
 
             # get new velocity (BODY-system)
             self.nu += nu_dot * self.delta_t
 
             # calculate eta_dot via rotation
-            eta_dot = np.dot(self._T_of_psi(), self.nu)
+            eta_dot = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
             # get new positions (NE-system)
             self.eta += eta_dot * self.delta_t
-
-            # transform heading to [-2pi, 2pi]
-            if np.abs(self.eta[2]) > 2*np.pi:
-                self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
-            
+           
         else:
-            raise NotImplementedError("Currently, only euler integration is available.")
+
+            # solve ODE
+            sol = solve_ivp(fun    = self._ship_dynamic, 
+                            t_span = (0.0, self.delta_t), 
+                            y0     = np.concatenate([self.eta, self.nu]),
+                            method = "RK45",
+                            t_eval = np.array([self.delta_t]))
+
+            # store new eta and nu
+            self.eta = sol.y[0:3, 0]
+            self.nu  = sol.y[3:, 0]
+
+        # transform heading to [-2pi, 2pi]
+        if np.abs(self.eta[2]) > 2*np.pi:
+            self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
 
 
     def _upd_tau(self, a):
@@ -571,7 +602,7 @@ class FossenCS2(gym.Env):
 x = FossenCS2()
 x.reset()
 x.render()
-x.OS.rud_angle = x.OS._deg_to_rad(0)
+x.OS.rud_angle = x.OS._deg_to_rad(5)
 
 for _ in range(10000):
     x.step(0)
