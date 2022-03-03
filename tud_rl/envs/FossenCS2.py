@@ -10,13 +10,15 @@ class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
     Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-    def __init__(self, delta_t) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
-        # store simulation step size and dummy action for rendering
+        # store simulation settings and dummy action for rendering
         self.delta_t = delta_t
-        self.action = 0
+        self.N_max   = N_max
+        self.E_max   = E_max
+        self.action  = 0
 
         # CyberShip II parameters
         self.length = 1.255
@@ -98,8 +100,8 @@ class CyberShipII:
 
 
         #------------------------- Motion Initialization -----------------------------------
-        self.eta = np.array([10., 10., np.random.uniform(0, np.pi)])   # N (in m),   E (in m),   psi (in rad)   in NE-system
-        self.nu  = np.array([np.random.uniform(0, 1), 0., 0.])         # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+        self.eta = np.array([N_init, E_init, psi_init])        # N (in m),   E (in m),   psi (in rad)   in NE-system
+        self.nu  = np.array([u_init, v_init, r_init])          # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
         self.rud_angle = 0
         self._set_tau_from_n_delta()
@@ -208,8 +210,14 @@ class CyberShipII:
         return np.concatenate([eta_dot, nu_dot])
 
 
-    def _upd_dynamics(self, euler=False):
-        """Updates positions and velocities for next simulation step. Uses basic Euler method."""
+    def _upd_dynamics(self, euler=False, mirrow=False):
+        """Updates positions and velocities for next simulation step. Uses basic Euler method.
+        Arguments:
+
+        euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
+        mirrow (bool): Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
+                       Inspired by Xu et al. (2022, Neurocomputing).
+        """
 
         if euler:
 
@@ -242,6 +250,20 @@ class CyberShipII:
         # transform heading to [-2pi, 2pi]
         if np.abs(self.eta[2]) > 2*np.pi:
             self.eta[2] = np.sign(self.eta[2]) * (np.abs(self.eta[2]) - 2*np.pi)
+        
+        # stay on map in mirrow-mode
+        if mirrow and self._is_off_map():
+            
+            # quick access
+            psi = self._clip_angle(self.eta[2])
+
+            # right or left bound (E-axis)
+            if self.eta[1] <= 0 or self.eta[1] >= self.E_max:
+                self.eta[2] = 2*np.pi - psi
+            
+            # upper and lower bound (N-axis)
+            else:
+                self.eta[2] = np.pi - psi
 
 
     def _upd_tau(self, a):
@@ -287,14 +309,22 @@ class CyberShipII:
         return angle
 
 
+    def _is_off_map(self):
+        """Checks whether vessel left the map."""
+
+        if self.eta[0] <= 0 or self.eta[0] >= self.N_max or self.eta[1] <= 0 or self.eta[1] >= self.E_max:
+            return True
+        return False
+
+
 class StaticObstacle:
     """A static circle-shaped obstacle."""
     
-    def __init__(self, N_max, E_max, max_radius=5) -> None:
+    def __init__(self, N_init, E_init, max_radius) -> None:
         
         # spawning point
-        self.N = np.random.uniform(15, N_max)
-        self.E = np.random.uniform(15, E_max)
+        self.N = N_init
+        self.E = E_init
 
         # size
         self.radius = np.random.uniform(1, max_radius)
@@ -311,7 +341,8 @@ class FossenCS2(gym.Env):
         self.delta_t = 0.5       # simulation time interval (in s)
         self.N_max   = 50        # maximum N-coordinate (in m)
         self.E_max   = 50        # maximum E-coordinate (in m)
-        self.N_statO = 2         # number of static obstacles
+        self.N_statO = 0         # number of static obstacles
+        self.N_TSs   = 5         # number of other vessels
 
         # gym definitions
         obs_size = 6 + self.N_statO * 3
@@ -337,12 +368,34 @@ class FossenCS2(gym.Env):
         # init goal
         self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
                      "E" : np.random.uniform(self.E_max - 25, self.E_max)}
-        
-        # init static objects
-        self.statOs = [StaticObstacle(N_max=self.N_max, E_max=self.E_max) for _ in range(self.N_statO)]
+
+        # init static obstacles
+        self.statOs = [StaticObstacle(N_init = np.random.uniform(15, self.N_max),
+                                      E_init = np.random.uniform(15, self.E_max),
+                                      max_radius = 5) for _ in range(self.N_statO)]
+
+        # init other vessels
+        self.TSs = [CyberShipII(N_init   = np.random.uniform(15, self.N_max), 
+                                E_init   = np.random.uniform(15, self.E_max), 
+                                psi_init = np.random.uniform(0, np.pi),
+                                u_init   = np.random.uniform(0, 1),
+                                v_init   = 0.0,
+                                r_init   = 0.0,
+                                delta_t  = self.delta_t,
+                                N_max    = self.N_max,
+                                E_max    = self.E_max) for _ in range(self.N_TSs)]
 
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(delta_t=self.delta_t)
+        self.OS = CyberShipII(N_init   = 10.0, 
+                              E_init   = 10.0, 
+                              psi_init = np.random.uniform(0, np.pi),
+                              u_init   = np.random.uniform(0, 1),
+                              v_init   = 0.0,
+                              r_init   = 0.0,
+                              delta_t  = self.delta_t,
+                              N_max    = self.N_max,
+                              E_max    = self.E_max)
+
         self.OS_goal_ED_init = self._ED(N1=self.goal["N"], E1=self.goal["E"])
         
         # init state
@@ -379,11 +432,16 @@ class FossenCS2(gym.Env):
 
         for obs in self.statOs:
 
-            # ED_stat_O | angle from agent's view | radius (norm)
-            ED_norm  = self._ED(N1=obs.N, E1=obs.E) / self.OS_goal_ED_init
-            head_err = self._get_psi_e_to_point(N1=obs.N, E1=obs.E)
-            r_norm   = obs.radius_norm
-
+            # normalized euclidean distance
+            ED_norm = self._ED(N1=obs.N, E1=obs.E) / self.OS_goal_ED_init
+            
+            # heading error from agent's view
+            head_err = self._get_psi_e_to_point(N1=obs.N, E1=obs.E) / (np.pi)
+            
+            # normalized size
+            r_norm = obs.radius_norm
+            
+            # store it
             state_statOs.append([ED_norm, head_err, r_norm])
         
         # sort according to ascending euclidean distance to agent
@@ -402,10 +460,10 @@ class FossenCS2(gym.Env):
         self.OS._upd_tau(a)
 
         # update agent dynamics
-        self.OS._upd_dynamics()
+        self.OS._upd_dynamics(mirrow=False)
 
         # update environmental dynamics, e.g., other vessels
-        pass
+        [TS._upd_dynamics(mirrow=True) for TS in self.TSs]
 
         # compute state, reward, done        
         self._set_state()
@@ -419,7 +477,7 @@ class FossenCS2(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _calculate_reward(self):
+    def _calculate_reward(self, w_dist=3, w_head=1, w_coll=1, w_map=1):
         """Returns reward of the current state."""
 
         # ---- Path planning reward (Xu et al. 2022) -----
@@ -434,11 +492,15 @@ class FossenCS2(gym.Env):
         # --- Collision reward ----
         r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]) else 0
 
+        # --- Leave-the-map reward ---
+        r_map = -10 if self.OS._is_off_map() else 0
+
         # overall reward
         self.r_dist = r_dist
         self.r_head = r_head
         self.r_coll = r_coll
-        self.r = r_dist + r_head + r_coll
+        self.r_map  = r_map
+        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_map * r_map
 
 
     def _get_psi_e_to_point(self, N1, E1):
@@ -533,7 +595,7 @@ class FossenCS2(gym.Env):
             return True
 
         # out of the simulation area
-        if self.OS.eta[0] < 0 or self.OS.eta[0] >= self.N_max or self.OS.eta[1] < 0 or self.OS.eta[1] >= self.E_max:
+        if self.OS._is_off_map():
             return True
         
         # collision with a static obstacle
@@ -547,9 +609,13 @@ class FossenCS2(gym.Env):
         return False
 
 
-    def _ED(self, N1, E1):
+    def _ED(self, N1, E1, sqrt=True):
         """Computes the euclidean distance of the agent to a point in the NE-system."""
-        return np.sqrt((self.OS.eta[0] - N1)**2 + (self.OS.eta[1] - E1)**2)
+        d_sq = (self.OS.eta[0] - N1)**2 + (self.OS.eta[1] - E1)**2
+
+        if sqrt:
+            return np.sqrt(d_sq)
+        return d_sq
 
 
     def __str__(self) -> str:
@@ -601,13 +667,20 @@ class FossenCS2(gym.Env):
                           r"$\psi_g$" + f": {np.round(self.OS._rtd(self._get_psi_to_point(N1=self.goal['N'], E1=self.goal['E'])),3)}°",
                           horizontalalignment='center', verticalalignment='center', color='blue')
 
+            # set other vessels
+            for TS in self.TSs:
+                N = TS.eta[0]
+                E = TS.eta[1]
+                rect = patches.Rectangle((E-TS.width/2, N-TS.length/2), TS.width, TS.length, -TS._rtd(TS.eta[2]), 
+                                          linewidth=1, edgecolor='darkred', facecolor='none')
+                self.ax0.add_patch(rect)
 
             # set static obstacles
             for obs_id, obs in enumerate(self.statOs):
                 circ = patches.Circle((obs.E, obs.N), radius=obs.radius, edgecolor='green', facecolor='none', alpha=0.75)
                 self.ax0.add_patch(circ)
                 self.ax0.text(obs.E, obs.N, str(obs_id), horizontalalignment='center', verticalalignment='center', color='green')
-                self.ax0.text(obs.E, obs.N - 3, r"$\psi_g$" + f": {np.round(self.OS._rtd(self._get_psi_to_point(N1=obs.N, E1=obs.E)),3)}°",
+                self.ax0.text(obs.E, obs.N - 3, rf"$\psi_{obs_id}$" + f": {np.round(self.OS._rtd(self._get_psi_to_point(N1=obs.N, E1=obs.E)),3)}°",
                               horizontalalignment='center', verticalalignment='center', color='green')
 
             # ----- reward plot ----
@@ -619,7 +692,7 @@ class FossenCS2(gym.Env):
                 self.ax1.old_r_coll = 0
 
             self.ax1.set_xlim(0, self._max_episode_steps)
-            self.ax1.set_ylim(-1.25, 0.1)
+            #self.ax1.set_ylim(-1.25, 0.1)
             self.ax1.set_xlabel("Timestep in episode")
             self.ax1.set_ylabel("Reward")
 
@@ -685,7 +758,7 @@ class FossenCS2(gym.Env):
             self.ax3.old_rud_angle = self.OS.rud_angle
 
             plt.pause(0.001)
-"""
+
 x = FossenCS2()
 x.reset()
 x.render()
@@ -695,4 +768,4 @@ for _ in range(10000):
     x.step(0)
     print(x)
     x.render()
-"""
+
