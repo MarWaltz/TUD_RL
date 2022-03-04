@@ -10,7 +10,7 @@ class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
     Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, domain_size, cnt_approach="f123") -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, domain_size, cnt_approach) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
@@ -450,6 +450,7 @@ class FossenCS2(gym.Env):
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_statO      = 3                # number of static obstacles
         self.N_TSs        = 0                # number of other vessels
+        self.safety_dist  = 3                # minimum distance to a static obstacle (in m)
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
 
@@ -612,7 +613,7 @@ class FossenCS2(gym.Env):
         r_head = - self._get_abs_psi_e_to_point(N1=self.goal["N"], E1=self.goal["E"]) / np.pi
 
         # --- Collision reward ----
-        r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]) else 0
+        r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius + self.safety_dist for obs in self.statOs]) else 0
         #r_coll = 0
 
         for obs in self.statOs:
@@ -631,23 +632,35 @@ class FossenCS2(gym.Env):
         self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_map * r_map
 
 
-    def _get_psi_e_to_point(self, N1, E1):
-        """Computes heading error of the agent towards a point (N1, E1)."""
+    def _get_psi_e_to_point(self, N1, E1, N0=None, E0=None, psi=None):
+        """Computes heading error of the agent towards a point (N1, E1).
+           Alternatively, computes the same for a given heading (psi) and point (N0, E0), e.g., from a TS perspective."""
 
-        value = self._get_abs_psi_e_to_point(N1=N1, E1=E1)
-        sign  = self._get_sign_psi_e_to_point(N1=N1, E1=E1)
+        if N0 is None and E0 is None and psi is None:
+            N0 = self.OS.eta[0]
+            E0 = self.OS.eta[1]
+            psi = self.OS.eta[2]
+
+        value = self._get_abs_psi_e_to_point(N1=N1, E1=E1, N0=N0, E0=E0, psi=psi)
+        sign  = self._get_sign_psi_e_to_point(N1=N1, E1=E1, N0=N0, E0=E0, psi=psi)
 
         return sign * value
 
 
-    def _get_abs_psi_e_to_point(self, N1, E1):
-        """Calculates the absolute value of the heading error of the agent towards the given point (N1, E1) (target_angle - heading)."""
+    def _get_abs_psi_e_to_point(self, N1, E1, N0=None, E0=None, psi=None):
+        """Calculates the absolute value of the heading error of the agent towards the given point (N1, E1) (target_angle - heading).
+           Alternatively, computes the same for a given heading (psi) and point (N0, E0), e.g., from a TS perspective."""
+
+        if N0 is None and E0 is None and psi is None:
+            N0 = self.OS.eta[0]
+            E0 = self.OS.eta[1]
+            psi = self.OS.eta[2]
 
         # compute angle of (N1, E1)
-        psi_g = self._get_psi_to_point(N1=N1, E1=E1)
+        psi_g = self._get_psi_to_point(N1=N1, E1=E1, N0=N0, E0=E0)
 
         # compute absolute heading error
-        psi_e_abs = np.abs(psi_g - self.OS.eta[2])
+        psi_e_abs = np.abs(psi_g - psi)
 
         # keep it in [0, pi]
         if psi_e_abs <= np.pi:
@@ -656,15 +669,18 @@ class FossenCS2(gym.Env):
             return 2*np.pi - psi_e_abs
 
 
-    def _get_sign_psi_e_to_point(self, N1, E1):
-        """Calculates the sign of the heading error of the agent towards the given point (N1, E1)."""
-        
-        # compute angle of (N1, E1)
-        psi_g = self._get_psi_to_point(N1=N1, E1=E1)
-        
-        # get heading of agent
-        psi = self.OS.eta[2]
+    def _get_sign_psi_e_to_point(self, N1, E1, N0=None, E0=None, psi=None):
+        """Calculates the sign of the heading error of the agent towards the given point (N1, E1).
+           Alternatively, computes the same for a given heading (psi) and point (N0, E0), e.g., from a TS perspective."""
 
+        if N0 is None and E0 is None and psi is None:
+            N0 = self.OS.eta[0]
+            E0 = self.OS.eta[1]
+            psi = self.OS.eta[2]
+
+        # compute angle of (N1, E1)
+        psi_g = self._get_psi_to_point(N1=N1, E1=E1, N0=N0, E0=E0)
+        
         if psi_g <= np.pi:
 
             if psi_g <= psi <= psi_g + np.pi:
@@ -679,16 +695,17 @@ class FossenCS2(gym.Env):
                 return -1
 
 
-    def _get_psi_to_point(self, N1, E1):
+    def _get_psi_to_point(self, N1, E1, N0=None, E0=None):
         """Calculates the angle in [0, 2pi] between agent and a point (N1, E1) in the NE-system. 
-        True zero is along the N-axis. Perspective centered at the agent."""
+        True zero is along the N-axis. Perspective centered at the agent by default, else at (N0, E0)."""
         
-        # quick access
-        N0 = self.OS.eta[0]
-        E0 = self.OS.eta[1]
+        # default: agent perspective
+        if N0 is None and E0 is None:
+            N0 = self.OS.eta[0]
+            E0 = self.OS.eta[1]
 
         # compute ED to goal
-        ED = self._ED(N1=N1, E1=E1)
+        ED = self._ED(N1=N1, E1=E1, N0=N0, E0=E0)
 
         # differentiate between goal position from NE perspective centered at the agent
         if N0 <= N1:
@@ -737,13 +754,82 @@ class FossenCS2(gym.Env):
         return False
 
 
-    def _ED(self, N1, E1, sqrt=True):
-        """Computes the euclidean distance of the agent to a point in the NE-system."""
-        d_sq = (self.OS.eta[0] - N1)**2 + (self.OS.eta[1] - E1)**2
+    def _ED(self, N1, E1, N0=None, E0=None, sqrt=True):
+        """Computes the euclidean distance of the agent (default) or a point (N0, E0) to another point (N1, E1) in the NE-system."""
+        
+        if N0 is None and E0 is None:
+            N0 = self.OS.eta[0]
+            E0 = self.OS.eta[1]
+
+        d_sq = (N0 - N1)**2 + (E0 - E1)**2
 
         if sqrt:
             return np.sqrt(d_sq)
         return d_sq
+
+
+    def _get_COLREG_situation(self, OS, TS, distance):
+        """Determines the COLREG situation from the perspective of the OS.
+
+        Args:
+            OS (CyberShip):    own vessel with attributes eta, nu
+            TS (CyberShip):    target vessel with attributes eta, nu
+            distance (float):  in m, minimum distance to constitute non-zero situation
+
+        Returns:
+            0  -  no conflict situation
+            1  -  overtaking
+            2  -  head-on
+            3  -  port crossing
+            4  -  starboard crossing
+        """
+
+        # quick access
+        N0 = OS.eta[0]
+        E0 = OS.eta[1]
+
+        N1 = TS.eta[0]
+        E1 = TS.eta[1]
+
+        # check whether TS is too far away
+        if self._ED(N1=N1, E1=E1, N0=N0, E0=E0) > distance:
+            return 0
+
+        # compute heading error towards position of TS (to degree)
+        head_e_pos = self.OS._rtd(self._get_psi_e_to_point(N1=N1, E1=E1))
+
+        # compute absolute heading error towards position of OS from TS-perspective (to degree)
+        # thus: simply reverse 0 and 1 in the call
+        abs_head_e_pos_TS_pers = self.OS._rtd(self._get_abs_psi_e_to_point(N1=N0, E1=E0, N0=N1, E0=E1))
+
+        # compute heading difference between the two vessels (transform to [0,2pi] and degree)
+        head_diff = self.OS._clip_angle(TS.eta[2] - OS.eta[2])
+        head_diff = self.OS._rtd(head_diff)
+        
+        # compute speeds (squared here since we only care about order)
+        speed_OS = OS.nu[0]**2 + OS.nu[1]**2
+        speed_TS = TS.nu[0]**2 + TS.nu[1]**2
+
+        # COLREG 1: Overtaking
+        if all([abs_head_e_pos_TS_pers >= 112.5,
+                0 <= head_diff <= 67.5 or 292.5 <= head_diff <=360,
+                speed_OS > speed_TS]):
+            return 1
+
+        # COLREG 2: Head-on
+        if -5 <= head_e_pos <= 5 and 175 <= head_diff <= 185:
+            return 2
+        
+        # COLREG 3: Port crossing
+        if -112.5 <= head_e_pos <= -5 and 67.5 <= head_diff <= 175:
+            return 3
+        
+        # COLREG 4: Starboard crossing
+        if 5 <= head_e_pos <= 112.5 and 185 <= head_diff <= 292.5:
+            return 4
+        
+        # nothing special
+        return 0
 
 
     def __str__(self) -> str:
@@ -779,6 +865,44 @@ class FossenCS2(gym.Env):
         return patches.Rectangle((E0, N0), width, length, self.OS._rtd(heading), **kwargs)
 
 
+    def _plot_jet(self, axis, E, N, l, angle, **kwargs):
+        """Adds a line to an axis (plt-object) originating at (E,N), having a given length l, 
+           and following the angle (in rad)."""
+
+        # transform angle in [0, 2pi]
+        angle = self.OS._clip_angle(angle)
+
+        # 1. Quadrant
+        if angle <= np.pi/2:
+            E1 = E + np.sin(angle) * l
+            N1 = N + np.cos(angle) * l
+        
+        # 2. Quadrant
+        elif 3/2 *np.pi < angle <= 2*np.pi:
+            angle = 2*np.pi - angle
+
+            E1 = E - np.sin(angle) * l
+            N1 = N + np.cos(angle) * l
+
+        # 3. Quadrant
+        elif np.pi < angle <= 3/2*np.pi:
+            angle -= np.pi
+
+            E1 = E - np.sin(angle) * l
+            N1 = N - np.cos(angle) * l
+
+        # 4. Quadrant
+        elif np.pi/2 < angle <= np.pi:
+            angle = np.pi - angle
+
+            E1 = E + np.sin(angle) * l
+            N1 = N - np.cos(angle) * l
+        
+        # draw on axis
+        axis.plot([E, E1], [N, N1], **kwargs)
+        return axis
+
+
     def render(self):
         """Renders the current environment."""
 
@@ -807,14 +931,20 @@ class FossenCS2(gym.Env):
             # set OS
             N = self.OS.eta[0]
             E = self.OS.eta[1]
+            head = self.OS.eta[2]
+            self.ax0.text(E + 2.5, N + 2.5, self.__str__())
             
-            rect = self._get_rect(E = E, N = N, width = self.OS.width, length = self.OS.length, heading = self.OS.eta[2],
+            rect = self._get_rect(E = E, N = N, width = self.OS.width, length = self.OS.length, heading = head,
                                   linewidth=1, edgecolor='red', facecolor='none')
             self.ax0.add_patch(rect)
-            self.ax0.text(E + 2.5, N + 2.5, self.__str__())
+
+            # add jets according to COLREGS
+            for COLREG_deg in [5, 112.5, 247.5, 355]:
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.OS.domain_size, 
+                                          angle = head + self.OS._dtr(COLREG_deg), color='red', alpha=0.3)
 
             # set ship domain
-            circ = patches.Circle((E, N), radius=self.OS.domain_size, edgecolor='red', facecolor='none', alpha=0.75)
+            circ = patches.Circle((E, N), radius=self.OS.domain_size, edgecolor='red', facecolor='none', alpha=0.3)
             self.ax0.add_patch(circ)
 
             # set goal (stored as NE)
