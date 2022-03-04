@@ -122,8 +122,8 @@ class CyberShipII:
                                [1, 0, 0],
                                [self.lx, -self.ly, self.ly]], dtype=np.float32)
             self.f1 = 0.0
-            self.f2 = 0.0
-            self.f3 = 0.0
+            self.f2 = 2.0
+            self.f3 = 2.0
 
             self.df23 = 1       # increment (in N)
             self.f23_max = 8    # maximum (in N)
@@ -452,7 +452,7 @@ class FossenCS2(gym.Env):
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_statO      = 3                # number of static obstacles
-        self.N_TSs        = 0                # number of other vessels
+        self.N_TSs        = 3                # number of other vessels
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
 
@@ -557,7 +557,7 @@ class FossenCS2(gym.Env):
 
         for obs in self.statOs:
 
-            # normalized distance to clostest point (ED - radius)
+            # normalized distance to closest point (ED - radius)
             ED_norm = (self._ED(N1=obs.N, E1=obs.E) - obs.radius_norm)/ self.OS_goal_ED_init
             
             # heading error from agent's view
@@ -612,8 +612,8 @@ class FossenCS2(gym.Env):
         r_head = - self._get_abs_psi_e_to_point(N1=self.goal["N"], E1=self.goal["E"]) / np.pi
 
         # --- Collision reward ----
-        #r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]) else 0
-        r_coll = 0
+        r_coll = -10 if any([self._ED(N1=obs.N, E1=obs.E) <= obs.radius for obs in self.statOs]) else 0
+        #r_coll = 0
 
         for obs in self.statOs:
             num = np.exp(-0.5 * self._ED(N1=obs.N, E1=obs.E, sqrt=False) / self.r_coll_sigma**2)
@@ -753,6 +753,32 @@ class FossenCS2(gym.Env):
         return ste + "\n" + pos + "\n" + vel
 
 
+    def _get_rect(self, E, N, width, length, heading, **kwargs):
+        """Returns a patches.rectangle object. heading in rad."""
+
+        # quick access
+        x = E - width/2
+        y = N - length/2, 
+        cx = E
+        cy = N
+        heading = -heading   # negate since our heading is defined clockwise, contrary to plt rotations
+
+        # translate point to origin
+        tempX = x - cx
+        tempY = y - cy
+
+        # apply rotation
+        rotatedX = tempX * np.cos(heading) - tempY * np.sin(heading)
+        rotatedY = tempX * np.sin(heading) + tempY * np.cos(heading)
+
+        # translate back
+        E0 = rotatedX + cx
+        N0 = rotatedY + cy
+
+        # create rect
+        return patches.Rectangle((E0, N0), width, length, self.OS._rtd(heading), **kwargs)
+
+
     def render(self):
         """Renders the current environment."""
 
@@ -782,10 +808,8 @@ class FossenCS2(gym.Env):
             N = self.OS.eta[0]
             E = self.OS.eta[1]
             
-            rect = patches.Rectangle((E-self.OS.width/2, N-self.OS.length/2), self.OS.width, self.OS.length, -self.OS._rtd(self.OS.eta[2]), 
-                                      linewidth=1, edgecolor='red', facecolor='none')
-            # Note: negate angle since we define it clock-wise, contrary to plt
-            
+            rect = self._get_rect(E = E, N = N, width = self.OS.width, length = self.OS.length, heading = self.OS.eta[2],
+                                  linewidth=1, edgecolor='red', facecolor='none')
             self.ax0.add_patch(rect)
             self.ax0.text(E + 2.5, N + 2.5, self.__str__())
 
@@ -805,8 +829,8 @@ class FossenCS2(gym.Env):
                 E = TS.eta[1]
 
                 # vessel
-                rect = patches.Rectangle((E-TS.width/2, N-TS.length/2), TS.width, TS.length, -TS._rtd(TS.eta[2]), 
-                                          linewidth=1, edgecolor='darkred', facecolor='none')
+                rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = TS.eta[2],
+                                      linewidth=1, edgecolor='darkred', facecolor='none')
                 self.ax0.add_patch(rect)
 
                 # domain
