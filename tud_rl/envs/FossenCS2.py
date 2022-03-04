@@ -126,7 +126,7 @@ class CyberShipII:
             self.f3 = 2.0
 
             self.df23 = 1       # increment (in N)
-            self.f23_max = 8    # maximum (in N)
+            self.f23_max = 5    # maximum (in N)
 
 
         #------------------------- Motion Initialization -----------------------------------
@@ -309,7 +309,7 @@ class CyberShipII:
                 self.eta[1] = np.clip(self.eta[1], 0, self.E_max)
 
 
-    def _upd_tau(self, a):
+    def _control(self, a):
         """
         Control Approach 1:
             Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
@@ -392,9 +392,6 @@ class CyberShipII:
             self.f2 = np.clip(self.f2, 0, self.f23_max)
             self.f3 = np.clip(self.f3, 0, self.f23_max)
 
-        # update the control tau
-        self._set_tau()
-
 
     def _dtr(self, angle):
         """Takes angle in degree an transforms it to radiant."""
@@ -444,7 +441,7 @@ class StaticObstacle:
 class FossenCS2(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, cnt_approach="f123"):
+    def __init__(self, cnt_approach="rps_angle"):
         super().__init__()
 
         # simulation settings
@@ -452,7 +449,7 @@ class FossenCS2(gym.Env):
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_statO      = 3                # number of static obstacles
-        self.N_TSs        = 3                # number of other vessels
+        self.N_TSs        = 0                # number of other vessels
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
 
@@ -578,8 +575,11 @@ class FossenCS2(gym.Env):
         """Takes an action and performs one step in the environment.
         Returns reward, new_state, done, {}."""
 
-        # update control tau
-        self.OS._upd_tau(a)
+        # perform control action
+        self.OS._control(a)
+
+        # update resulting tau
+        self.OS._set_tau()
 
         # update agent dynamics
         self.OS._upd_dynamics(mirrow=False)
