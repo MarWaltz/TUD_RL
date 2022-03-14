@@ -63,12 +63,21 @@ class CyberShipII:
         self.M_inv = np.linalg.inv(self.M)
 
         # control approaches
-        assert cnt_approach in ["rps_angle", "f123"], "Unknown control approach."
+        assert cnt_approach in ["tau", "rps_angle", "f123"], "Unknown control approach."
         self.cnt_approach = cnt_approach
 
-        # ---------------------- Approach 1: Control rps and angle (following Skjetne et al. (2004)) ----------------------
 
-        if cnt_approach == "rps_angle":
+        # ---------------------- Approach 1: Control force vector directly (following Cheng & Zhang (2007)) ----------------------
+        if cnt_approach == "tau":
+            
+            # system is underactuated in v-direction, u-force will be constant, r-tau compoment controlled
+            self.tau_cnt_r     = 0.0           # initialization in Nm
+            self.tau_cnt_r_inc = 0.25          # increment in Nm
+            self.tau_cnt_r_max = 1.0           # maximum (absolute value) in Nm           
+
+
+        # ---------------------- Approach 2: Control rps and angle (following Skjetne et al. (2004)) ----------------------
+        elif cnt_approach == "rps_angle":
 
             # parameters for translating revolutions per second (n = n1 = n2) and rudder angle (delta = delta1 = delta2) into tau
             # Bow thruster of CS2 is assumed to yield zero force
@@ -111,7 +120,7 @@ class CyberShipII:
             self.rud_angle = 0
 
 
-        # ---------------------- Approach 2: Control three thrusters (following Kordobad et al. (2021)) ----------------------
+        # ---------------------- Approach 3: Control three thrusters (following Kordobad et al. (2021)) ----------------------
         elif cnt_approach == "f123":
 
             # the reference assumes that the vessel is fully actuated; we impose the restriction tau_v = 0 by setting f1 = 0
@@ -183,12 +192,18 @@ class CyberShipII:
     def _set_tau(self):
         """
         Control Approach 1:
+            Control tau directly. Precisely, force in u-direction is fixed to 2 N, force in v-direction is fixed to 0 N, tau in r is controlled.
+
+        Control Approach 2:
             Translates revolutions per second (n) and rudder angle (delta in rad) into tau. Currently, n is fixed.
         
-        Control Approach 2:
+        Control Approach 3:
             Translates actuator forces into tau."""
 
-        if self.cnt_approach == "rps_angle":
+        if self.cnt_approach == "tau":
+            self.tau = np.array([2.0, 0.0, self.tau_cnt_r])
+
+        elif self.cnt_approach == "rps_angle":
 
             u = self.nu[0]
             n = self.n_prop
@@ -313,12 +328,19 @@ class CyberShipII:
         """
         Control Approach 1:
             Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
+
+            0 - keep tau-r as is
+            1 - increase tau-r by 0.25 Nm
+            2 - decrease tau-r by 0.25 Nm
+
+        Control Approach 2:
+            Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
             
             0 - keep rudder angle as is
             1 - increase rudder angle by 5 degree per second
             2 - decrease rudder angle by 5 degree per second
         
-        Control Approach 2:
+        Control Approach 3:
             Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
 
             0 - increase f2, increase f3
@@ -336,12 +358,30 @@ class CyberShipII:
         # store action for rendering
         self.action = a
 
-        if self.cnt_approach == "rps_angle":
+        if self.cnt_approach == "tau":
+            
+            assert a in range(3), "Unknown action."
+
+            # update tau-r
+            if a == 0:
+                pass
+            elif a == 1:
+                self.tau_cnt_r += self.tau_cnt_r_inc
+            elif a == 2:
+                self.tau_cnt_r -= self.tau_cnt_r_inc
+            
+            # clip it
+            self.tau_cnt_r = np.clip(self.tau_cnt_r, -self.tau_cnt_r_max, self.tau_cnt_r_max)
+
+
+        elif self.cnt_approach == "rps_angle":
 
             assert a in range(3), "Unknown action."
 
             # update angle
-            if a == 1:
+            if a == 0:
+                pass
+            elif a == 1:
                 self.rud_angle += self.rud_angle_inc
             elif a == 2:
                 self.rud_angle -= self.rud_angle_inc
@@ -441,15 +481,15 @@ class StaticObstacle:
 class FossenCS2(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, cnt_approach="rps_angle"):
+    def __init__(self, cnt_approach="tau"):
         super().__init__()
 
         # simulation settings
         self.delta_t      = 0.5              # simulation time interval (in s)
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
-        self.N_statO      = 3                # number of static obstacles
-        self.N_TSs        = 0                # number of other vessels
+        self.N_statO      = 2                # number of static obstacles
+        self.N_TSs        = 3                # number of other vessels
         self.safety_dist  = 3                # minimum distance to a static obstacle (in m)
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
@@ -459,7 +499,7 @@ class FossenCS2(gym.Env):
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
-        if cnt_approach == "rps_angle":
+        if cnt_approach in ["tau", "rps_angle"]:
             self.action_space = spaces.Discrete(3)
 
         elif cnt_approach == "f123":
@@ -1028,6 +1068,7 @@ class FossenCS2(gym.Env):
                 self.ax3.old_time = 0
                 self.ax3.old_action = 0
                 self.ax3.old_rud_angle = 0
+                self.ax3.old_tau_cnt_r = 0
 
             self.ax3.set_xlim(0, self._max_episode_steps)
             self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
@@ -1046,6 +1087,14 @@ class FossenCS2(gym.Env):
                 self.ax3_twin.set_yticklabels(range(-int(self.OS._rtd(self.OS.rud_angle_max)), int(self.OS._rtd(self.OS.rud_angle_max)) + 5, 5))
                 self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
                 self.ax3.old_rud_angle = self.OS.rud_angle
+
+            elif self.cnt_approach == "tau":
+                self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_tau_cnt_r, self.OS.tau_cnt_r], color="blue")
+                self.ax3_twin.set_ylim(-self.OS.tau_cnt_r_max - 0.1, self.OS.tau_cnt_r_max + 0.1)
+                self.ax3_twin.set_yticks(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
+                self.ax3_twin.set_yticklabels(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
+                self.ax3_twin.set_ylabel("Tau_r (in Nm, blue)")
+                self.ax3.old_tau_cnt_r = self.OS.tau_cnt_r
 
             self.ax3.old_time = self.step_cnt
             self.ax3.old_action = self.OS.action
