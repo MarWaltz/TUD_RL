@@ -115,7 +115,7 @@ def tcpa(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
     """Computes the time to closest point of approach. If 0, the CPA has already been past."""
     
     rdot = range_rate(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, headOS=headOS, headTS=headTS, VOS=VOS, VTS=VTS)
-    print(rdot)
+
     if rdot >= 0:
         return 0
     else:
