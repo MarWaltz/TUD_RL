@@ -4,7 +4,7 @@ import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
-from tud_rl.envs.FossenFnc import StaticObstacle, dtr, rtd, angle_to_2pi, angle_to_pi, head_inter, ED, bng_rel
+from tud_rl.envs.FossenFnc import StaticObstacle, COLREG_COLORS, COLREG_NAMES, dtr, rtd, angle_to_2pi, angle_to_pi, head_inter, ED, bng_rel
 
 
 class FossenEnv(gym.Env):
@@ -18,7 +18,7 @@ class FossenEnv(gym.Env):
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_statO      = 0                # number of static obstacles
-        self.N_TSs        = 1                # number of other vessels
+        self.N_TSs        = 30                # number of other vessels
         self.safety_dist  = 3                # minimum distance to a static obstacle (in m)
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
@@ -381,14 +381,14 @@ class FossenEnv(gym.Env):
             # ---- ship movement ----
             # clear prior axes, set limits and add labels and title
             self.ax0.clear()
-            self.ax0.set_xlim(-5, self.E_max)
-            self.ax0.set_ylim(-5, self.N_max)
+            self.ax0.set_xlim(-5, self.E_max + 5)
+            self.ax0.set_ylim(-5, self.N_max + 5)
             self.ax0.set_xlabel("East")
             self.ax0.set_ylabel("North")
 
             # set OS
             N0, E0, head0 = self.OS.eta
-            self.ax0.text(E0 + 2.5, N0 + 2.5, self.__str__())
+            self.ax0.text(-2, self.N_max - 7, self.__str__(), fontsize=8)
             
             rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
                                   linewidth=1, edgecolor='red', facecolor='none')
@@ -398,6 +398,10 @@ class FossenEnv(gym.Env):
             for COLREG_deg in [5, 112.5, 247.5, 355]:
                 self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.OS.domain_size, 
                                           angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
+
+            for COLREG_deg in [67.5, 175]:
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.OS.domain_size, 
+                                          angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
             # set ship domain
             circ = patches.Circle((E0, N0), radius=self.OS.domain_size, edgecolor='red', facecolor='none', alpha=0.3)
@@ -413,19 +417,27 @@ class FossenEnv(gym.Env):
             for TS in self.TSs:
                 N, E, headTS = TS.eta
 
+                # determine color according to COLREG scenario
+                COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS, distance=10000)
+                col = COLREG_COLORS[COLREG]
+
                 # vessel
                 rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
-                                      linewidth=1, edgecolor='darkred', facecolor='none')
+                                      linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
                 self.ax0.add_patch(rect)
 
-                # add jets according to COLREGS
-                for COLREG_deg in [5, 112.5, 247.5, 355]:
+                # add two jets according to COLREGS
+                for COLREG_deg in [5, 355]:
                     self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = TS.domain_size, 
-                                              angle = headTS + dtr(COLREG_deg), color='darkred', alpha=0.75)
+                                              angle = headTS + dtr(COLREG_deg), color=col, alpha=0.75)
 
                 # domain
-                circ = patches.Circle((E, N), radius=TS.domain_size, edgecolor='darkred', facecolor='none', alpha=0.75)
-                self.ax0.add_patch(circ)
+                #circ = patches.Circle((E, N), radius=TS.domain_size, edgecolor='darkred', facecolor='none', alpha=0.75)
+                #self.ax0.add_patch(circ)
+
+            # set legend for COLREGS
+            self.ax0.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
+                            loc='lower center', bbox_to_anchor=(0.75, 1.0), fancybox=False, shadow=False, ncol=5).get_frame().set_linewidth(0.0)
 
             # set static obstacles
             for obs_id, obs in enumerate(self.statOs):

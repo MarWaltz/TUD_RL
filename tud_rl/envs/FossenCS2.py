@@ -432,7 +432,22 @@ class CyberShipII:
 
     def _get_beta(self):
         """Returns the sideslip angle in radiant."""
-        return np.arctan(self.nu[1] / self.nu[0])
+        u = self.nu[0]
+        v = self.nu[1]
+
+        frac = np.arctan(np.abs(v/u))
+
+        if u >= 0 and v >= 0:
+            return frac
+        
+        elif u >= 0 and v < 0:
+            return -frac
+
+        elif u < 0 and v >= 0:
+            return np.pi - frac
+        
+        elif u < 0 and v < 0:
+            return - (np.pi - frac)
 
 
     def _get_V(self):

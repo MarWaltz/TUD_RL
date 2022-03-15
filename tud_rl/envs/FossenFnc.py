@@ -1,4 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
+
+COLREG_NAMES  = {1 : "Head-on", 2 : "Starb. cross.", 3 : "Ports. cross.", 4 : "Overtaking", 0 : "Null"}
+COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(5)]
 
 
 class StaticObstacle:
@@ -96,3 +100,36 @@ def bng_abs(N0, E0, N1, E1):
 def bng_rel(N0, E0, N1, E1, head0):
     """Computes the relative bearing (in radiant, [0, 2pi)) of (N1, E1) from perspective of (N0, E0) and heading head0."""
     return angle_to_2pi(bng_abs(N0, E0, N1, E1) - head0)
+
+
+def range_rate(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
+    """Computes the rate at which the range (ED) of two vehicles is changing."""
+
+    beta = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=headOS)
+    alpha = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=headTS)
+
+    return np.cos(alpha) * VOS + np.cos(beta) * VTS
+
+
+def tcpa(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
+    """Computes the time to closest point of approach. If 0, the CPA has already been past."""
+    
+    rdot = range_rate(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, headOS=headOS, headTS=headTS, VOS=VOS, VTS=VTS)
+    print(rdot)
+    if rdot >= 0:
+        return 0
+    else:
+        # easy access
+        xOS = EOS
+        yOS = NOS
+        xTS = ETS
+        yTS = NTS
+
+        k1 = 2 * np.cos(headOS) * VOS * yOS - 2 * np.cos(headOS) * VOS * yTS - 2 * yOS * np.cos(headTS) * VTS \
+            + 2 * np.cos(headTS) * VTS * yTS + 2 * np.sin(headOS) * VOS * xOS - 2 * np.sin(headOS) * VOS * xTS \
+                - 2 * xOS * np.sin(headTS) * VTS + 2 * np.sin(headTS) * VTS * xTS
+        
+        k2 = np.cos(headOS)**2 * VOS**2 - 2 * np.cos(headOS) * VOS * np.cos(headTS) * VTS + np.cos(headTS)**2 * VTS**2 \
+            + np.sin(headOS)**2 * VOS**2 - 2 * np.sin(headOS) * VOS * np.sin(headTS) * VTS + np.sin(headTS)**2 * VTS**2
+        
+        return - k1/k2
