@@ -4,7 +4,7 @@ import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
-from tud_rl.envs.FossenFnc import StaticObstacle, dtr, rtd, angle_to_2pi, angle_to_pi, head_dev, ED, bng_abs, bng_rel
+from tud_rl.envs.FossenFnc import StaticObstacle, dtr, rtd, angle_to_2pi, angle_to_pi, head_inter, ED, bng_rel
 
 
 class FossenEnv(gym.Env):
@@ -18,7 +18,7 @@ class FossenEnv(gym.Env):
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_statO      = 0                # number of static obstacles
-        self.N_TSs        = 2                # number of other vessels
+        self.N_TSs        = 1                # number of other vessels
         self.safety_dist  = 3                # minimum distance to a static obstacle (in m)
         self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
@@ -223,7 +223,7 @@ class FossenEnv(gym.Env):
 
 
     def _get_COLREG_situation(self, OS, TS, distance):
-        """Determines the COLREG situation from the perspective of the OS. Follows Xu et al. (2022, Neurocomputing).
+        """Determines the COLREG situation from the perspective of the OS. Follows Xu et al. (2020, Ocean Engineering).
 
         Args:
             OS (CyberShip):    own vessel with attributes eta, nu
@@ -233,54 +233,60 @@ class FossenEnv(gym.Env):
         Returns:
             0  -  no conflict situation
             1  -  head-on
-            2  -  starboard crossing with small angle
-            3  -  starboard crossing with large angle
-            4  -  overtaking right
-            5  -  overtaking left
+            2  -  starboard crossing
+            3  -  portside crossing
+            4  -  overtaking
         """
 
         # quick access
-        N0, E0, psi_0 = OS.eta
-        N1, E1, psi_1 = TS.eta
+        NOS, EOS, psi_OS = OS.eta
+        NTS, ETS, psi_TS = TS.eta
 
         # check whether TS is too far away
-        if ED(N1=N1, E1=E1, N0=N0, E0=E0) > distance:
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > distance:
             return 0
 
-        # compute heading error towards position of TS (to degree)
-        head_e_pos = rtd(self._get_psi_e_to_point(N1=N1, E1=E1, N0=N0, E0=E0, psi=psi_0))
+        # relative bearing from OS to TS
+        bng_OS = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=psi_OS)
 
-        # compute absolute heading error towards position of OS from TS-perspective (to degree)
-        # thus: simply reverse 0 and 1 in the call
-        #abs_head_e_pos_TS_pers = rtd(self._get_abs_psi_e_to_point(N1=N0, E1=E0, N0=N1, E0=E1))
+        # relative bearing from TS to OS
+        bng_TS = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=psi_TS)
 
-        # compute heading difference between the two vessels (transform to [0,2pi] and degree)
-        head_diff = angle_to_2pi(psi_1 - psi_0)
-        head_diff = rtd(head_diff)
+        # get overall speeds and sideslip angles
+        V_OS = OS._get_V()
+        V_TS = TS._get_V()
+
+        side_OS = OS._get_beta()
+        side_TS = TS._get_beta()
+
+        # intersection angle
+        C_T = head_inter(head_OS=psi_OS, head_TS=psi_TS)
+
+        # intersection angle under consideration of sideslip
+        C_T_side = head_inter(head_OS = psi_OS + side_OS, head_TS = psi_TS + side_TS)
+
+        #-------------------------------------------------------------------------------------------------------
+        # Note: For Head-on, starboard crossing, and portside crossing, we do not care about the sideslip angle.
+        #       The latter comes only into play for checking the overall speed of USVs in overtaking.
+        #-------------------------------------------------------------------------------------------------------
+
+        # COLREG 1: Head-on
+        if np.abs(rtd(angle_to_pi(bng_OS))) <= 5 and np.abs(rtd(angle_to_pi(bng_TS))) <= 5:
+            return 1
         
-        # compute speeds (squared here since we only care about order)
-        speed_OS = OS.nu[0]**2 + OS.nu[1]**2
-        speed_TS = TS.nu[0]**2 + TS.nu[1]**2
-
-        # COLREG 1: Overtaking
-        #if all([abs_head_e_pos_TS_pers >= 112.5,
-        #        0 <= head_diff <= 67.5 or 292.5 <= head_diff <=360,
-        #        speed_OS > speed_TS]):
-        #    return 1
-
-        # COLREG 2: Head-on
-        if -5 <= head_e_pos <= 5 and 175 <= head_diff <= 185:
+        # COLREG 2: Starboard crossing
+        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
             return 2
-        
-        # COLREG 3: Port crossing
-        if -112.5 <= head_e_pos <= -5 and 67.5 <= head_diff <= 175:
+
+        # COLREG 3: Portside crossing
+        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
             return 3
-        
-        # COLREG 4: Starboard crossing
-        if 5 <= head_e_pos <= 112.5 and 185 <= head_diff <= 292.5:
+
+        # COLREG 4: Overtaking
+        if 112.5 <= rtd(bng_TS) <= 247.5 and V_OS * np.cos(C_T_side) > V_TS:
             return 4
-        
-        # nothing special
+
+        # COLREG 0: nothing
         return 0
 
 

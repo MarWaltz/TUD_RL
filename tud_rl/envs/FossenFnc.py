@@ -45,9 +45,9 @@ def angle_to_pi(angle):
         return angle + np.floor((-angle + np.pi)  / (2*np.pi)) * 2*np.pi
 
 
-def head_dev(angle1, angle2):
-    """Computes the difference between headings, e.g., for 350 and 10 the difference is 20."""
-    return np.abs(angle_to_pi(angle1 - angle2))
+def head_inter(head_OS, head_TS):
+    """Computes the intersection angle between headings in radiant. Corresponds to C_T in Xu et al. (2022, Neurocomputing)."""
+    return angle_to_2pi(head_TS - head_OS)
 
 
 def ED(N0, E0, N1, E1, sqrt=True):
