@@ -1,7 +1,7 @@
 {
    "env":
    {
-      "name"              : "FossenCS2-v0",
+      "name"              : "FossenEnv-v0",
       "max_episode_steps" : 1e3,
       "state_type"        : "feature",
       "wrappers"          : [],

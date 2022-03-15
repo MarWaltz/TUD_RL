@@ -16,6 +16,6 @@ register(
 )
 
 register(
-    id="FossenCS2-v0", 
-    entry_point="tud_rl.envs:FossenCS2",
+    id="FossenEnv-v0", 
+    entry_point="tud_rl.envs:FossenEnv",
 )
