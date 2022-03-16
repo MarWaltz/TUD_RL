@@ -1,3 +1,6 @@
+import copy
+import random
+
 import gym
 import matplotlib.patches as patches
 import numpy as np
@@ -19,7 +22,7 @@ class FossenEnv(gym.Env):
         self.delta_t      = 0.5              # simulation time interval (in s)
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
-        self.N_TSs        = 5                # number of other vessels
+        self.N_TSs        = 1                # number of other vessels
         self.safety_dist  = 3                # minimum distance, if less then collision (in m)
         self.jet_length   = 15               # size of the jets for plotting (in m)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
@@ -56,19 +59,6 @@ class FossenEnv(gym.Env):
         self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
                      "E" : np.random.uniform(self.E_max - 25, self.E_max)}
 
-        # init other vessels
-        self.TSs = [CyberShipII(N_init       = np.random.uniform(15, self.N_max), 
-                                E_init       = np.random.uniform(15, self.E_max), 
-                                psi_init     = np.random.uniform(0, np.pi),
-                                u_init       = np.random.uniform(0, 1),
-                                v_init       = 0.0,
-                                r_init       = 0.0,
-                                delta_t      = self.delta_t,
-                                N_max        = self.N_max,
-                                E_max        = self.E_max,
-                                cnt_approach = self.cnt_approach,
-                                tau_u        = np.random.uniform(0, 5)) for _ in range(self.N_TSs)]
-
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
         self.OS = CyberShipII(N_init       = 10.0, 
                               E_init       = 10.0, 
@@ -82,7 +72,16 @@ class FossenEnv(gym.Env):
                               cnt_approach = self.cnt_approach,
                               tau_u        = 3.0)
 
-        # determine COLREG situations
+        # simulate dynamics for several steps to get near-converged speed
+        # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
+        OS_cpy = copy.copy(self.OS)
+        [OS_cpy._upd_dynamics() for _ in range(100)]
+        self.OS.nu = OS_cpy.nu
+
+        # init other vessels
+        self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
+
+        # determine current COLREG situations
         self.TS_COLREGs = [0] * self.N_TSs
         self._set_COLREGs()
 
@@ -93,11 +92,100 @@ class FossenEnv(gym.Env):
         return self.state
 
 
+    def _get_TS(self):
+        """Places a target ship by sampling a 
+            1) COLREG situation,
+            2) TCPA (or setting to 60s), 
+            3) DCPA (in m), 
+            4) relative bearing (in rad), 
+            5) intersection angle (in rad),
+            6) and a forward thrust (tau-u in N).
+        Returns: 
+            CyberShipII."""
+        
+        # init a CSII
+        TS = CyberShipII(N_init       = np.random.uniform(15, self.N_max), 
+                         E_init       = np.random.uniform(15, self.E_max), 
+                         psi_init     = np.random.uniform(0, np.pi),
+                         u_init       = np.random.uniform(0, 1),
+                         v_init       = 0.0,
+                         r_init       = 0.0,
+                         delta_t      = self.delta_t,
+                         N_max        = self.N_max,
+                         E_max        = self.E_max,
+                         cnt_approach = self.cnt_approach,
+                         tau_u        = np.random.uniform(0, 5))
+
+        # sample COLREG situation (only head-on, starboard crossing, overtaking, or null)
+        COLREG_s = random.choice([0, 1, 2, 4])
+        COLREG_s = 2
+
+        # stop in null case
+        if COLREG_s == 0:
+            return TS
+
+        # simulate dynamics for several steps to get near-converged speed of sampled TS
+        # Note: if we don't do this, the TCPA calculation is heavily biased
+        [TS._upd_dynamics() for _ in range(100)]
+        
+        # set/sample CPA-related metrics
+        TCPA_s = 60.0
+        DCPA_s = np.random.uniform(0, self.safety_dist)
+
+        # forecast position of OS if it keeps course (heading + sideslip) and speed (u and v combined)
+        N0, E0, head0 = self.OS.eta
+        
+        chiOS = head0 + self.OS._get_beta()
+        VOS = self.OS._get_V()
+
+        E_OS_tcpa0 = E0 + VOS * np.sin(chiOS) * TCPA_s
+        N_OS_tcpa0 = N0 + VOS * np.cos(chiOS) * TCPA_s
+
+        # sample relative bearing and intersection angle
+        # head-on
+        if COLREG_s == 1:
+            bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
+            C_TS_s    = dtr(np.random.uniform(175, 185))
+
+        # starboard crossing
+        elif COLREG_s == 2:
+            bng_rel_s = dtr(np.random.uniform(5, 112.5))
+            C_TS_s    = dtr(np.random.uniform(185, 292.5))
+
+        # portside crossing
+        elif COLREG_s == 3:
+            bng_rel_s = dtr(np.random.uniform(247.5, 355))
+            C_TS_s    = dtr(np.random.uniform(67.5, 175))
+
+        # overtaking
+        elif COLREG_s == 4:
+            bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-30, 30)))
+            C_TS_s    = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
+        # determine absolute bearing and TS heading
+        bng_abs_s = angle_to_2pi(bng_rel_s + head0)
+        head_TS_s = angle_to_2pi(C_TS_s + head0)
+
+        # calculate position of TS for TCPA = 0
+        E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
+        N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
+
+        # backtrace original position of TS
+        VTS = TS.nu[0]
+        E_TS = E_TS_tcpa0 - VTS * np.sin(head_TS_s) * TCPA_s
+        N_TS = N_TS_tcpa0 - VTS * np.cos(head_TS_s) * TCPA_s
+
+        # set values
+        TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+
+        return TS
+
+
     def _set_COLREGs(self):
         """Computes for each target ship the current COLREG situation and stores it internally."""
 
         # overwrite old situations
-        self.TS_COLREGs_old = self.TS_COLREGs
+        self.TS_COLREGs_old = copy.copy(self.TS_COLREGs)
 
         # compute new ones
         self.TS_COLREGs = []
@@ -202,10 +290,10 @@ class FossenEnv(gym.Env):
         self.OS._set_tau()
 
         # update agent dynamics
-        self.OS._upd_dynamics(mirrow=False)
+        self.OS._upd_dynamics()
 
         # update environmental dynamics, e.g., other vessels
-        [TS._upd_dynamics(mirrow=True) for TS in self.TSs]
+        [TS._upd_dynamics() for TS in self.TSs]
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -344,7 +432,7 @@ class FossenEnv(gym.Env):
         #-------------------------------------------------------------------------------------------------------
 
         # COLREG 1: Head-on
-        if np.abs(rtd(angle_to_pi(bng_OS))) <= 5 and np.abs(rtd(angle_to_pi(bng_TS))) <= 5:
+        if np.abs(rtd(angle_to_pi(bng_OS))) <= 5 and 175 <= rtd(C_T) <= 185:
             return 1
         
         # COLREG 2: Starboard crossing

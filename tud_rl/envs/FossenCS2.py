@@ -261,13 +261,14 @@ class CyberShipII:
         return np.concatenate([eta_dot, nu_dot])
 
 
-    def _upd_dynamics(self, euler=False, mirrow=False):
+    def _upd_dynamics(self, euler=False, mirrow=False, clip=False):
         """Updates positions and velocities for next simulation step. Uses basic Euler method.
         Arguments:
 
         euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
         mirrow (bool): Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
                        Inspired by Xu et al. (2022, Neurocomputing).
+        clip (bool):   Whether to artificially keep vessel on the map.
         """
 
         if euler:
@@ -316,7 +317,7 @@ class CyberShipII:
                 else:
                     self.eta[2] = np.pi - psi
             
-            else:
+            elif clip:
                 self.eta[0] = np.clip(self.eta[0], 0, self.N_max)
                 self.eta[1] = np.clip(self.eta[1], 0, self.E_max)
 
