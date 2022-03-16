@@ -160,7 +160,7 @@ Example (incomplete):
 
 ## Citation
 
-If you use this code in of your projects or papers, please cite it as follows.
+If you use this code in one of your projects or papers, please cite it as follows.
 
 ~~~bibtex
 @misc{TUDRL,
