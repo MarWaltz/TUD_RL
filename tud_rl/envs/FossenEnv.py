@@ -4,7 +4,9 @@ import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
-from tud_rl.envs.FossenFnc import StaticObstacle, COLREG_COLORS, COLREG_NAMES, dtr, rtd, angle_to_2pi, angle_to_pi, head_inter, ED, bng_rel
+from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
+                                   angle_to_2pi, angle_to_pi, bng_rel, dtr,
+                                   head_inter, rtd, tcpa)
 
 
 class FossenEnv(gym.Env):
@@ -17,14 +19,13 @@ class FossenEnv(gym.Env):
         self.delta_t      = 0.5              # simulation time interval (in s)
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
-        self.N_statO      = 0                # number of static obstacles
-        self.N_TSs        = 30                # number of other vessels
-        self.safety_dist  = 3                # minimum distance to a static obstacle (in m)
-        self.domain_size  = 15               # size of the simplified ship domain (in m, circle around the agent and vessels)
+        self.N_TSs        = 5                # number of other vessels
+        self.safety_dist  = 3                # minimum distance, if less then collision (in m)
+        self.jet_length   = 15               # size of the jets for plotting (in m)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
 
         # gym definitions
-        obs_size = 8 + self.N_statO * 2
+        obs_size = 8 + self.N_TSs * 6
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -54,11 +55,6 @@ class FossenEnv(gym.Env):
         self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
                      "E" : np.random.uniform(self.E_max - 25, self.E_max)}
 
-        # init static obstacles
-        self.statOs = [StaticObstacle(N_init = np.random.uniform(15, self.N_max),
-                                      E_init = np.random.uniform(15, self.E_max),
-                                      max_radius = 5) for _ in range(self.N_statO)]
-
         # init other vessels
         self.TSs = [CyberShipII(N_init       = np.random.uniform(15, self.N_max), 
                                 E_init       = np.random.uniform(15, self.E_max), 
@@ -69,21 +65,21 @@ class FossenEnv(gym.Env):
                                 delta_t      = self.delta_t,
                                 N_max        = self.N_max,
                                 E_max        = self.E_max,
-                                domain_size  = 7.5,
-                                cnt_approach = self.cnt_approach) for _ in range(self.N_TSs)]
+                                cnt_approach = self.cnt_approach,
+                                tau_u        = np.random.uniform(0, 5)) for _ in range(self.N_TSs)]
 
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(N_init      = 10.0, 
-                              E_init      = 10.0, 
-                              psi_init    = np.random.uniform(0, np.pi),
-                              u_init      = np.random.uniform(0, 1),
-                              v_init      = 0.0,
-                              r_init      = 0.0,
-                              delta_t     = self.delta_t,
-                              N_max       = self.N_max,
-                              E_max       = self.E_max,
-                              domain_size = self.domain_size,
-                              cnt_approach = self.cnt_approach)
+        self.OS = CyberShipII(N_init       = 10.0, 
+                              E_init       = 10.0, 
+                              psi_init     = np.random.uniform(0, np.pi),
+                              u_init       = np.random.uniform(0, 1),
+                              v_init       = 0.0,
+                              r_init       = 0.0,
+                              delta_t      = self.delta_t,
+                              N_max        = self.N_max,
+                              E_max        = self.E_max,
+                              cnt_approach = self.cnt_approach,
+                              tau_u        = 3.0)
 
         self.OS_goal_ED_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
         
@@ -97,48 +93,86 @@ class FossenEnv(gym.Env):
     def _set_state(self):
         """State consists of (all from agent's perspective): 
         
-        OS related:
-        u, v, r, N_rel, E_rel, heading
+        OS:
+            u, v, r, 
+            N_rel, E_rel, heading
 
-        Goal related:
-        relative bearing, ED_goal
-
-        Static obstacle related (for each, sorted by ED):
-        euclidean distance to closest point
-        relative bearing from agent's view
+        Goal:
+            relative bearing
+            ED_goal
+        
+        Dynamic obstacle (for each, sorted by TCPA):
+            relative bearing
+            heading intersection angle C_T
+            u_TS
+            ED_TS
+            COLREG mode TS (sigma_TS)
+            TCPA
+        
+        Note: Everything is normalized. If the TCPA is < 0s or > 60s for a TS, everything for this TS is set 0.
         """
 
-        N0, E0, psi = self.OS.eta
+        N0, E0, head0 = self.OS.eta             # N, E, heading
+        chiOS = head0 + self.OS._get_beta()     # course angle (heading + sideslip)
+        VOS = self.OS._get_V()                  # aggregated velocity
 
-        #--- OS related ---
-        state_OS = np.concatenate([self.OS.nu, np.array([N0 / self.N_max, E0 / self.E_max, psi / (2*np.pi)])])
+        #-------------------------------- OS related ---------------------------------
+        state_OS = np.concatenate([self.OS.nu, np.array([N0 / self.N_max, E0 / self.E_max, head0 / (2*np.pi)])])
 
-        #--- goal related ---
+
+        #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
-        state_goal = np.array([bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=psi) / (2*np.pi), 
+        state_goal = np.array([bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0) / (2*np.pi), 
                                OS_goal_ED / self.OS_goal_ED_init])
 
-        #--- static obstacle related ---
-        state_statOs = []
 
-        for obs in self.statOs:
+        #--------------------------- dynamic obstacle related -------------------------
+        state_TSs = []
 
-            # normalized distance to closest point (ED - radius)
-            ED_norm = (ED(N0=N0, E0=E0, N1=obs.N, E1=obs.E) - obs.radius_norm)/ self.OS_goal_ED_init
-            
-            # relative bearing from agent's view
-            bng_rel_obs = bng_rel(N0=N0, E0=E0, N1=obs.N, E1=obs.E, head0=psi) / (2*np.pi)
-            
+        for TS in self.TSs:
+
+            N, E, headTS = TS.eta               # N, E, heading
+            chiTS = headTS + TS._get_beta()     # course angle (heading + sideslip)
+            VTS = TS._get_V()                   # aggregated velocity
+
+            # relative bearing
+            bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0) / (2*np.pi)
+
+            # heading intersection angle
+            C_TS = head_inter(head_OS=head0, head_TS=headTS) / (2*np.pi)
+
+            # longitudinal speed
+            u_TS = TS.nu[0]
+
+            # euclidean distance
+            ED_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / self.E_max
+
+            # COLREG mode
+            sigma_TS = self._get_COLREG_situation(OS=self.OS, TS=TS)
+
+            # TCPA
+            TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / 60
+
             # store it
-            state_statOs.append([ED_norm, bng_rel_obs])
+            if 0 <= TCPA_TS <= 1:
+                state_TSs.append([bng_rel_TS, C_TS, u_TS, ED_TS, sigma_TS, TCPA_TS])
         
-        # sort according to ascending euclidean distance to agent
-        state_statOs = np.array(sorted(state_statOs, key=lambda x: x[0]))
-        state_statOs = state_statOs.flatten(order="F")
+        # create zero state if no TS is close according to TCPA
+        if len(state_TSs) == 0:
+            state_TSs = np.array([0.0] * 6 * self.N_TSs)
 
-        #--- combine state ---
-        self.state = np.concatenate([state_OS, state_goal, state_statOs])
+        # otherwise sort according to descending TCPA_TS
+        else:
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=True))
+            state_TSs = state_TSs.flatten(order="C")
+
+            # padd zeroes at the left side to guarantee state size is always identical
+            state_TSs = np.pad(state_TSs, (self.N_TSs * 6 - len(state_TSs), 0), 'constant').astype(np.float32)
+
+
+        #------------------------------- combine state ------------------------------
+        self.state = np.concatenate([state_OS, state_goal, state_TSs])
 
 
     def step(self, a):
@@ -169,12 +203,12 @@ class FossenEnv(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _calculate_reward(self, w_dist=3, w_head=1, w_coll=1, w_map=1):
+    def _calculate_reward(self, w_dist=1, w_head=0.5, w_coll=1, w_map=1):
         """Returns reward of the current state."""
 
         N0, E0, psi = self.OS.eta
 
-        # ---- Path planning reward (Xu et al. 2022) -----
+        # --------------------------- Path planning reward (Xu et al. 2022) -----------------------------
 
         # 1. Distance reward
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
@@ -183,19 +217,26 @@ class FossenEnv(gym.Env):
         # 2. Heading reward
         r_head = -angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=psi)) / np.pi
 
-        # --- Collision reward ----
-        r_coll = -10 if any([ED(N0=N0, E0=E0, N1=obs.N, E1=obs.E) <= obs.radius + self.safety_dist for obs in self.statOs]) else 0
-        #r_coll = 0
 
-        for obs in self.statOs:
-            num = np.exp(-0.5 * ED(N0=N0, E0=E0, N1=obs.N, E1=obs.E, sqrt=False) / self.r_coll_sigma**2)
-            den = np.exp(-0.5 * obs.radius**2 / self.r_coll_sigma**2)
-            r_coll -= num/den
+        # ----------------------------------- Collision reward ------------------------------------------
+        r_coll = 0
 
-        # --- Leave-the-map reward ---
+        for TS in self.TSs:
+
+            EDsq_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=False)
+
+            # Basic Gaussian reward
+            r_coll -= np.exp(-0.5 * EDsq_TS / self.r_coll_sigma**2)
+
+            # Explicit collision penalty
+            r_coll -= 10 if EDsq_TS < self.safety_dist**2 else 0
+
+
+        # ----------------------------------- Leave-the-map reward --------------------------------------
         r_map = -10 if self.OS._is_off_map() else 0
 
-        # overall reward
+
+        # -------------------------------------- Overall reward -----------------------------------------
         self.r_dist = r_dist
         self.r_head = r_head
         self.r_coll = r_coll
@@ -211,10 +252,6 @@ class FossenEnv(gym.Env):
         if OS_goal_ED <= 2.5:
             return True
 
-        # out of the simulation area
-        #if self.OS._is_off_map():
-        #    return True
-
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
             return True
@@ -222,7 +259,7 @@ class FossenEnv(gym.Env):
         return False
 
 
-    def _get_COLREG_situation(self, OS, TS, distance):
+    def _get_COLREG_situation(self, OS, TS, distance=np.inf):
         """Determines the COLREG situation from the perspective of the OS. Follows Xu et al. (2020, Ocean Engineering).
 
         Args:
@@ -378,7 +415,7 @@ class FossenEnv(gym.Env):
                 plt.ion()
                 plt.show()
             
-            # ---- ship movement ----
+            # ------------------------------ ship movement --------------------------------
             # clear prior axes, set limits and add labels and title
             self.ax0.clear()
             self.ax0.set_xlim(-5, self.E_max + 5)
@@ -387,7 +424,10 @@ class FossenEnv(gym.Env):
             self.ax0.set_ylabel("North")
 
             # set OS
-            N0, E0, head0 = self.OS.eta
+            N0, E0, head0 = self.OS.eta          # N, E, heading
+            chiOS = head0 + self.OS._get_beta()  # course angle (heading + sideslip)
+            VOS = self.OS._get_V()               # aggregated velocity
+            
             self.ax0.text(-2, self.N_max - 7, self.__str__(), fontsize=8)
             
             rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
@@ -396,15 +436,15 @@ class FossenEnv(gym.Env):
 
             # add jets according to COLREGS
             for COLREG_deg in [5, 112.5, 247.5, 355]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.OS.domain_size, 
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.jet_length, 
                                           angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
 
-            for COLREG_deg in [67.5, 175]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.OS.domain_size, 
+            for COLREG_deg in [67.5, 175, 185, 292.5]:
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.jet_length, 
                                           angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
-            # set ship domain
-            circ = patches.Circle((E0, N0), radius=self.OS.domain_size, edgecolor='red', facecolor='none', alpha=0.3)
+            # set simplified ship domain
+            circ = patches.Circle((E0, N0), radius=self.jet_length, edgecolor='red', facecolor='none', alpha=0.3)
             self.ax0.add_patch(circ)
 
             # set goal (stored as NE)
@@ -415,7 +455,9 @@ class FossenEnv(gym.Env):
 
             # set other vessels
             for TS in self.TSs:
-                N, E, headTS = TS.eta
+                N, E, headTS = TS.eta               # N, E, heading
+                chiTS = headTS + TS._get_beta()     # course angle (heading + sideslip)
+                VTS = TS._get_V()                   # aggregated velocity
 
                 # determine color according to COLREG scenario
                 COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS, distance=10000)
@@ -428,26 +470,20 @@ class FossenEnv(gym.Env):
 
                 # add two jets according to COLREGS
                 for COLREG_deg in [5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = TS.domain_size, 
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.jet_length, 
                                               angle = headTS + dtr(COLREG_deg), color=col, alpha=0.75)
 
-                # domain
-                #circ = patches.Circle((E, N), radius=TS.domain_size, edgecolor='darkred', facecolor='none', alpha=0.75)
-                #self.ax0.add_patch(circ)
+                # TCPA
+                TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+                self.ax0.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
+                              horizontalalignment='center', verticalalignment='center', color=col)
 
             # set legend for COLREGS
             self.ax0.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
                             loc='lower center', bbox_to_anchor=(0.75, 1.0), fancybox=False, shadow=False, ncol=5).get_frame().set_linewidth(0.0)
 
-            # set static obstacles
-            for obs_id, obs in enumerate(self.statOs):
-                circ = patches.Circle((obs.E, obs.N), radius=obs.radius, edgecolor='green', facecolor='none', alpha=0.75)
-                self.ax0.add_patch(circ)
-                self.ax0.text(obs.E, obs.N, str(obs_id), horizontalalignment='center', verticalalignment='center', color='green')
-                self.ax0.text(obs.E, obs.N - 3, rf"$\psi_{obs_id}$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=obs.N, E1=obs.E, head0=head0)),3)}°",
-                              horizontalalignment='center', verticalalignment='center', color='green')
 
-            # ----- reward plot ----
+            # ------------------------------ reward plot --------------------------------
             if self.step_cnt == 0:
                 self.ax1.clear()
                 self.ax1.old_time = 0
@@ -472,7 +508,8 @@ class FossenEnv(gym.Env):
             self.ax1.old_r_dist = self.r_dist
             self.ax1.old_r_coll = self.r_coll
 
-            # ---- state plot ----
+
+            # ------------------------------ state plot --------------------------------
             if self.step_cnt == 0:
                 self.ax2.clear()
                 self.ax2.old_time = 0
@@ -493,7 +530,8 @@ class FossenEnv(gym.Env):
             self.ax2.old_time = self.step_cnt
             self.ax2.old_state = self.state
 
-            # ---- action plot ----
+
+            # ------------------------------ action plot --------------------------------
             if self.step_cnt == 0:
                 self.ax3.clear()
                 self.ax3_twin = self.ax3.twinx()

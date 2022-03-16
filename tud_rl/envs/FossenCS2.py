@@ -7,7 +7,7 @@ class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
     Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, domain_size, cnt_approach) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, cnt_approach, tau_u=3.0) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
@@ -15,7 +15,6 @@ class CyberShipII:
         self.delta_t     = delta_t
         self.N_max       = N_max
         self.E_max       = E_max
-        self.domain_size = domain_size
         self.action      = 0
 
         # CyberShip II parameters
@@ -68,6 +67,7 @@ class CyberShipII:
         if cnt_approach == "tau":
             
             # system is underactuated in v-direction, u-force will be constant, r-tau compoment controlled
+            self.tau_u         = tau_u         # initialization in Nm
             self.tau_cnt_r     = 0.0           # initialization in Nm
             self.tau_cnt_r_inc = 0.25          # increment in Nm
             self.tau_cnt_r_max = 1.0           # maximum (absolute value) in Nm           
@@ -198,7 +198,7 @@ class CyberShipII:
             Translates actuator forces into tau."""
 
         if self.cnt_approach == "tau":
-            self.tau = np.array([2.0, 0.0, self.tau_cnt_r])
+            self.tau = np.array([self.tau_u, 0.0, self.tau_cnt_r])
 
         elif self.cnt_approach == "rps_angle":
 

@@ -102,22 +102,44 @@ def bng_rel(N0, E0, N1, E1, head0):
     return angle_to_2pi(bng_abs(N0, E0, N1, E1) - head0)
 
 
-def range_rate(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
+def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
+    """Computes the time to closest point of approach (TCPA). Follows Lenart (2017)."""
+
+    # easy access
+    xOS = EOS
+    yOS = NOS
+    xTS = ETS
+    yTS = NTS
+
+    # compute velocities in x,y-coordinates
+    vxOS = VOS * np.sin(chiOS)
+    vyOS = VOS * np.cos(chiOS)
+    vxTS = VTS * np.sin(chiTS)
+    vyTS = VTS * np.cos(chiTS)
+
+    nom = - ((yTS - yOS)*(vyTS - vyOS) + (xTS - xOS)*(vxTS - vxOS))
+    den = (vyTS - vyOS)**2 + (vxTS - vxOS)**2
+
+    return nom / den
+
+
+#-------------------------------------- Backup ----------------------------------------
+def range_rate(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     """Computes the rate at which the range (ED) of two vehicles is changing."""
 
-    beta = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=headOS)
-    alpha = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=headTS)
+    beta = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=chiOS)
+    alpha = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=chiTS)
 
     return np.cos(alpha) * VOS + np.cos(beta) * VTS
 
 
-def tcpa(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
-    """Computes the time to closest point of approach. If 0, the CPA has already been past."""
+def tcpa_benjamin(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
+    """Computes the time to closest point of approach. If 0, the CPA has already been past. Follows Benjamin (2017)."""
     
-    rdot = range_rate(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, headOS=headOS, headTS=headTS, VOS=VOS, VTS=VTS)
+    rdot = range_rate(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
 
     if rdot >= 0:
-        return 0
+        return 0.0
     else:
         # easy access
         xOS = EOS
@@ -125,11 +147,11 @@ def tcpa(NOS, EOS, NTS, ETS, headOS, headTS, VOS, VTS):
         xTS = ETS
         yTS = NTS
 
-        k1 = 2 * np.cos(headOS) * VOS * yOS - 2 * np.cos(headOS) * VOS * yTS - 2 * yOS * np.cos(headTS) * VTS \
-            + 2 * np.cos(headTS) * VTS * yTS + 2 * np.sin(headOS) * VOS * xOS - 2 * np.sin(headOS) * VOS * xTS \
-                - 2 * xOS * np.sin(headTS) * VTS + 2 * np.sin(headTS) * VTS * xTS
+        k1 = 2 * np.cos(chiOS) * VOS * yOS - 2 * np.cos(chiOS) * VOS * yTS - 2 * yOS * np.cos(chiTS) * VTS \
+            + 2 * np.cos(chiTS) * VTS * yTS + 2 * np.sin(chiOS) * VOS * xOS - 2 * np.sin(chiOS) * VOS * xTS \
+                - 2 * xOS * np.sin(chiTS) * VTS + 2 * np.sin(chiTS) * VTS * xTS
         
-        k2 = np.cos(headOS)**2 * VOS**2 - 2 * np.cos(headOS) * VOS * np.cos(headTS) * VTS + np.cos(headTS)**2 * VTS**2 \
-            + np.sin(headOS)**2 * VOS**2 - 2 * np.sin(headOS) * VOS * np.sin(headTS) * VTS + np.sin(headTS)**2 * VTS**2
+        k2 = np.cos(chiOS)**2 * VOS**2 - 2 * np.cos(chiOS) * VOS * np.cos(chiTS) * VTS + np.cos(chiTS)**2 * VTS**2 \
+            + np.sin(chiOS)**2 * VOS**2 - 2 * np.sin(chiOS) * VOS * np.sin(chiTS) * VTS + np.sin(chiTS)**2 * VTS**2
         
         return - k1/k2
