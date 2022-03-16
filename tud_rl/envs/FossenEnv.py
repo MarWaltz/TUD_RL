@@ -38,11 +38,12 @@ class FossenEnv(gym.Env):
         # custom inits
         self._max_episode_steps = 1e3
         self.r = 0
-        self.r_head = 0
-        self.r_dist = 0
-        self.r_coll = 0
+        self.r_head   = 0
+        self.r_dist   = 0
+        self.r_coll   = 0
+        self.r_COLREG = 0
         self.r_coll_sigma = 5
-        self.state_names = ["u", "v", "r", "N_rel", "E_rel", r"$\Psi$", r"$\Psi_e$", "ED"]
+        self.state_names = ["u", "v", "r", "N_rel", "E_rel", r"$\Psi$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
     def reset(self):
@@ -81,13 +82,28 @@ class FossenEnv(gym.Env):
                               cnt_approach = self.cnt_approach,
                               tau_u        = 3.0)
 
-        self.OS_goal_ED_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
-        
+        # determine COLREG situations
+        self.TS_COLREGs = [0] * self.N_TSs
+        self._set_COLREGs()
+
         # init state
         self._set_state()
         self.state_init = self.state
 
         return self.state
+
+
+    def _set_COLREGs(self):
+        """Computes for each target ship the current COLREG situation and stores it internally."""
+
+        # overwrite old situations
+        self.TS_COLREGs_old = self.TS_COLREGs
+
+        # compute new ones
+        self.TS_COLREGs = []
+
+        for TS in self.TSs:
+            self.TS_COLREGs.append(self._get_COLREG_situation(OS=self.OS, TS=TS))
 
 
     def _set_state(self):
@@ -124,13 +140,13 @@ class FossenEnv(gym.Env):
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
         state_goal = np.array([bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0) / (2*np.pi), 
-                               OS_goal_ED / self.OS_goal_ED_init])
+                               OS_goal_ED / self.E_max])
 
 
         #--------------------------- dynamic obstacle related -------------------------
         state_TSs = []
 
-        for TS in self.TSs:
+        for TS_idx, TS in enumerate(self.TSs):
 
             N, E, headTS = TS.eta               # N, E, heading
             chiTS = headTS + TS._get_beta()     # course angle (heading + sideslip)
@@ -149,7 +165,7 @@ class FossenEnv(gym.Env):
             ED_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / self.E_max
 
             # COLREG mode
-            sigma_TS = self._get_COLREG_situation(OS=self.OS, TS=TS)
+            sigma_TS = self.TS_COLREGs[TS_idx]
 
             # TCPA
             TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / 60
@@ -191,6 +207,9 @@ class FossenEnv(gym.Env):
         # update environmental dynamics, e.g., other vessels
         [TS._upd_dynamics(mirrow=True) for TS in self.TSs]
 
+        # update COLREG scenarios
+        self._set_COLREGs()
+
         # compute state, reward, done        
         self._set_state()
         self._calculate_reward()
@@ -203,22 +222,22 @@ class FossenEnv(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _calculate_reward(self, w_dist=1, w_head=0.5, w_coll=1, w_map=1):
+    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_map=1.):
         """Returns reward of the current state."""
 
-        N0, E0, psi = self.OS.eta
+        N0, E0, head0 = self.OS.eta
 
-        # --------------------------- Path planning reward (Xu et al. 2022) -----------------------------
+        # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist = - OS_goal_ED / self.OS_goal_ED_init
+        r_dist = - OS_goal_ED / self.E_max
 
         # 2. Heading reward
-        r_head = -angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=psi)) / np.pi
+        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
 
-        # ----------------------------------- Collision reward ------------------------------------------
+        # ----------------------------------- 3. Collision reward ------------------------------------------
         r_coll = 0
 
         for TS in self.TSs:
@@ -232,16 +251,33 @@ class FossenEnv(gym.Env):
             r_coll -= 10 if EDsq_TS < self.safety_dist**2 else 0
 
 
-        # ----------------------------------- Leave-the-map reward --------------------------------------
+        # -------------------------------------- 4. COLREG reward ------------------------------------------
+        r_COLREG = 0
+
+        if self.step_cnt > 0:
+
+            for TS_idx, TS in enumerate(self.TSs):
+
+                # assess when COLREG situation changes
+                if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
+                    
+                    # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
+                    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3]:
+
+                        if 0 <= bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
+                            r_COLREG -= 10
+
+        # ----------------------------------- 5. Leave-the-map reward --------------------------------------
         r_map = -10 if self.OS._is_off_map() else 0
 
 
-        # -------------------------------------- Overall reward -----------------------------------------
-        self.r_dist = r_dist
-        self.r_head = r_head
-        self.r_coll = r_coll
-        self.r_map  = r_map
-        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_map * r_map
+        # -------------------------------------- Overall reward --------------------------------------------
+        self.r_dist   = r_dist
+        self.r_head   = r_head
+        self.r_coll   = r_coll
+        self.r_COLREG = r_COLREG
+        self.r_map    = r_map
+        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_map * r_map
 
 
     def _done(self):
@@ -320,7 +356,7 @@ class FossenEnv(gym.Env):
             return 3
 
         # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and V_OS * np.cos(C_T_side) > V_TS:
+        if 112.5 <= rtd(bng_TS) <= 247.5 and ((0 <= rtd(C_T) <= 67.5) or (292.5 <= rtd(C_T) <= 360)) and V_OS * np.cos(C_T_side) > V_TS:
             return 4
 
         # COLREG 0: nothing
@@ -490,6 +526,7 @@ class FossenEnv(gym.Env):
                 self.ax1.old_r_head = 0
                 self.ax1.old_r_dist = 0
                 self.ax1.old_r_coll = 0
+                self.ax1.old_r_COLREG = 0
 
             self.ax1.set_xlim(0, self._max_episode_steps)
             #self.ax1.set_ylim(-1.25, 0.1)
@@ -499,6 +536,7 @@ class FossenEnv(gym.Env):
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
+            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
             
             if self.step_cnt == 0:
                 self.ax1.legend()
@@ -507,6 +545,7 @@ class FossenEnv(gym.Env):
             self.ax1.old_r_head = self.r_head
             self.ax1.old_r_dist = self.r_dist
             self.ax1.old_r_coll = self.r_coll
+            self.ax1.old_r_COLREG = self.r_COLREG
 
 
             # ------------------------------ state plot --------------------------------
