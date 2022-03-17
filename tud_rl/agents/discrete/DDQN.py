@@ -4,8 +4,8 @@ from tud_rl.common.logging_func import *
 
 
 class DDQNAgent(DQNAgent):
-    def __init__(self, c, agent_name):
-        super().__init__(c, agent_name, logging=True)
+    def __init__(self, c, agent_name, logging=True):
+        super().__init__(c, agent_name, logging)
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():

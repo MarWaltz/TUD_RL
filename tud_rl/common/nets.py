@@ -238,7 +238,7 @@ class LSTM_Actor(nn.Module):
         hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
         
         # mask no-history cases to yield zero extracted memory
-        hidden_mem[hist_len == 0] = 0
+        hidden_mem[hist_len == 0] = 0.0
 
         #------ post combination ------
         # concate current feature extraction with generated memory
@@ -327,7 +327,7 @@ class LSTM_Critic(nn.Module):
         hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
 
         # mask no-history cases to yield zero extracted memory
-        hidden_mem[hist_len == 0] = 0
+        hidden_mem[hist_len == 0] = 0.0
         
         #------ post combination ------
         # concatenate current feature extraction with generated memory
@@ -514,7 +514,7 @@ class LSTM_GaussianActor(nn.Module):
         hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
         
         # mask no-history cases to yield zero extracted memory
-        hidden_mem[hist_len == 0] = 0
+        hidden_mem[hist_len == 0] = 0.0
 
         #------ post combination ------
         # concate current feature extraction with generated memory
@@ -600,3 +600,92 @@ class TQC_Critics(nn.Module):
 
         quantiles = torch.cat(tuple(net(sa) for net in self.nets),dim=1)
         return quantiles
+
+
+#------------------------------- RecDQN for FossenEnv --------------------------------
+
+class RecDQN(nn.Module):
+    """Defines an LSTM-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
+    but for different vessels inside one observation."""
+    
+    def __init__(self, num_actions, N_TSs) -> None:
+        super(RecDQN, self).__init__()
+
+        self.num_actions = num_actions
+        self.N_TSs = N_TSs
+
+        # own ship and goal related features
+        self.dense1 = nn.Linear(8, 128)
+
+        # features for other vessels
+        self.LSTM   = nn.LSTM(input_size = 6, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.dense2 = nn.Linear(128, 128)
+
+        # post combination
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense2 = nn.Linear(128, num_actions)
+
+
+    def forward(self, s) -> tuple:
+        """s is a torch tensor. Shape:
+        s:       torch.Size([batch_size, 8 + 6 * N_TSs])
+
+        returns: torch.Size([batch_size, num_actions])
+        
+        Note 1: 
+        The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
+        x = (batch_size, seq_length, state_shape)
+        
+        The call <out, (hidden, cell) = LSTM(x)> results in: 
+        out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
+        hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+
+        Note 2:
+        The state contains two components; one is related to the OS and goal, one is related to other vessels.
+        If another vessel is too far away, its state components will be set to nan. Since we do not want to put these through the LSTM,
+        we need to first identify the true length and then only select the hidden state accordingly.
+        """
+
+        # -------------------------------- preprocessing ----------------------------------------
+        # extract OS and TS states
+        s_OS = s[:, :8]                         # torch.Size([batch_size, 8])
+        s_TS = s[:, 8:]
+        s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
+        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+
+        # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
+        N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+
+        # get selection index according to number of TSs (no-TS cases will be masked later)
+        h_idx = copy.deepcopy(N_TS_obs)
+        h_idx[h_idx == 0] = 1
+        h_idx -= 1
+
+        # padd nan's to zeroes to avoid LSTM-issues
+        s_TS = torch.nan_to_num(s_TS, nan=0.0)
+
+        # --------------------------------- calculations -----------------------------------------
+        # process OS
+        x_OS = F.relu(self.dense1(s_OS))
+        
+        # process TS
+        x_TS, (_, _) = self.LSTM(s_TS)
+
+        # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+        x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+        # mask no-TS cases to yield zero extracted information
+        x_TS[N_TS_obs == 0] = 0.0
+      
+        # second dense layer
+        x_TS = F.relu(self.dense2(x_TS))
+
+        # concatenate both state parts
+        x = torch.cat([x_OS, x_TS], dim=1)
+        
+        # final dense layers
+        x = F.relu(self.post_comb_dense1(x))
+        x = self.post_comb_dense2(x)
+
+        return x

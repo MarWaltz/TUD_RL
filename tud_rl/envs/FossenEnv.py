@@ -15,14 +15,14 @@ from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, cnt_approach="tau"):
+    def __init__(self, N_TSs=5, cnt_approach="tau"):
         super().__init__()
 
         # simulation settings
         self.delta_t      = 0.5              # simulation time interval (in s)
         self.N_max        = 50               # maximum N-coordinate (in m)
         self.E_max        = 50               # maximum E-coordinate (in m)
-        self.N_TSs        = 1                # number of other vessels
+        self.N_TSs        = N_TSs            # number of other vessels
         self.safety_dist  = 3                # minimum distance, if less then collision (in m)
         self.TCPA_crit    = 30               # critical TCPA (in s), relevant for state and spawning of TSs
         self.jet_length   = 15               # size of the jets for plotting (in m)
@@ -292,18 +292,17 @@ class FossenEnv(gym.Env):
             if 0 <= TCPA_TS <= 1:
                 state_TSs.append([bng_rel_TS, C_TS, u_TS, ED_TS, sigma_TS, TCPA_TS])
         
-        # create zero state if no TS is close according to TCPA
+        # create dummy state if no TS is close according to TCPA
         if len(state_TSs) == 0:
-            state_TSs = np.array([0.0] * 6 * self.N_TSs)
+            state_TSs = np.array([np.nan] * 6 * self.N_TSs, dtype=np.float32)
 
         # otherwise sort according to descending TCPA_TS
         else:
             state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=True))
             state_TSs = state_TSs.flatten(order="C")
 
-            # padd zeroes at the left side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (self.N_TSs * 6 - len(state_TSs), 0), 'constant').astype(np.float32)
-
+            # padd nan at the left side to guarantee state size is always identical
+            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=np.nan).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])

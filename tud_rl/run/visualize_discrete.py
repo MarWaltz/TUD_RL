@@ -11,7 +11,7 @@ import gym_pygame
 import numpy as np
 import torch
 from tud_rl.envs.MountainCar import MountainCar
-from tud_rl.envs.FossenCS2 import FossenCS2
+from tud_rl.envs.FossenEnv import *
 from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
@@ -20,6 +20,7 @@ from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.agents.discrete.RecDQN import RecDQNAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
@@ -114,9 +115,9 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="FossenCS2.json")
-    parser.add_argument("--agent_name", type=str, default="DDQN")
-    parser.add_argument("--dqn_weights", type=str, default="DDQN_weights.pth")
+    parser.add_argument("--config_file", type=str, default="FossenEnv.json")
+    parser.add_argument("--agent_name", type=str, default="RecDQN")
+    parser.add_argument("--dqn_weights", type=str, default="RecDQN_weights.pth")
     args = parser.parse_args()
 
     # read config file

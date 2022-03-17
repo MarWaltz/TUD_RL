@@ -20,6 +20,7 @@ from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
+from tud_rl.agents.discrete.RecDQN import RecDQNAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
@@ -219,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="FossenEnv.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DDQN")
+    parser.add_argument("--agent_name", type=str, default="RecDQN")
     args = parser.parse_args()
 
     # read config file

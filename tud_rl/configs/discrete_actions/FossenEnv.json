@@ -6,7 +6,7 @@
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {},
+      "env_kwargs"        : {"N_TSs" : 5},
       "info"              : ""
    }
    ,
@@ -29,7 +29,8 @@
       "KEBootDQN_e" : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "EnsembleDQN" : {"N" : 5, "N_to_update" : 1},
       "MaxMinDQN_a" : {"N" : 2, "N_to_update" : 1},
-      "MaxMinDQN_b" : {"N" : 5, "N_to_update" : 1}
+      "MaxMinDQN_b" : {"N" : 5, "N_to_update" : 1},
+      "RecDQN"      : {}
    }
    ,
 
