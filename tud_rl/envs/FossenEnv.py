@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
 from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_rel, dtr,
-                                   head_inter, rtd, tcpa)
+                                   head_inter, u_from_tau, tau_from_u, rtd, tcpa)
 
 
 class FossenEnv(gym.Env):
@@ -24,6 +24,7 @@ class FossenEnv(gym.Env):
         self.E_max        = 50               # maximum E-coordinate (in m)
         self.N_TSs        = 1                # number of other vessels
         self.safety_dist  = 3                # minimum distance, if less then collision (in m)
+        self.TCPA_crit    = 30               # critical TCPA (in s), relevant for state and spawning of TSs
         self.jet_length   = 15               # size of the jets for plotting (in m)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
 
@@ -63,7 +64,7 @@ class FossenEnv(gym.Env):
         self.OS = CyberShipII(N_init       = 10.0, 
                               E_init       = 10.0, 
                               psi_init     = np.random.uniform(0, np.pi),
-                              u_init       = np.random.uniform(0, 1),
+                              u_init       = 0.0,
                               v_init       = 0.0,
                               r_init       = 0.0,
                               delta_t      = self.delta_t,
@@ -72,11 +73,9 @@ class FossenEnv(gym.Env):
                               cnt_approach = self.cnt_approach,
                               tau_u        = 3.0)
 
-        # simulate dynamics for several steps to get near-converged speed
+        # set longitudinal speed to near-convergence
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        OS_cpy = copy.copy(self.OS)
-        [OS_cpy._upd_dynamics() for _ in range(100)]
-        self.OS.nu = OS_cpy.nu
+        self.OS.nu[0] = u_from_tau(self.OS.tau_u)
 
         # init other vessels
         self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
@@ -107,7 +106,7 @@ class FossenEnv(gym.Env):
         TS = CyberShipII(N_init       = np.random.uniform(15, self.N_max), 
                          E_init       = np.random.uniform(15, self.E_max), 
                          psi_init     = np.random.uniform(0, np.pi),
-                         u_init       = np.random.uniform(0, 1),
+                         u_init       = 0.0,
                          v_init       = 0.0,
                          r_init       = 0.0,
                          delta_t      = self.delta_t,
@@ -116,20 +115,20 @@ class FossenEnv(gym.Env):
                          cnt_approach = self.cnt_approach,
                          tau_u        = np.random.uniform(0, 5))
 
-        # sample COLREG situation (only head-on, starboard crossing, overtaking, or null)
+        # predict converged speed of sampled TS
+        # Note: if we don't do this, the TCPA calculation is heavily biased
+        TS.nu[0] = u_from_tau(TS.tau_u)
+
+        # sample COLREG situation (only null, head-on, starboard crossing, overtaking)
         COLREG_s = random.choice([0, 1, 2, 4])
-        COLREG_s = 2
 
         # stop in null case
         if COLREG_s == 0:
             return TS
 
-        # simulate dynamics for several steps to get near-converged speed of sampled TS
-        # Note: if we don't do this, the TCPA calculation is heavily biased
-        [TS._upd_dynamics() for _ in range(100)]
-        
-        # set/sample CPA-related metrics
-        TCPA_s = 60.0
+        #--------------------------------------- general steps --------------------------------------
+
+        # sample DCPA
         DCPA_s = np.random.uniform(0, self.safety_dist)
 
         # forecast position of OS if it keeps course (heading + sideslip) and speed (u and v combined)
@@ -138,44 +137,75 @@ class FossenEnv(gym.Env):
         chiOS = head0 + self.OS._get_beta()
         VOS = self.OS._get_V()
 
-        E_OS_tcpa0 = E0 + VOS * np.sin(chiOS) * TCPA_s
-        N_OS_tcpa0 = N0 + VOS * np.cos(chiOS) * TCPA_s
+        E_OS_tcpa0 = E0 + VOS * np.sin(chiOS) * self.TCPA_crit
+        N_OS_tcpa0 = N0 + VOS * np.cos(chiOS) * self.TCPA_crit
 
-        # sample relative bearing and intersection angle
-        # head-on
-        if COLREG_s == 1:
-            bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
-            C_TS_s    = dtr(np.random.uniform(175, 185))
+        #------------------------------------ head-on, crossings -------------------------------------
+        if COLREG_s in [1, 2, 3]:
 
-        # starboard crossing
-        elif COLREG_s == 2:
-            bng_rel_s = dtr(np.random.uniform(5, 112.5))
-            C_TS_s    = dtr(np.random.uniform(185, 292.5))
+            # sample relative bearing and intersection angle
+            # head-on
+            if COLREG_s == 1:
+                bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
+                C_TS_s    = dtr(np.random.uniform(175, 185))
 
-        # portside crossing
-        elif COLREG_s == 3:
-            bng_rel_s = dtr(np.random.uniform(247.5, 355))
-            C_TS_s    = dtr(np.random.uniform(67.5, 175))
+            # starboard crossing
+            elif COLREG_s == 2:
+                bng_rel_s = dtr(np.random.uniform(5, 112.5))
+                C_TS_s    = dtr(np.random.uniform(185, 292.5))
 
-        # overtaking
+            # portside crossing
+            elif COLREG_s == 3:
+                bng_rel_s = dtr(np.random.uniform(247.5, 355))
+                C_TS_s    = dtr(np.random.uniform(67.5, 175))
+
+            # determine absolute bearing and TS heading
+            bng_abs_s = angle_to_2pi(bng_rel_s + head0)
+            head_TS_s = angle_to_2pi(C_TS_s + head0)
+
+            # calculate position of TS for TCPA = 0
+            E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
+            N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
+
+            # no further constraints on velocity
+            VTS = TS.nu[0]
+
+        #-------------------------------------- overtaking ---------------------------------------
         elif COLREG_s == 4:
-            bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-30, 30)))
+
+            # sample intersection angle and determine heading of TS
             C_TS_s    = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+            head_TS_s = angle_to_2pi(C_TS_s + head0)
 
-        # determine absolute bearing and TS heading
-        bng_abs_s = angle_to_2pi(bng_rel_s + head0)
-        head_TS_s = angle_to_2pi(C_TS_s + head0)
+            # sample relative bearing from OS perspective
+            bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)) - head0 + head_TS_s)
 
-        # calculate position of TS for TCPA = 0
-        E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
-        N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
+            # determine absolute bearing
+            bng_abs_s = angle_to_2pi(bng_rel_s + head0)
 
+            # calculate position of TS for TCPA = 0
+            E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
+            N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
+
+            # intersection angle under consideration of sideslip
+            side_OS = self.OS._get_beta()
+            side_TS = TS._get_beta()
+            C_T_side = head_inter(head_OS = head0 + side_OS, head_TS = head_TS_s + side_TS)
+
+            # velocity of OS in TS's direction should be larger than the one of TS
+            VOS = self.OS._get_V()
+            VTS = np.random.uniform(0, VOS * np.cos(C_T_side))
+            TS.nu[0] = VTS
+
+            # set tau_u of TS so that it will keep this velocity
+            TS.tau_u = tau_from_u(VTS)
+
+        #--------------------------------------- general steps --------------------------------------
         # backtrace original position of TS
-        VTS = TS.nu[0]
-        E_TS = E_TS_tcpa0 - VTS * np.sin(head_TS_s) * TCPA_s
-        N_TS = N_TS_tcpa0 - VTS * np.cos(head_TS_s) * TCPA_s
+        E_TS = E_TS_tcpa0 - VTS * np.sin(head_TS_s) * self.TCPA_crit
+        N_TS = N_TS_tcpa0 - VTS * np.cos(head_TS_s) * self.TCPA_crit
 
-        # set values
+        # set positional values
         TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
 
         return TS
@@ -432,7 +462,7 @@ class FossenEnv(gym.Env):
         #-------------------------------------------------------------------------------------------------------
 
         # COLREG 1: Head-on
-        if np.abs(rtd(angle_to_pi(bng_OS))) <= 5 and 175 <= rtd(C_T) <= 185:
+        if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
             return 1
         
         # COLREG 2: Starboard crossing
@@ -444,7 +474,7 @@ class FossenEnv(gym.Env):
             return 3
 
         # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and ((0 <= rtd(C_T) <= 67.5) or (292.5 <= rtd(C_T) <= 360)) and V_OS * np.cos(C_T_side) > V_TS:
+        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_OS * np.cos(C_T_side) > V_TS:
             return 4
 
         # COLREG 0: nothing
@@ -568,8 +598,8 @@ class FossenEnv(gym.Env):
                                           angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
             # set simplified ship domain
-            circ = patches.Circle((E0, N0), radius=self.jet_length, edgecolor='red', facecolor='none', alpha=0.3)
-            self.ax0.add_patch(circ)
+            #circ = patches.Circle((E0, N0), radius=self.jet_length, edgecolor='red', facecolor='none', alpha=0.3)
+            #self.ax0.add_patch(circ)
 
             # set goal (stored as NE)
             self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")

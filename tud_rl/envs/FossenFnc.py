@@ -1,8 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-COLREG_NAMES  = {1 : "Head-on", 2 : "Starb. cross.", 3 : "Ports. cross.", 4 : "Overtaking", 0 : "Null"}
+COLREG_NAMES  = {0 : "Null", 1 : "Head-on", 2 : "Starb. cross.", 3 : "Ports. cross.", 4 : "Overtaking"}
 COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(5)]
+
 
 
 class StaticObstacle:
@@ -50,7 +51,7 @@ def angle_to_pi(angle):
 
 
 def head_inter(head_OS, head_TS):
-    """Computes the intersection angle between headings in radiant. Corresponds to C_T in Xu et al. (2022, Neurocomputing)."""
+    """Computes the intersection angle between headings in radiant (in [0, 2pi)). Corresponds to C_T in Xu et al. (2022, Neurocomputing)."""
     return angle_to_2pi(head_TS - head_OS)
 
 
@@ -121,6 +122,35 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     den = (vyTS - vyOS)**2 + (vxTS - vxOS)**2
 
     return nom / den
+
+
+def u_from_tau(tau_u):
+    """Predicts the final longitudinal speed of a CSII under constant tau_u and zero other thrust. 
+    Determined empirically based on a 8-degree polynomial."""
+
+    assert 0 <= tau_u <= 5.0, "Tau_u too large, inaccurate poly-fit."
+
+    params = [-1.81805707e-04, 4.05387033e-03, -3.79041163e-02, 1.93262645e-01, -5.86225946e-01, 1.08857978e+00, \
+        -1.25147439e+00, 1.01080591e+00, 3.91117068e-03]
+
+    pre = 0
+    for p_idx, p in enumerate(params):
+        pre += p * tau_u**(8 - p_idx)
+    return pre
+
+
+def tau_from_u(u):
+    """Inverse of 'predict_u_from_tau'."""
+
+    assert 0 <= u <= 0.8, "u too large, inaccurate poly-fit."
+
+    params = [5.41736299e+01, -2.04854463e+02, 3.17900063e+02, -2.57917714e+02, 1.14106589e+02, -1.93040864e+01,\
+          3.02307411e+00, 8.65085735e-01, 1.08513643e-03]
+
+    pre = 0
+    for p_idx, p in enumerate(params):
+        pre += p * u**(8 - p_idx)
+    return pre
 
 
 #-------------------------------------- Backup ----------------------------------------
