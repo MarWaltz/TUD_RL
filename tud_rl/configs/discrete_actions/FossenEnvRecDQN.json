@@ -6,7 +6,7 @@
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"N_TSs" : 5, "state_pad" : 0.0},
+      "env_kwargs"        : {"N_TSs" : 5},
       "info"              : ""
    }
    ,

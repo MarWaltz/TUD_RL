@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import newton
 from tud_rl.envs.FossenFnc import dtr, angle_to_2pi
 
 
@@ -261,14 +262,10 @@ class CyberShipII:
         return np.concatenate([eta_dot, nu_dot])
 
 
-    def _upd_dynamics(self, euler=False, mirrow=False, clip=False):
-        """Updates positions and velocities for next simulation step. Uses basic Euler method.
-        Arguments:
-
-        euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
-        mirrow (bool): Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
-                       Inspired by Xu et al. (2022, Neurocomputing).
-        clip (bool):   Whether to artificially keep vessel on the map.
+    def _upd_dynamics(self, euler=False):
+        """Updates positions and velocities for next simulation step.
+        Args:
+            euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
         """
 
         if euler:
@@ -301,25 +298,6 @@ class CyberShipII:
 
         # transform heading to [0, 2pi)
         self.eta[2] = angle_to_2pi(self.eta[2])
-
-        # stay on map: either mirrow mode or by adjusting NE
-        if self._is_off_map():
-            
-            if mirrow:
-                # quick access
-                psi = self.eta[2]
-
-                # right or left bound (E-axis)
-                if self.eta[1] <= 0 or self.eta[1] >= self.E_max:
-                    self.eta[2] = 2*np.pi - psi
-                
-                # upper and lower bound (N-axis)
-                else:
-                    self.eta[2] = np.pi - psi
-            
-            elif clip:
-                self.eta[0] = np.clip(self.eta[0], 0, self.N_max)
-                self.eta[1] = np.clip(self.eta[1], 0, self.E_max)
 
 
     def _control(self, a):
@@ -462,3 +440,24 @@ class CyberShipII:
         if self.eta[0] <= 0 or self.eta[0] >= self.N_max or self.eta[1] <= 0 or self.eta[1] >= self.E_max:
             return True
         return False
+
+
+    def _tau_u_from_u(self, u):
+        """Returns the thrust for in u-direction (in N) for maintaining a given longitudinal speed."""
+        
+        nu  = np.array([u, 0.0, 0.0])
+        tau = np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu)
+        return tau[0]
+
+
+    def _u_from_tau_u(self, tau_u):
+        """Returns the final longitudinal speed of a CSII under constant tau_u and zero other thrust."""
+
+        tau = np.array([tau_u, 0.0, 0.0])
+
+        def to_find_root_of(u):
+            nu = np.array([u, 0.0, 0.0])
+            vec = np.dot(self._C_of_nu(nu) + self._D_of_nu(nu), nu) - tau
+            return vec[0]
+
+        return newton(func=to_find_root_of, x0=0.5)

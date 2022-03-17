@@ -9,24 +9,25 @@ from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
 from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_rel, dtr,
-                                   head_inter, u_from_tau, tau_from_u, rtd, tcpa)
+                                   head_inter, rtd, tcpa)
 
 
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs=5, cnt_approach="tau"):
+    def __init__(self, N_TSs=5, cnt_approach="tau", state_pad=np.nan):
         super().__init__()
 
         # simulation settings
         self.delta_t      = 0.5              # simulation time interval (in s)
-        self.N_max        = 50               # maximum N-coordinate (in m)
-        self.E_max        = 50               # maximum E-coordinate (in m)
+        self.N_max        = 100              # maximum N-coordinate (in m)
+        self.E_max        = 100              # maximum E-coordinate (in m)
         self.N_TSs        = N_TSs            # number of other vessels
         self.safety_dist  = 3                # minimum distance, if less then collision (in m)
-        self.TCPA_crit    = 30               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit    = 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.jet_length   = 15               # size of the jets for plotting (in m)
         self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
+        self.state_pad    = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
 
         # gym definitions
         obs_size = 8 + self.N_TSs * 6
@@ -61,8 +62,8 @@ class FossenEnv(gym.Env):
                      "E" : np.random.uniform(self.E_max - 25, self.E_max)}
 
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(N_init       = 10.0, 
-                              E_init       = 10.0, 
+        self.OS = CyberShipII(N_init       = 25.0, 
+                              E_init       = 25.0, 
                               psi_init     = np.random.uniform(0, np.pi),
                               u_init       = 0.0,
                               v_init       = 0.0,
@@ -75,13 +76,14 @@ class FossenEnv(gym.Env):
 
         # set longitudinal speed to near-convergence
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        self.OS.nu[0] = u_from_tau(self.OS.tau_u)
+        self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.tau_u)
 
         # init other vessels
         self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
 
         # determine current COLREG situations
-        self.TS_COLREGs = [0] * self.N_TSs
+        self.respawn_flags = [True] * self.N_TSs
+        self.TS_COLREGs    = [0] * self.N_TSs
         self._set_COLREGs()
 
         # init state
@@ -99,12 +101,13 @@ class FossenEnv(gym.Env):
             4) relative bearing (in rad), 
             5) intersection angle (in rad),
             6) and a forward thrust (tau-u in N).
-        Returns: 
+
+        Procedure is simplified if control mode is not 'tau'. Returns: 
             CyberShipII."""
         
         # init a CSII
-        TS = CyberShipII(N_init       = np.random.uniform(15, self.N_max), 
-                         E_init       = np.random.uniform(15, self.E_max), 
+        TS = CyberShipII(N_init       = np.random.uniform(30, self.N_max), 
+                         E_init       = np.random.uniform(30, self.E_max), 
                          psi_init     = np.random.uniform(0, np.pi),
                          u_init       = 0.0,
                          v_init       = 0.0,
@@ -117,19 +120,19 @@ class FossenEnv(gym.Env):
 
         # predict converged speed of sampled TS
         # Note: if we don't do this, the TCPA calculation is heavily biased
-        TS.nu[0] = u_from_tau(TS.tau_u)
+        TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
 
         # sample COLREG situation (only null, head-on, starboard crossing, overtaking)
         COLREG_s = random.choice([0, 1, 2, 4])
 
-        # stop in null case
-        if COLREG_s == 0:
+        # stop in null case or other control approach
+        if COLREG_s == 0 or self.cnt_approach != "tau":
             return TS
 
         #--------------------------------------- general steps --------------------------------------
 
         # sample DCPA
-        DCPA_s = np.random.uniform(0, self.safety_dist)
+        DCPA_s = 0 #np.random.uniform(0, self.safety_dist)
 
         # forecast position of OS if it keeps course (heading + sideslip) and speed (u and v combined)
         N0, E0, head0 = self.OS.eta
@@ -198,7 +201,8 @@ class FossenEnv(gym.Env):
             TS.nu[0] = VTS
 
             # set tau_u of TS so that it will keep this velocity
-            TS.tau_u = tau_from_u(VTS)
+            TS.tau_u = TS._tau_u_from_u(VTS)
+            TS._set_tau()
 
         #--------------------------------------- general steps --------------------------------------
         # backtrace original position of TS
@@ -243,7 +247,7 @@ class FossenEnv(gym.Env):
             COLREG mode TS (sigma_TS)
             TCPA
         
-        Note: Everything is normalized. If the TCPA is < 0s or > 60s for a TS, everything for this TS is set 0.
+        Note: Everything is normalized. If the TCPA is < 0s or > self.TCPA_crit for a TS, everything for this TS is set 0.
         """
 
         N0, E0, head0 = self.OS.eta             # N, E, heading
@@ -286,7 +290,7 @@ class FossenEnv(gym.Env):
             sigma_TS = self.TS_COLREGs[TS_idx]
 
             # TCPA
-            TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / 60
+            TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / self.TCPA_crit
 
             # store it
             if 0 <= TCPA_TS <= 1:
@@ -294,15 +298,15 @@ class FossenEnv(gym.Env):
         
         # create dummy state if no TS is close according to TCPA
         if len(state_TSs) == 0:
-            state_TSs = np.array([np.nan] * 6 * self.N_TSs, dtype=np.float32)
+            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
 
         # otherwise sort according to descending TCPA_TS
         else:
             state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=True))
             state_TSs = state_TSs.flatten(order="C")
 
-            # padd nan at the left side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=np.nan).astype(np.float32)
+            # pad nan at the left side to guarantee state size is always identical
+            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])
@@ -321,8 +325,14 @@ class FossenEnv(gym.Env):
         # update agent dynamics
         self.OS._upd_dynamics()
 
+        # handle map-leaving of agent
+        self.OS, _ = self._handle_map_leaving(self.OS, respawn=False, mirrow=False, clip=True)
+
         # update environmental dynamics, e.g., other vessels
         [TS._upd_dynamics() for TS in self.TSs]
+
+        # handle map-leaving of other vessels
+        self.TSs, self.respawn_flags = list(zip(*[self._handle_map_leaving(TS, respawn=True, mirrow=False, clip=False) for TS in self.TSs]))
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -337,6 +347,44 @@ class FossenEnv(gym.Env):
         self.sim_t += self.delta_t
         
         return self.state, self.r, d, {}
+
+
+    def _handle_map_leaving(self, CS, respawn=True, mirrow=False, clip=False):
+        """Handles the case when a ship reaches the border of the simulation area.
+
+        Args:
+            CS (CyberShipII): Vessel of interest.
+            respawn (bool):   Whether the vessel should respawn somewhere else.
+            mirrow (bool):    Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
+                              Inspired by Xu et al. (2022, Neurocomputing).
+            clip (bool):      Whether to artificially keep vessel on the map by clipping. Thus, it will stay on boarder.
+        Returns
+            CybershipII, respawn_flag (bool)
+        """
+
+        # check whether vessel left the map
+        if CS._is_off_map():
+            
+            if respawn:
+                return self._get_TS(), True
+            
+            elif mirrow:
+                # quick access
+                psi = CS.eta[2]
+
+                # right or left bound (E-axis)
+                if CS.eta[1] <= 0 or CS.eta[1] >= CS.E_max:
+                    CS.eta[2] = 2*np.pi - psi
+                
+                # upper and lower bound (N-axis)
+                else:
+                    CS.eta[2] = np.pi - psi
+            
+            elif clip:
+                CS.eta[0] = np.clip(CS.eta[0], 0, CS.N_max)
+                CS.eta[1] = np.clip(CS.eta[1], 0, CS.E_max)
+        
+        return CS, False
 
 
     def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_map=1.):
@@ -371,9 +419,10 @@ class FossenEnv(gym.Env):
         # -------------------------------------- 4. COLREG reward ------------------------------------------
         r_COLREG = 0
 
-        if self.step_cnt > 0:
+        for TS_idx, TS in enumerate(self.TSs):
 
-            for TS_idx, TS in enumerate(self.TSs):
+            # if vessel just spawned, don't assess COLREG reward
+            if not self.respawn_flags[TS_idx]:
 
                 # assess when COLREG situation changes
                 if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:

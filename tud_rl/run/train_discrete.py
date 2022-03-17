@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="FossenEnv.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="RecDQN")
+    parser.add_argument("--agent_name", type=str, default="DDQN")
     args = parser.parse_args()
 
     # read config file
