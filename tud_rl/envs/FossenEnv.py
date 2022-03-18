@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
 from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_abs, bng_rel,
-                                   dtr, head_inter, rtd, tcpa)
+                                   dtr, head_inter, project_vector, rtd, tcpa)
 
 
 class FossenEnv(gym.Env):
@@ -139,7 +139,6 @@ class FossenEnv(gym.Env):
 
         # sample COLREG situation (null, head-on, starboard crossing, portside crossing, overtaking)
         COLREG_s = random.choice([0, 1, 2, 3, 4])
-        COLREG_s = 2
 
         # stop in null case
         if COLREG_s == 0:
@@ -230,19 +229,8 @@ class FossenEnv(gym.Env):
         	# determine relative speed of OS towards goal, need absolute bearing first
             bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
-            # x,y components of VOS
-            vxOS = VOS * np.sin(chiOS)
-            vyOS = VOS * np.cos(chiOS)
-
-            # x,y components of relative velocity
-            vxR_unit = 1 * np.sin(bng_abs_goal)
-            vyR_unit = 1 * np.cos(bng_abs_goal)
-
             # project VOS vector on relative velocity direction
-            vR = (vxOS * vxR_unit + vyOS * vyR_unit) / 1.0
-
-            VR_goal_x = vR * np.sin(bng_abs_goal)
-            VR_goal_y = vR * np.cos(bng_abs_goal)
+            VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
             
             # sample time
             t_hit = np.random.uniform(self.TCPA_crit / 2, self.TCPA_crit)
@@ -251,31 +239,35 @@ class FossenEnv(gym.Env):
             E_hit = E0 + np.abs(VR_goal_x) * t_hit
             N_hit = N0 + np.abs(VR_goal_y) * t_hit
 
-            # head-on, crossings           
+            # Note: In the following, we only sample the intersection angle and not a relative bearing.
+            #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+            #       and we need only one further information to uniquely determine the origin of its motion.
+
+            # head-on
+            if COLREG_s == 1:
+                C_TS_s = dtr(np.random.uniform(175, 185))
+
+            # starboard crossing
+            elif COLREG_s == 2:
+                C_TS_s = dtr(np.random.uniform(185, 292.5))
+
+            # portside crossing
+            elif COLREG_s == 3:
+                C_TS_s = dtr(np.random.uniform(67.5, 175))
+
+            # no speed constraints for these three situations
             if COLREG_s in [1, 2, 3]:
-
-                # sample relative bearing and intersection angle accordingly
-                # head-on
-                if COLREG_s == 1:
-                    #bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
-                    C_TS_s    = dtr(np.random.uniform(175, 185))
-
-                # starboard crossing
-                elif COLREG_s == 2:
-                    #bng_rel_s = dtr(np.random.uniform(5, 112.5))
-                    C_TS_s    = dtr(np.random.uniform(185, 292.5))
-
-                # portside crossing
-                elif COLREG_s == 3:
-                    #bng_rel_s = dtr(np.random.uniform(247.5, 355))
-                    C_TS_s    = dtr(np.random.uniform(67.5, 175))
-                
-                # determine absolute bearing and TS heading (treating absolute bearing towards goal as heading)
-                #bng_abs_s = angle_to_2pi(bng_rel_s + bng_abs_goal)
-                head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)
-
-                # no further constraints on velocity
                 VTS = TS.nu[0]
+
+            # overtaking
+            elif COLREG_s == 4:
+                C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
+                # here we have a speed constraint
+                pass
+                
+            # determine TS heading (treating absolute bearing towards goal as heading of OS)
+            head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)          
 
             # backtrace original position of TS
             E_TS = E_hit - VTS * np.sin(head_TS_s) * t_hit
@@ -285,7 +277,6 @@ class FossenEnv(gym.Env):
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
 
             return TS
-
 
 
     def _set_COLREGs(self):

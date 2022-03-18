@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
-from tud_rl.envs.FossenFnc import dtr, angle_to_2pi
+from tud_rl.envs.FossenFnc import dtr, angle_to_2pi, polar_from_xy
 
 
 class CyberShipII:
@@ -414,19 +414,7 @@ class CyberShipII:
         u = self.nu[0]
         v = self.nu[1]
 
-        frac = np.arctan(np.abs(v/u))
-
-        if u >= 0 and v >= 0:
-            return frac
-        
-        elif u >= 0 and v < 0:
-            return -frac
-
-        elif u < 0 and v >= 0:
-            return np.pi - frac
-        
-        elif u < 0 and v < 0:
-            return - (np.pi - frac)
+        return polar_from_xy(x=v, y=u)[1]
 
 
     def _get_course(self):

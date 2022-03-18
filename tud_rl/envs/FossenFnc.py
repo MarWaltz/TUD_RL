@@ -113,15 +113,66 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     yTS = NTS
 
     # compute velocities in x,y-coordinates
-    vxOS = VOS * np.sin(chiOS)
-    vyOS = VOS * np.cos(chiOS)
-    vxTS = VTS * np.sin(chiTS)
-    vyTS = VTS * np.cos(chiTS)
+    vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+    vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
 
     nom = - ((yTS - yOS)*(vyTS - vyOS) + (xTS - xOS)*(vxTS - vxOS))
     den = (vyTS - vyOS)**2 + (vxTS - vxOS)**2
 
     return nom / den
+
+
+def polar_from_xy(x, y):
+    """Get polar coordinates (r, angle in rad in [0, 2pi)) from x,y-coordinates. Angles are defined clockwise with zero at the y-axis."""
+
+    r = np.sqrt(x**2 + y**2)
+    frac = np.arctan(np.abs(x / y))
+
+    # I. Q.
+    if x >= 0 and y >= 0:
+        return r, frac
+
+    # II. Q.
+    elif x < 0 and y >= 0:
+        return r, 2*np.pi - frac
+    
+    # III. Q.
+    elif x < 0 and y < 0:
+        return r, frac + np.pi
+    
+    # IV. Q.
+    elif x >= 0 and y < 0:
+        return r, np.pi - frac
+
+
+def xy_from_polar(r, angle):
+    """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
+    return r * np.sin(angle), r * np.cos(angle)
+
+
+def project_vector(VA, angleA, VB, angleB):
+    """Projects vector A, characterized in polar coordinates VA and angleA, onto vector B (also polar coordinates).
+    Angles are defined clockwise with zero at the y-axis.
+
+    Args:
+        VA (float):     norm of vector A
+        angleA (float): angle of vector A (in rad)
+        VB (float):     norm of vector B
+        angleB (float): angle of vector B (in rad)
+
+    Returns:
+        Velocity components in x- and y-direction, respectively, not polar coordinates. Both floats.
+    """
+
+    # x,y components of vectors A and B
+    vxA, vyA = xy_from_polar(r=VA, angle=angleA)
+    vxB, vyB = xy_from_polar(r=VB, angle=angleB)
+
+    # projection of A on B
+    v_proj = (vxA * vxB + vyA * vyB) / VB
+
+    # x,y components of projection
+    return xy_from_polar(r=v_proj, angle=angleB)
 
 
 #-------------------------------------- Backup ----------------------------------------
