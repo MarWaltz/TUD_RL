@@ -409,7 +409,7 @@ class CyberShipII:
             self.f3 = np.clip(self.f3, 0, self.f23_max)
 
 
-    def _get_beta(self):
+    def _get_sideslip(self):
         """Returns the sideslip angle in radiant."""
         u = self.nu[0]
         v = self.nu[1]
@@ -427,6 +427,11 @@ class CyberShipII:
         
         elif u < 0 and v < 0:
             return - (np.pi - frac)
+
+
+    def _get_course(self):
+        """Returns the course angle in radiant, which is heading + sideslip."""
+        return angle_to_2pi(self.eta[2] + self._get_sideslip())
 
 
     def _get_V(self):
