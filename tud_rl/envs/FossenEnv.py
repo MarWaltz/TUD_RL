@@ -19,15 +19,16 @@ class FossenEnv(gym.Env):
         super().__init__()
 
         # simulation settings
-        self.delta_t      = 0.5              # simulation time interval (in s)
-        self.N_max        = 100              # maximum N-coordinate (in m)
-        self.E_max        = 100              # maximum E-coordinate (in m)
-        self.N_TSs        = N_TSs            # number of other vessels
-        self.safety_dist  = 3                # minimum distance, if less then collision (in m)
-        self.TCPA_crit    = 60               # critical TCPA (in s), relevant for state and spawning of TSs
-        self.jet_length   = 15               # size of the jets for plotting (in m)
-        self.cnt_approach = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
-        self.state_pad    = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
+        self.delta_t         = 0.5              # simulation time interval (in s)
+        self.N_max           = 100              # maximum N-coordinate (in m)
+        self.E_max           = 100              # maximum E-coordinate (in m)
+        self.N_TSs           = N_TSs            # number of other vessels
+        self.safety_dist     = 10               # minimum distance, if less then collision (in m)
+        self.TCPA_crit       = 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.jet_length      = 15               # size of the jets for plotting (in m)
+        self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
+        self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
+        self.goal_reach_dist = 25               # euclidean distance (in m) at which goal is considered as reached 
 
         # gym definitions
         obs_size = 8 + self.N_TSs * 6
@@ -62,9 +63,9 @@ class FossenEnv(gym.Env):
                      "E" : np.random.uniform(self.E_max - 25, self.E_max)}
 
         # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(N_init       = 25.0, 
-                              E_init       = 25.0, 
-                              psi_init     = np.random.uniform(0, np.pi),
+        self.OS = CyberShipII(N_init       = self.N_max / 5, 
+                              E_init       = self.E_max / 5, 
+                              psi_init     = np.random.uniform(0, np.pi / 2),
                               u_init       = 0.0,
                               v_init       = 0.0,
                               r_init       = 0.0,
@@ -82,8 +83,7 @@ class FossenEnv(gym.Env):
         self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
 
         # determine current COLREG situations
-        self.respawn_flags = [True] * self.N_TSs
-        self.TS_COLREGs    = [0] * self.N_TSs
+        self.TS_COLREGs = [0] * self.N_TSs
         self._set_COLREGs()
 
         # init state
@@ -106,9 +106,9 @@ class FossenEnv(gym.Env):
             CyberShipII."""
         
         # init a CSII
-        TS = CyberShipII(N_init       = np.random.uniform(30, self.N_max), 
-                         E_init       = np.random.uniform(30, self.E_max), 
-                         psi_init     = np.random.uniform(0, np.pi),
+        TS = CyberShipII(N_init       = np.random.uniform(self.N_max / 5, self.N_max), 
+                         E_init       = np.random.uniform(self.E_max / 5, self.E_max), 
+                         psi_init     = np.random.uniform(0, 2*np.pi),
                          u_init       = 0.0,
                          v_init       = 0.0,
                          r_init       = 0.0,
@@ -240,10 +240,10 @@ class FossenEnv(gym.Env):
             ED_goal
         
         Dynamic obstacle (for each, sorted by TCPA):
+            ED_TS
             relative bearing
             heading intersection angle C_T
             u_TS
-            ED_TS
             COLREG mode TS (sigma_TS)
             TCPA
         
@@ -274,6 +274,9 @@ class FossenEnv(gym.Env):
             chiTS = headTS + TS._get_beta()     # course angle (heading + sideslip)
             VTS = TS._get_V()                   # aggregated velocity
 
+            # euclidean distance
+            ED_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / self.E_max
+
             # relative bearing
             bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0) / (2*np.pi)
 
@@ -283,9 +286,6 @@ class FossenEnv(gym.Env):
             # longitudinal speed
             u_TS = TS.nu[0]
 
-            # euclidean distance
-            ED_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / self.E_max
-
             # COLREG mode
             sigma_TS = self.TS_COLREGs[TS_idx]
 
@@ -294,18 +294,18 @@ class FossenEnv(gym.Env):
 
             # store it
             if 0 <= TCPA_TS <= 1:
-                state_TSs.append([bng_rel_TS, C_TS, u_TS, ED_TS, sigma_TS, TCPA_TS])
+                state_TSs.append([ED_TS, bng_rel_TS, C_TS, u_TS, sigma_TS, TCPA_TS])
         
         # create dummy state if no TS is close according to TCPA
         if len(state_TSs) == 0:
             state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
 
-        # otherwise sort according to descending TCPA_TS
+        # otherwise sort according to descending ED
         else:
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=True))
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True))
             state_TSs = state_TSs.flatten(order="C")
 
-            # pad nan at the left side to guarantee state size is always identical
+            # pad nan or zeroes at the right side to guarantee state size is always identical
             state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
@@ -349,7 +349,7 @@ class FossenEnv(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _handle_map_leaving(self, CS, respawn=True, mirrow=False, clip=False):
+    def _handle_map_leaving(self, CS, respawn, mirrow, clip):
         """Handles the case when a ship reaches the border of the simulation area.
 
         Args:
@@ -451,7 +451,7 @@ class FossenEnv(gym.Env):
 
         # goal reached
         OS_goal_ED = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
-        if OS_goal_ED <= 2.5:
+        if OS_goal_ED <= self.goal_reach_dist:
             return True
 
         # artificial done signal
@@ -654,6 +654,8 @@ class FossenEnv(gym.Env):
             self.ax0.text(self.goal["E"], self.goal["N"] + 2,
                           r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
                           horizontalalignment='center', verticalalignment='center', color='blue')
+            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+            self.ax0.add_patch(circ)
 
             # set other vessels
             for TS in self.TSs:
@@ -740,6 +742,7 @@ class FossenEnv(gym.Env):
             if self.step_cnt == 0:
                 self.ax3.clear()
                 self.ax3_twin = self.ax3.twinx()
+                self.ax3_twin.clear()
                 self.ax3.old_time = 0
                 self.ax3.old_action = 0
                 self.ax3.old_rud_angle = 0

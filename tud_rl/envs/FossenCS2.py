@@ -8,7 +8,7 @@ class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
     Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, cnt_approach, tau_u=3.0) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, cnt_approach, tau_u) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
