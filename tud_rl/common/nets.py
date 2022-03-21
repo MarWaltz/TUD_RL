@@ -644,7 +644,7 @@ class RecDQN(nn.Module):
         Note 2:
         The state contains two components; one is related to the OS and goal, one is related to other vessels.
         If another vessel is too far away, its state components will be set to nan. Since we do not want to put these through the LSTM,
-        we need to first identify the true length and then only select the hidden state accordingly.
+        we need to first identify the true length and only then select the hidden state accordingly.
         """
 
         # -------------------------------- preprocessing ----------------------------------------

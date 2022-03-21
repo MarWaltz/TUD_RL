@@ -64,38 +64,66 @@ def ED(N0, E0, N1, E1, sqrt=True):
     return d_sq
 
 
+def polar_from_xy(x, y, with_r=True, with_angle=True):
+    """Get polar coordinates (r, angle in rad in [0, 2pi)) from x,y-coordinates. Angles are defined clockwise with zero at the y-axis.
+    Args:
+        with_r (bool):     Whether to compute the radius.
+        with_angle (bool): Whether to compute the angle.
+    Returns:
+        r, angle as a tuple of floats."""
+
+    #------------ radius ---------------
+    if with_r:
+        r = np.sqrt(x**2 + y**2)
+    else:
+        r = None
+
+    #------------ angle ---------------
+    if with_angle:
+        # zero cases
+        if x == 0 and y >= 0:
+            angle = 0
+        
+        elif x == 0 and y < 0:
+            angle = np.pi
+
+        elif x >= 0 and y == 0:
+            angle = np.pi/2
+        
+        elif x < 0 and y == 0:
+            angle = 3/2 * np.pi
+
+        frac = np.arctan(np.abs(x / y))
+
+        # I. Q.
+        if x > 0 and y > 0:
+            angle = frac
+
+        # II. Q.
+        elif x < 0 and y > 0:
+            angle = 2*np.pi - frac
+        
+        # III. Q.
+        elif x < 0 and y < 0:
+            angle = frac + np.pi
+        
+        # IV. Q.
+        elif x > 0 and y < 0:
+            angle = np.pi - frac
+    else:
+        angle = None
+    
+    return r, angle
+
+
+def xy_from_polar(r, angle):
+    """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
+    return r * np.sin(angle), r * np.cos(angle)
+
+
 def bng_abs(N0, E0, N1, E1):
     """Computes the absolute bearing (in radiant, [0, 2pi)) of (N1, E1) from perspective of (N0, E0)."""
-    
-    # rename to x,y for convenience
-    xOS = E0
-    yOS = N0
-    xCN = E1
-    yCN = N1
-
-    if xOS == xCN and yOS <= yCN:
-        return 0
-    
-    elif xOS == xCN and yOS > yCN:
-        return np.pi
-
-    elif xOS <= xCN and yOS == yCN:
-        return np.pi/2
-    
-    elif xOS > xCN and yOS == yCN:
-        return 3/2 * np.pi
-   
-    elif xOS < xCN and yOS < yCN:  # I. Q.
-        return np.arctan(np.abs(xOS - xCN) / np.abs(yOS - yCN))
-       
-    elif xOS > xCN and yOS < yCN:  # II. Q.
-        return 2 * np.pi - np.arctan(np.abs(xOS - xCN) / np.abs(yOS - yCN))
-    
-    elif xOS > xCN and yOS > yCN:   # III. Q.
-        return np.pi + np.arctan(np.abs(xOS - xCN) / np.abs(yOS - yCN))
-
-    elif xOS < xCN and yOS > yCN:   # IV. Q.
-        return np.pi - np.arctan(np.abs(xOS - xCN) / np.abs(yOS - yCN))
+    return polar_from_xy(x=E1-E0, y=N1-N0, with_r=False, with_angle=True)[1]
 
 
 def bng_rel(N0, E0, N1, E1, head0):
@@ -120,34 +148,6 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     den = (vyTS - vyOS)**2 + (vxTS - vxOS)**2
 
     return nom / den
-
-
-def polar_from_xy(x, y):
-    """Get polar coordinates (r, angle in rad in [0, 2pi)) from x,y-coordinates. Angles are defined clockwise with zero at the y-axis."""
-
-    r = np.sqrt(x**2 + y**2)
-    frac = np.arctan(np.abs(x / y))
-
-    # I. Q.
-    if x >= 0 and y >= 0:
-        return r, frac
-
-    # II. Q.
-    elif x < 0 and y >= 0:
-        return r, 2*np.pi - frac
-    
-    # III. Q.
-    elif x < 0 and y < 0:
-        return r, frac + np.pi
-    
-    # IV. Q.
-    elif x >= 0 and y < 0:
-        return r, np.pi - frac
-
-
-def xy_from_polar(r, angle):
-    """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
-    return r * np.sin(angle), r * np.cos(angle)
 
 
 def project_vector(VA, angleA, VB, angleB):

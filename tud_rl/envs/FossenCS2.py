@@ -64,7 +64,7 @@ class CyberShipII:
         self.cnt_approach = cnt_approach
 
 
-        # ---------------------- Approach 1: Control force vector directly (following Cheng & Zhang (2007)) ----------------------
+        # ---------------------- Approach 1: Control force vector directly (following Cheng & Zhang (2017)) ----------------------
         if cnt_approach == "tau":
             
             # system is underactuated in v-direction, u-force will be constant, r-tau compoment controlled
@@ -414,7 +414,7 @@ class CyberShipII:
         u = self.nu[0]
         v = self.nu[1]
 
-        return polar_from_xy(x=v, y=u)[1]
+        return polar_from_xy(x=v, y=u, with_r=False, with_angle=True)[1]
 
 
     def _get_course(self):

@@ -9,7 +9,8 @@ from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
 from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_abs, bng_rel,
-                                   dtr, head_inter, project_vector, rtd, tcpa)
+                                   dtr, head_inter, polar_from_xy,
+                                   project_vector, rtd, tcpa, xy_from_polar)
 
 
 class FossenEnv(gym.Env):
@@ -42,7 +43,7 @@ class FossenEnv(gym.Env):
             self.action_space = spaces.Discrete(9)
 
         # custom inits
-        self._max_episode_steps = 1e3
+        self._max_episode_steps = 500
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
@@ -96,8 +97,8 @@ class FossenEnv(gym.Env):
     def _get_TS(self, spawn_mode="line"):
         """Places a target ship by sampling a 
             1) COLREG situation,
-            2) TCPA (or setting to 60s), 
-            3) DCPA (in m), 
+            2) TCPA (in s, or setting to 60s),
+            3) DCPA (in m, or setting to 0m),
             4) relative bearing (in rad), 
             5) intersection angle (in rad),
             6) and a forward thrust (tau-u in N).
@@ -125,20 +126,20 @@ class FossenEnv(gym.Env):
                          cnt_approach = self.cnt_approach,
                          tau_u        = np.random.uniform(0, 5))
 
-        if self.cnt_approach != "tau":
-            return TS
-
-        # quick access
-        N0, E0, head0 = self.OS.eta
-        chiOS = self.OS._get_course()
-        VOS   = self.OS._get_V()
-
         # predict converged speed of sampled TS
         # Note: if we don't do this, all further calculations are heavily biased
         TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
 
-        # sample COLREG situation (null, head-on, starboard crossing, portside crossing, overtaking)
-        COLREG_s = random.choice([0, 1, 2, 3, 4])
+        if self.cnt_approach != "tau":
+            return TS
+
+        # quick access for OS
+        N0, E0, head0 = self.OS.eta
+        chiOS = self.OS._get_course()
+        VOS   = self.OS._get_V()
+
+        # sample COLREG situation (null = 0, head-on = 1, starboard crossing = 2, portside crossing = 3, overtaking = 4)
+        COLREG_s = random.choice([1, 2, 3, 4])
 
         # stop in null case
         if COLREG_s == 0:
@@ -233,7 +234,7 @@ class FossenEnv(gym.Env):
             VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
             
             # sample time
-            t_hit = np.random.uniform(self.TCPA_crit / 2, self.TCPA_crit)
+            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
             # compute hit point
             E_hit = E0 + np.abs(VR_goal_x) * t_hit
@@ -255,19 +256,30 @@ class FossenEnv(gym.Env):
             elif COLREG_s == 3:
                 C_TS_s = dtr(np.random.uniform(67.5, 175))
 
-            # no speed constraints for these three situations
-            if COLREG_s in [1, 2, 3]:
-                VTS = TS.nu[0]
-
             # overtaking
             elif COLREG_s == 4:
                 C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
-                # here we have a speed constraint
-                pass
-                
             # determine TS heading (treating absolute bearing towards goal as heading of OS)
-            head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)          
+            head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
+
+            # no speed constraints except in overtaking
+            if COLREG_s in [1, 2, 3]:
+                VTS = TS.nu[0]
+
+            elif COLREG_s == 4:
+
+                # project VOS vector on TS direction
+                VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+                V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+
+                # sample TS speed
+                VTS = np.random.uniform(0, V_max_TS)
+                TS.nu[0] = VTS
+
+                # set tau_u of TS so that it will keep this velocity
+                TS.tau_u = TS._tau_u_from_u(VTS)
+                TS._set_tau()
 
             # backtrace original position of TS
             E_TS = E_hit - VTS * np.sin(head_TS_s) * t_hit
@@ -314,6 +326,7 @@ class FossenEnv(gym.Env):
         Note: Everything is normalized. If a TS is outside the ship domain, everything for this TS is set 0 or na, respectively.
         """
 
+        # quick access for OS
         N0, E0, head0 = self.OS.eta             # N, E, heading
         chiOS = self.OS._get_course()           # course angle (heading + sideslip)
         VOS = self.OS._get_V()                  # aggregated velocity
@@ -367,7 +380,7 @@ class FossenEnv(gym.Env):
                 # store it
                 state_TSs.append([ED_TS, bng_rel_TS, C_TS, u_TS, sigma_TS, TCPA_TS])
 
-        # create dummy state if no TS is close
+        # create dummy state if no TS is inside ship domain
         if len(state_TSs) == 0:
             state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
 
@@ -472,7 +485,7 @@ class FossenEnv(gym.Env):
         TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
                        chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
         
-        if TCPA_TS < -10:
+        if TCPA_TS < -10 or TCPA_TS > 1.5*self.TCPA_crit:
             return self._get_TS(), True
         
         return TS, False
@@ -567,10 +580,8 @@ class FossenEnv(gym.Env):
         chiTS = TS._get_course()
 
         # compute relative speed
-        vxOS = VOS * np.sin(chiOS)
-        vyOS = VOS * np.cos(chiOS)
-        vxTS = VTS * np.sin(chiTS)
-        vyTS = VTS * np.cos(chiTS)
+        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
         VR = np.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
 
         # compute domain
@@ -597,6 +608,10 @@ class FossenEnv(gym.Env):
         # quick access
         NOS, EOS, psi_OS = OS.eta
         NTS, ETS, psi_TS = TS.eta
+        V_OS  = OS._get_V()
+        V_TS  = TS._get_V()
+        chiOS = OS._get_course()
+        chiTS = TS._get_course()
 
         # check whether TS is too far away
         if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > distance:
@@ -608,15 +623,12 @@ class FossenEnv(gym.Env):
         # relative bearing from TS to OS
         bng_TS = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=psi_TS)
 
-        # get overall speeds
-        V_OS = OS._get_V()
-        V_TS = TS._get_V()
-
         # intersection angle
         C_T = head_inter(head_OS=psi_OS, head_TS=psi_TS)
 
-        # intersection angle under consideration of sideslip
-        C_T_side = head_inter(head_OS = OS._get_course(), head_TS = TS._get_course())
+        # velocity component of OS in direction of TS
+        V_rel_x, V_rel_y = project_vector(VA=V_OS, angleA=chiOS, VB=V_TS, angleB=chiTS)
+        V_rel = polar_from_xy(x=V_rel_x, y=V_rel_y, with_r=True, with_angle=False)[0]
 
         #-------------------------------------------------------------------------------------------------------
         # Note: For Head-on, starboard crossing, and portside crossing, we do not care about the sideslip angle.
@@ -636,7 +648,7 @@ class FossenEnv(gym.Env):
             return 3
 
         # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_OS * np.cos(C_T_side) > V_TS:
+        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
             return 4
 
         # COLREG 0: nothing
@@ -751,8 +763,8 @@ class FossenEnv(gym.Env):
             self.ax0.add_patch(rect)
 
             # connect OS and goal for spawning insights
-            self.ax0 = self._plot_jet(axis=self.ax0, E=E0, N=N0, l=ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]),\
-                angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
+            #self.ax0 = self._plot_jet(axis=self.ax0, E=E0, N=N0, l=ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]),\
+            #    angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
 
             # add jets according to COLREGS
             for COLREG_deg in [5, 112.5, 247.5, 355]:
