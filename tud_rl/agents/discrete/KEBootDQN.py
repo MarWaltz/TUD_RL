@@ -19,7 +19,7 @@ class KEBootDQNAgent(BootDQNAgent):
         # kernel funcs
         if self.kernel == "test":
             self.critical_value = scipy.stats.norm().ppf(self.kernel_param)
-            self.g = lambda u: (u >= self.critical_value) + 0
+            self.g = lambda u: (u >= self.critical_value) + 0.0
 
         elif self.kernel == "gaussian_cdf":
             self.g = lambda u: torch.tensor(scipy.stats.norm.cdf(u, scale=self.kernel_param))
