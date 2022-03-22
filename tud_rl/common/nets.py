@@ -650,40 +650,49 @@ class RecDQN(nn.Module):
         # -------------------------------- preprocessing ----------------------------------------
         # extract OS and TS states
         s_OS = s[:, :8]                         # torch.Size([batch_size, 8])
-        s_TS = s[:, 8:]
-        s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
-        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+        
+        if self.N_TSs > 0:
 
-        # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
-        N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+            s_TS = s[:, 8:]
+            s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
+            # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 
-        # get selection index according to number of TSs (no-TS cases will be masked later)
-        h_idx = copy.deepcopy(N_TS_obs)
-        h_idx[h_idx == 0] = 1
-        h_idx -= 1
+            # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
+            N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
 
-        # padd nan's to zeroes to avoid LSTM-issues
-        s_TS = torch.nan_to_num(s_TS, nan=0.0)
+            # get selection index according to number of TSs (no-TS cases will be masked later)
+            h_idx = copy.deepcopy(N_TS_obs)
+            h_idx[h_idx == 0] = 1
+            h_idx -= 1
+
+            # padd nan's to zeroes to avoid LSTM-issues
+            #s_TS = torch.nan_to_num(s_TS, nan=0.0)
+            s_TS[torch.isnan(s_TS)] = 0.0
 
         # --------------------------------- calculations -----------------------------------------
         # process OS
         x_OS = F.relu(self.dense1(s_OS))
+       
+        if self.N_TSs > 0:
+
+            # process TS
+            x_TS, (_, _) = self.LSTM(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # mask no-TS cases to yield zero extracted information
+            x_TS[N_TS_obs == 0] = 0.0
         
-        # process TS
-        x_TS, (_, _) = self.LSTM(s_TS)
+            # second dense layer
+            x_TS = F.relu(self.dense2(x_TS))
 
-        # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
-        x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
-
-        # mask no-TS cases to yield zero extracted information
-        x_TS[N_TS_obs == 0] = 0.0
-      
-        # second dense layer
-        x_TS = F.relu(self.dense2(x_TS))
+        else:
+            x_TS = torch.zeros_like(x_OS)
 
         # concatenate both state parts
         x = torch.cat([x_OS, x_TS], dim=1)
-        
+
         # final dense layers
         x = F.relu(self.post_comb_dense1(x))
         x = self.post_comb_dense2(x)
