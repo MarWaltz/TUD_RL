@@ -25,8 +25,8 @@ class FossenEnv(gym.Env):
         self.E_max           = 100              # maximum E-coordinate (in m)
         self.N_TSs           = N_TSs            # number of other vessels
         self.safety_dist     = 7.5              # minimum distance, if less then collision (in m)
+        self.COLREG_dist     = 30               # distance under which COLREGs should be considered (in m)
         self.TCPA_crit       = 60               # critical TCPA (in s), relevant for state and spawning of TSs
-        self.jet_length      = 15               # size of the jets for plotting (in m)
         self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
         self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
         self.goal_reach_dist = 25               # euclidean distance (in m) at which goal is considered as reached 
@@ -59,14 +59,39 @@ class FossenEnv(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        # init goal
-        self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max),
-                     "E" : np.random.uniform(self.E_max - 25, self.E_max)}
+        # sample goal and agent positions
+        sit_init = np.random.choice([0, 1, 2, 3])
 
-        # init agent (OS for 'Own Ship') and calculate initial distance to goal
-        self.OS = CyberShipII(N_init       = self.N_max / 5, 
-                              E_init       = self.E_max / 5, 
-                              psi_init     = np.random.uniform(0, np.pi / 2),
+        # init goal
+        #self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max), "E" : np.random.uniform(self.E_max - 25, self.E_max)}
+        if sit_init == 0:
+            self.goal = {"N" : 20, "E" : 20}
+            N_init = 80
+            E_init = 80
+            head   = np.random.uniform(np.pi, 3/2 * np.pi)
+        
+        elif sit_init == 1:
+            self.goal = {"N" : 80, "E" : 20}
+            N_init = 20
+            E_init = 80
+            head   = np.random.uniform(3/2 * np.pi, 2 * np.pi)
+
+        elif sit_init == 2:
+            self.goal = {"N" : 80, "E" : 80}
+            N_init = 20
+            E_init = 20
+            head   = np.random.uniform(0, np.pi / 2)
+
+        elif sit_init == 3:
+            self.goal = {"N" : 20, "E" : 80}
+            N_init = 80
+            E_init = 20
+            head   = np.random.uniform(np.pi / 2, np.pi)
+
+        # init agent (OS for 'Own Ship')
+        self.OS = CyberShipII(N_init       = N_init, 
+                              E_init       = E_init, 
+                              psi_init     = head,
                               u_init       = 0.0,
                               v_init       = 0.0,
                               r_init       = 0.0,
@@ -237,8 +262,8 @@ class FossenEnv(gym.Env):
             t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
             # compute hit point
-            E_hit = E0 + np.abs(VR_goal_x) * t_hit
-            N_hit = N0 + np.abs(VR_goal_y) * t_hit
+            E_hit = E0 + VR_goal_x * t_hit
+            N_hit = N0 + VR_goal_y * t_hit
 
             # Note: In the following, we only sample the intersection angle and not a relative bearing.
             #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
@@ -530,12 +555,15 @@ class FossenEnv(gym.Env):
 
                 # assess when COLREG situation changes
                 if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
-                    
-                    # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
-                    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3]:
 
-                        if 0 <= bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
-                            r_COLREG -= 10
+                    # check whether TS is close enough to evaluate COLREGs
+                    if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self.COLREG_dist:
+                    
+                        # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
+                        if self.TS_COLREGs_old[TS_idx] in [1, 2, 3]:
+                            
+                            if 0 <= bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
+                                r_COLREG -= 10
 
         # ----------------------------------- 5. Leave-the-map reward --------------------------------------
         r_map = -10 if self.OS._is_off_map() else 0
@@ -768,11 +796,11 @@ class FossenEnv(gym.Env):
 
             # add jets according to COLREGS
             for COLREG_deg in [5, 112.5, 247.5, 355]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.jet_length, 
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
                                           angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
 
             for COLREG_deg in [67.5, 175, 185, 292.5]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.jet_length, 
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
                                           angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
             # set goal (stored as NE)
@@ -801,7 +829,7 @@ class FossenEnv(gym.Env):
 
                 # add two jets according to COLREGS
                 for COLREG_deg in [5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.jet_length, 
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.COLREG_dist, 
                                               angle = headTS + dtr(COLREG_deg), color=col, alpha=0.75)
 
                 # TCPA

@@ -19,3 +19,8 @@ register(
     id="FossenEnv-v0", 
     entry_point="tud_rl.envs:FossenEnv",
 )
+
+register(
+    id="FossenEnvScenarioOne-v0", 
+    entry_point="tud_rl.envs:FossenEnvScenarioOne",
+)
