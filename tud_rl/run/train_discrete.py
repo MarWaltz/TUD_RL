@@ -18,6 +18,7 @@ from tud_rl.agents.discrete.DQN import DQNAgent
 from tud_rl.agents.discrete.ACCDDQN import ACCDDQNAgent
 from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
 from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
+from tud_rl.agents.discrete.KEEnsembleDQN import KEEnsembleDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
 from tud_rl.agents.discrete.RecDQN import RecDQNAgent
@@ -217,10 +218,10 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="FossenEnv.json")
+    parser.add_argument("--config_file", type=str, default="breakout.json")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="DDQN")
+    parser.add_argument("--agent_name", type=str, default="KEEnsembleDQN")
     args = parser.parse_args()
 
     # read config file

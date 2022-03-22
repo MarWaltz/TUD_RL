@@ -22,7 +22,7 @@ class KEBootDQNAgent(BootDQNAgent):
             self.g = lambda u: (u >= self.critical_value) + 0.0
 
         elif self.kernel == "gaussian_cdf":
-            self.g = lambda u: torch.tensor(scipy.stats.norm.cdf(u, scale=self.kernel_param))
+            self.g = lambda u: torch.tensor(scipy.stats.norm.cdf(u, scale=self.kernel_param), dtype=torch.float32)
 
 
     def train(self):
@@ -72,7 +72,7 @@ class KEBootDQNAgent(BootDQNAgent):
                 ME_var = torch.gather(Q_s2_var, dim=1, index=ME_a_indices).reshape(self.batch_size)
 
                 # compute weights
-                w = torch.empty((self.batch_size, self.num_actions)).to(self.device)
+                w = torch.zeros((self.batch_size, self.num_actions)).to(self.device)
 
                 for a_idx in range(self.num_actions):
                     u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_s2_var[:, a_idx] + ME_var)
