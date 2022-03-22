@@ -25,7 +25,7 @@ class FossenEnv(gym.Env):
         self.E_max           = 100              # maximum E-coordinate (in m)
         self.N_TSs           = N_TSs            # number of other vessels
         self.safety_dist     = 7.5              # minimum distance, if less then collision (in m)
-        self.COLREG_dist     = 30               # distance under which COLREGs should be considered (in m)
+        self.COLREG_dist     = 40               # distance under which COLREGs should be considered (in m)
         self.TCPA_crit       = 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
         self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
@@ -617,13 +617,12 @@ class FossenEnv(gym.Env):
         return OS.length*V**1.26 + 30*V
 
 
-    def _get_COLREG_situation(self, OS, TS, distance=np.inf):
+    def _get_COLREG_situation(self, OS, TS):
         """Determines the COLREG situation from the perspective of the OS. Follows Xu et al. (2020, Ocean Engineering).
 
         Args:
             OS (CyberShip):    own vessel with attributes eta, nu
             TS (CyberShip):    target vessel with attributes eta, nu
-            distance (float):  in m, minimum distance to constitute non-zero situation
 
         Returns:
             0  -  no conflict situation
@@ -642,7 +641,7 @@ class FossenEnv(gym.Env):
         chiTS = TS._get_course()
 
         # check whether TS is too far away
-        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > distance:
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.COLREG_dist:
             return 0
 
         # relative bearing from OS to TS
@@ -819,7 +818,7 @@ class FossenEnv(gym.Env):
                 VTS = TS._get_V()                   # aggregated velocity
 
                 # determine color according to COLREG scenario
-                COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS, distance=10000)
+                COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
                 col = COLREG_COLORS[COLREG]
 
                 # vessel
@@ -902,7 +901,7 @@ class FossenEnv(gym.Env):
             if self.step_cnt == 0:
                 self.ax3.clear()
                 self.ax3_twin = self.ax3.twinx()
-                self.ax3_twin.clear()
+                #self.ax3_twin.clear()
                 self.ax3.old_time = 0
                 self.ax3.old_action = 0
                 self.ax3.old_rud_angle = 0
