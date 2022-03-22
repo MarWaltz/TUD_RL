@@ -1,6 +1,5 @@
 import copy
 import math
-from collections import Counter
 
 import torch
 import torch.nn as nn
