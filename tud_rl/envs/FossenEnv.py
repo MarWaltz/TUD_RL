@@ -542,7 +542,7 @@ class FossenEnv(gym.Env):
             r_coll -= np.exp(-0.5 * EDsq_TS / self.r_coll_sigma**2)
 
             # Explicit collision penalty
-            r_coll -= 10 if EDsq_TS < self.safety_dist**2 else 0
+            r_coll -= 50 if EDsq_TS < self.safety_dist**2 else 0
 
 
         # -------------------------------------- 4. COLREG reward ------------------------------------------
@@ -553,16 +553,18 @@ class FossenEnv(gym.Env):
             # if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
 
-                # assess when COLREG situation changes
-                if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
+                # check whether TS is close enough to evaluate COLREGs
+                if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self.COLREG_dist:
 
-                    # check whether TS is close enough to evaluate COLREGs
-                    if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self.COLREG_dist:
+                    # should steer to the right (r >= 0) in Head-on and starboard crossing situations
+                    if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
+                        r_COLREG -= 2.0
+
+                    # assess when COLREG situation changes
+                    if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
                     
                         # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
-                        if self.TS_COLREGs_old[TS_idx] in [1, 2, 3]:
-                            
-                            if 0 <= bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
+                        if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
                                 r_COLREG -= 10
 
         # ----------------------------------- 5. Leave-the-map reward --------------------------------------
