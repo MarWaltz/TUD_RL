@@ -115,9 +115,9 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="FossenEnv.json")
-    parser.add_argument("--agent_name", type=str, default="DDQN")
-    parser.add_argument("--dqn_weights", type=str, default="DDQN_weights.pth")
+    parser.add_argument("--config_file", type=str, default="FossenEnvRecDQN.json")
+    parser.add_argument("--agent_name", type=str, default="RecDQN")
+    parser.add_argument("--dqn_weights", type=str, default="RecDQN_weights.pth")
     args = parser.parse_args()
 
     # read config file

@@ -684,11 +684,11 @@ class RecDQN(nn.Module):
             # mask no-TS cases to yield zero extracted information
             x_TS[N_TS_obs == 0] = 0.0
         
-            # second dense layer
-            x_TS = F.relu(self.dense2(x_TS))
-
         else:
             x_TS = torch.zeros_like(x_OS)
+
+        # second dense layer
+        x_TS = F.relu(self.dense2(x_TS))
 
         # concatenate both state parts
         x = torch.cat([x_OS, x_TS], dim=1)

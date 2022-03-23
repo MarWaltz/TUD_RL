@@ -6,5 +6,6 @@
 **experiment_continuous.py
 **train_experiment.py
 **bias_nets.py
+**AdaKEBootDQN.py
 **TRYBootDQN.py
 **visualize_scenario_one.py

@@ -93,23 +93,24 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
         elif x < 0 and y == 0:
             angle = 3/2 * np.pi
 
-        frac = np.arctan(np.abs(x / y))
+        else:
+            frac = np.arctan(np.abs(x / y))
 
-        # I. Q.
-        if x > 0 and y > 0:
-            angle = frac
+            # I. Q.
+            if x > 0 and y > 0:
+                angle = frac
 
-        # II. Q.
-        elif x < 0 and y > 0:
-            angle = 2*np.pi - frac
-        
-        # III. Q.
-        elif x < 0 and y < 0:
-            angle = frac + np.pi
-        
-        # IV. Q.
-        elif x > 0 and y < 0:
-            angle = np.pi - frac
+            # II. Q.
+            elif x < 0 and y > 0:
+                angle = 2*np.pi - frac
+            
+            # III. Q.
+            elif x < 0 and y < 0:
+                angle = frac + np.pi
+            
+            # IV. Q.
+            elif x > 0 and y < 0:
+                angle = np.pi - frac
     else:
         angle = None
     
