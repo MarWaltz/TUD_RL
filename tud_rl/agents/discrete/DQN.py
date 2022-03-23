@@ -116,7 +116,7 @@ class DQNAgent(BaseAgent):
     def _greedy_action(self, s, with_Q=False):
         """Selects a greedy action.
         Args:
-            s:      torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape])
+            s:      np.array with shape (in_channels, height, width) or, for feature input, (state_shape,)
             with_Q: bool, whether to return the associated Q-estimates for the selected action
         Returns:
             int for action, float for Q (if with_Q)

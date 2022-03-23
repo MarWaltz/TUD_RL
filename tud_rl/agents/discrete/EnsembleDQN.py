@@ -78,7 +78,15 @@ class EnsembleDQNAgent(DQNAgent):
 
 
     @torch.no_grad()
-    def _greedy_action(self, s):
+    def _greedy_action(self, s, with_Q=False):
+        """Selects a greedy action by maximizing over the reduced ensemble.
+        
+        Args:
+            s:      np.array with shape (in_channels, height, width) or, for feature input, (state_shape,)
+            with_Q: bool, whether to return the associate ensemble average of Q-estimates for the selected action
+        Returns:
+            int for action, float for Q (if with_Q)"""
+
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
         s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
 
@@ -90,7 +98,11 @@ class EnsembleDQNAgent(DQNAgent):
         q = self._ensemble_reduction(q_ens).to(self.device)
 
         # greedy
-        return torch.argmax(q).item()
+        a = torch.argmax(q).item()
+
+        if with_Q:
+            return a, q[0][a].item()
+        return a
 
 
     def _compute_target(self, r, s2, d):
