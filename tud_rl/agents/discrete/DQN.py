@@ -128,7 +128,11 @@ class DQNAgent(BaseAgent):
         q = self.DQN(s).to(self.device)
 
         # greedy
-        return torch.argmax(q).item()
+        a = torch.argmax(q).item()
+
+        if with_Q:
+            return a, q[0][a].item()
+        return a
 
 
     def _compute_target(self, r, s2, d):
