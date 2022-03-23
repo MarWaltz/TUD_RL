@@ -1,11 +1,5 @@
 **/experiments/
 **/__pycache__/
 *.egg-info/
-**TRYDQN.py
-**estimate_bias.py
-**experiment_continuous.py
-**train_experiment.py
-**bias_nets.py
-**AdaKEBootDQN.py
-**TRYBootDQN.py
+**train_discrete_bias.py
 **visualize_scenario_one.py

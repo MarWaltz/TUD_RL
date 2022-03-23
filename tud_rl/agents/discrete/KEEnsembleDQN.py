@@ -11,8 +11,8 @@ class KEEnsembleDQNAgent(EnsembleDQNAgent):
     """This agent performs action selection like the EnsembleDQN (epsilon-greedy over average of ensemble). 
     Only the target computation differs."""
 
-    def __init__(self, c, agent_name):
-        super().__init__(c, agent_name, logging=True)
+    def __init__(self, c, agent_name, logging=True):
+        super().__init__(c, agent_name, logging)
 
         # attributes and hyperparameter
         self.kernel       = c["agent"][agent_name]["kernel"]

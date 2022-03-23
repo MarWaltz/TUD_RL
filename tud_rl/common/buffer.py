@@ -228,3 +228,38 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
                 torch.tensor(r).to(self.device),
                 torch.tensor(s2).to(self.device),
                 torch.tensor(d).to(self.device))
+
+
+class UniformReplayBufferEnvs(UniformReplayBuffer):
+    """This buffer additionally stores a copy of the current env-object at each time step, which might be necessary when the state
+    of an environment alone is not sufficient to fully characterize its internals, as, e.g., in the MinAtar environments, and one
+    wants episodes starting from a random initial state in the buffer. Memory-wise this is not too expensive since a MinAtar 
+    environment typically requires 48 bytes."""
+    
+    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
+        super().__init__(state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim)
+        self.envs = [None] * buffer_length
+    
+    def add(self, s, a, r, s2, d, env):
+        self.envs[self.ptr] = env
+        super().add(s, a, r, s2, d)
+
+    def sample_env(self):
+        ind = np.random.choice(self.size)
+        return self.envs[ind]
+
+
+class UniformReplayBufferEnvs_BootDQN(UniformReplayBuffer_BootDQN):
+    """Corresponds to 'UniformReplayBufferEnvs' with bootstrapping masks."""
+
+    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, K, mask_p):
+        super().__init__(state_type, state_shape, buffer_length, batch_size, device, K, mask_p)
+        self.envs = [None] * buffer_length
+    
+    def add(self, s, a, r, s2, d, env):
+        self.envs[self.ptr] = env
+        super().add(s, a, r, s2, d)
+    
+    def sample_env(self):
+        ind = np.random.choice(self.size)
+        return self.envs[ind]

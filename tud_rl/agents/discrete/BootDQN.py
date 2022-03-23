@@ -21,7 +21,7 @@ class BootDQNAgent(DQNAgent):
         c["grad_rescale"] = self.grad_rescale   # for correct logging
 
         # checks
-        assert self.state_type == "feature", "Currently, BootDQN is only available with 'image' input."
+        assert self.state_type == "image", "Currently, BootDQN is only available with 'image' input."
        
         # replay buffer with masks
         if self.mode == "train":
