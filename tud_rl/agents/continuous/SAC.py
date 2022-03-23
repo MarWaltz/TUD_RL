@@ -122,7 +122,7 @@ class SACAgent(BaseAgent):
         returns: np.array with shape (action_dim,)
         """        
         # reshape obs
-        s = torch.tensor(s.astype(np.float32)).view(1, self.state_shape).to(self.device)
+        s = torch.tensor(s, dtype=torch.float32).view(1, self.state_shape).to(self.device)
 
         # forward pass
         if self.mode == "train":

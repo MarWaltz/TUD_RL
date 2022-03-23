@@ -195,6 +195,7 @@ class TQCAgent(SACAgent):
         #------- Update target network -------
         self.polyak_update()
 
+
     @torch.no_grad()
     def polyak_update(self):
         """Soft update of target network weights."""
