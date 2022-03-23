@@ -80,7 +80,7 @@ class EnsembleDQNAgent(DQNAgent):
     @torch.no_grad()
     def _greedy_action(self, s):
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
-        s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
+        s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
 
         # forward through ensemble
         q_ens = [net(s).to(self.device) for net in self.EnsembleDQN] # list of torch.Size([batch_size, num_actions])

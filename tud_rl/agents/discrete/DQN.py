@@ -113,9 +113,16 @@ class DQNAgent(BaseAgent):
 
 
     @torch.no_grad()
-    def _greedy_action(self, s):
+    def _greedy_action(self, s, with_Q=False):
+        """Selects a greedy action.
+        Args:
+            s:      torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape])
+            with_Q: bool, whether to return the associated Q-estimates for the selected action
+        Returns:
+            int for action, float for Q (if with_Q)
+        """
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]) or torch.Size([1, state_shape]))
-        s = torch.tensor(s.astype(np.float32)).unsqueeze(0).to(self.device)
+        s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
 
         # forward pass
         q = self.DQN(s).to(self.device)

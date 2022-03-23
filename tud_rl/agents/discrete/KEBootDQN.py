@@ -6,8 +6,8 @@ from tud_rl.common.logging_func import *
 
 
 class KEBootDQNAgent(BootDQNAgent):
-    def __init__(self, c, agent_name):
-        super().__init__(c, agent_name, logging=True)
+    def __init__(self, c, agent_name, logging=True):
+        super().__init__(c, agent_name, logging)
 
         # attributes and hyperparameter
         self.kernel       = c["agent"][agent_name]["kernel"]
