@@ -12,20 +12,14 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
 
         # attributes and hyperparameter
         self.env_max_episode_steps = c["env"]["max_episode_steps"]
-        #self.kernel_param      = torch.tensor(self.kernel_param, dtype=torch.float32, requires_grad=True, device=self.device)
-        self.kernel_batch_size = c["agent"][agent_name]["kernel_batch_size"]
-        self.kernel_lr         = c["agent"][agent_name]["kernel_lr"]
-        
+        self.kernel_batch_size     = c["agent"][agent_name]["kernel_batch_size"]
+        self.kernel_lr             = c["agent"][agent_name]["kernel_lr"]
+
         self._set_g()
 
         # checks
+        assert self.kernel == "test", "Currently, AdaKEBootDQN is only available for adjusting the significance level of the TE."
         assert "MinAtar" in c["env"]["name"], "Currently, AdaKEBootDQN is only available for MinAtar environments."
-
-        # optimizer
-        #if self.optimizer == "Adam":
-        #    self.kernel_optimizer = optim.Adam([self.kernel_param], lr=self.kernel_lr)
-        #else:
-        #    self.kernel_optimizer = optim.RMSprop([self.kernel_param], lr=self.kernel_lr, alpha=0.95, centered=True, eps=0.01)
 
         # bounds
         if self.kernel == "test":
@@ -58,26 +52,24 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d, env)
 
-
+    @torch.no_grad()
     def _target_update(self):
         if self.tgt_up_cnt % self.tgt_update_freq == 0:
 
-            with torch.no_grad():
-                
-                # target
-                self.target_DQN.load_state_dict(self.DQN.state_dict())
+            # target
+            self.target_DQN.load_state_dict(self.DQN.state_dict())
 
-                # get delta's between Q and MC rollouts
-                delta = 0.0
-                for k in range(self.K):
-                    delta += self._get_Q_MC_delta(k)
-                delta /= self.K
+            # get delta's between Q and MC rollouts
+            delta = 0.0
+            for k in range(self.K):
+                delta += self._get_Q_MC_delta(k)
+            delta /= self.K
 
-                # update kernel param
-                self._upd_kernel_param(delta)
+            # update kernel param
+            self._upd_kernel_param(delta)
 
-                # update kernel function
-                self._set_g()
+            # update kernel function
+            self._set_g()
 
         # increase target-update cnt
         self.tgt_up_cnt += 1
@@ -86,7 +78,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
     def _upd_kernel_param(self, delta):
         """Updates the kernel param based on a delta.
         Args:
-            delta (float): Difference between estimated Q's and MC-rollouts."""
+            delta (float): Difference between MC-rollouts and estimated Q's."""
 
         # update kernel param
         self.kernel_param += self.kernel_lr * delta
@@ -115,7 +107,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         Q = torch.gather(input=Q, dim=1, index=a)
 
         # get difference term
-        return torch.sum(Q - MC).item()
+        return torch.sum(MC - Q).item()
 
 
     def _get_s_a_MC(self, k):
