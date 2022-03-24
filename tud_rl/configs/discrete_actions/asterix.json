@@ -27,12 +27,9 @@
       "KEBootDQN_c"      : {"kernel" : "test", "kernel_param" : 0.15, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "KEBootDQN_d"      : {"kernel" : "test", "kernel_param" : 0.25, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
       "KEBootDQN_e"      : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "AdaKEBootDQN_a"   : {"kernel" : "test", "kernel_param" : 0.15, "kernel_batch_size" : 100, "kernel_lr" : 0.001, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "AdaKEBootDQN_b"   : {"kernel" : "test", "kernel_param" : 0.15, "kernel_batch_size" : 100, "kernel_lr" : 0.0001, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
-      "EnsembleDQN_a"    : {"N" : 10, "N_to_update" : 5},
-      "KEEnsembleDQN_a"  : {"kernel" : "gaussian_cdf", "kernel_param" : 1.0, "N" : 10, "N_to_update" : 5},
-      "KEEnsembleDQN_b"  : {"kernel" : "test", "kernel_param" : 0.15, "N" : 10, "N_to_update" : 5},
-      "AdaKEEnsembleDQN" : {"kernel" : "test", "kernel_param" : 0.15, "kernel_batch_size" : 100, "kernel_lr" : 0.001, "N" : 10, "N_to_update" : 5},
+      "AdaKEBootDQN_a"   : {"kernel" : "test", "kernel_param" : 0.15, "kernel_batch_size" : 32, "kernel_lr" : 0.001, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "AdaKEBootDQN_b"   : {"kernel" : "test", "kernel_param" : 0.15, "kernel_batch_size" : 32, "kernel_lr" : 0.0001, "K" : 10, "mask_p" : 1, "grad_rescale" : true},
+      "EnsembleDQN"      : {"N" : 10, "N_to_update" : 5},
       "MaxMinDQN"        : {"N" : 5, "N_to_update" : 1}
    }
    ,

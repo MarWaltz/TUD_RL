@@ -79,23 +79,14 @@ class BootDQNAgent(DQNAgent):
     @torch.no_grad()
     def select_action(self, s):
         """Greedy action selection for a given state using the active head (train) or majority vote (test).
-        s:           np.array with shape (in_channels, height, width)
-        active_head: int 
+        s:       np.array with shape (in_channels, height, width)
 
         returns: int for the action
         """
 
-        # forward pass
+        # single vote
         if self.mode == "train":
-
-            # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
-            s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
-
-            # forward
-            q = self.DQN(s, self.active_head)
-
-            # greedy
-            a = torch.argmax(q).item()
+            a = self._greedy_action(s, self.active_head)
         
         # majority vote
         else:
@@ -104,31 +95,44 @@ class BootDQNAgent(DQNAgent):
 
 
     @torch.no_grad()
-    def _greedy_action(self, s, with_Q=False):
-        """Selects a greedy action via majority vote of the bootstrap heads.
+    def _greedy_action(self, s, active_head=None, with_Q=False):
+        """Selects a greedy action via majority vote of the bootstrap heads or a single bootstrap head.
         Args:
-            s:      np.array with shape (in_channels, height, width)
-            with_Q: bool, whether to return the associate ensemble average of Q-estimates for the selected action
+            s:            np.array with shape (in_channels, height, width)
+            active_head:  int, bootstrap head to base action selection on. If None: majority vote. 
+            with_Q:       bool, whether to return the Q-estimate related to the greedy action (for a single head)
         Returns:
             int for action, float for Q (if with_Q)
         """
 
+        # check
+        if active_head == None and with_Q:
+            raise Exception("Better not evaluate the Q's for majority votes.")
+
         # reshape obs (namely, to torch.Size([1, in_channels, height, width]))
         s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
 
-        # push through all heads (generates list of length K with torch.Size([1, num_actions]))
-        q = self.DQN(s)
+        if active_head is None:
 
-        # get favoured action of each head
-        actions = [torch.argmax(head_q).item() for head_q in q]
+            # push through all heads (generates list of length K with torch.Size([1, num_actions]))
+            q = self.DQN(s)
 
-        # choose majority vote
-        actions = Counter(actions)
-        a = actions.most_common(1)[0][0]
+            # get favoured action of each head
+            actions = [torch.argmax(head_q).item() for head_q in q]
 
-        if with_Q:
-            Q_avg = np.mean([q_head[0][a].item() for q_head in q])
-            return a, Q_avg
+            # choose majority vote
+            actions = Counter(actions)
+            a = actions.most_common(1)[0][0]
+   
+        else:
+            # forward
+            q = self.DQN(s, active_head)
+
+            # greedy
+            a = torch.argmax(q).item()
+
+            if with_Q:
+                return a, q[0][a].item()
         return a
 
 

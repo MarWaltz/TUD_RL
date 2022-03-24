@@ -67,8 +67,14 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
                 # target
                 self.target_DQN.load_state_dict(self.DQN.state_dict())
 
-                # kernel param update
-                self._train_kernel()
+                # get delta's between Q and MC rollouts
+                delta = 0.0
+                for k in range(self.K):
+                    delta += self._get_Q_MC_delta(k)
+                delta /= self.K
+
+                # update kernel param
+                self._upd_kernel_param(delta)
 
                 # update kernel function
                 self._set_g()
@@ -77,30 +83,10 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         self.tgt_up_cnt += 1
 
 
-    def _train_kernel(self):
-        """Updates the kernel param based on recent on-policy rollouts."""
-
-        # perform rollouts
-        s, a, MC = self._get_s_a_MC()
-
-        # convert to tensors
-        s  = torch.tensor(s, dtype=torch.float32)
-        a  = torch.tensor(a, dtype=torch.int64)
-        MC = torch.tensor(MC, dtype=torch.float32)
-
-        # estimate Q for each (s,a) pair as average of bootstrap heads
-        # forward through all heads, creates list of length K containing torch.Size([MC_batch_size, num_actions])
-        Q = self.DQN(s)
-
-        # gather relevant action for each head, creates list of length K containing torch.Size([MC_batch_size, 1])
-        Q = [torch.gather(input=Q_head, dim=1, index=a) for Q_head in Q]
-
-        # average over ensemble
-        Q = torch.stack(Q)
-        Q = torch.mean(Q, dim=0)
-        
-        # get difference term
-        delta = torch.sum(MC - Q).item()
+    def _upd_kernel_param(self, delta):
+        """Updates the kernel param based on a delta.
+        Args:
+            delta (float): Difference between estimated Q's and MC-rollouts."""
 
         # update kernel param
         self.kernel_param += self.kernel_lr * delta
@@ -109,16 +95,38 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         self.kernel_param = np.clip(self.kernel_param, self.kernel_param_l, self.kernel_param_u)
 
 
-    def _get_s_a_MC(self):
-        """Samples random initial env-specifications and acts greedy wrt current ensemble opinion (majority vote).
+    def _get_Q_MC_delta(self, k):
+        """Updates the kernel param based on MC rollouts.
+        Args:
+            k (int): Index of the bootstrap head serving as an update basis"""
+
+        # perform rollouts
+        s, a, MC = self._get_s_a_MC(k)
+
+        # convert to tensors
+        s  = torch.tensor(s, dtype=torch.float32)
+        a  = torch.tensor(a, dtype=torch.int64)
+        MC = torch.tensor(MC, dtype=torch.float32)
+
+        # estimate Q for each (s,a) pair for the k-th head
+        Q = self.DQN(s, k)
+
+        # gather relevant actions
+        Q = torch.gather(input=Q, dim=1, index=a)
+
+        # get difference term
+        return torch.sum(Q - MC).item()
+
+
+    def _get_s_a_MC(self, k):
+        """Samples random initial env-specifications and acts greedy wrt k-th bootstrap head.
+        Args:
+            k (int): Index of the bootstrap head serving as an update basis
 
         Returns:
             s:  np.array([MC_batch_size, in_channels, height, width]))
             a:  np.array([MC_batch_size, 1]))
             MC: np.array([MC_batch_size, 1])"""
-        
-        # go greedy
-        self.mode = "test"
 
         # s and a of ALL episodes
         s_all_eps = []
@@ -137,12 +145,13 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         if self.input_norm:
             s = self.inp_normalizer.normalize(s, mode=self.mode)
 
+        # main loop
         for _ in range(self.kernel_batch_size):
 
             epi_steps += 1
 
             # select action
-            a = self.select_action(s)
+            a = self._greedy_action(s, k)
 
             # perform step
             s2, r, d, _ = sampled_env.step(a)
@@ -163,7 +172,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
             if epi_steps == self.env_max_episode_steps:
 
                 # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-                r_one_eps[-1] += self.gamma * self._greedy_action(s2, with_Q=True)[1]
+                r_one_eps[-1] += self.gamma * self._greedy_action(s2, active_head=k, with_Q=True)[1]
 
             # end of episode: artificial or true done signal
             if epi_steps == self.env_max_episode_steps or d:
@@ -185,12 +194,9 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         if len(r_one_eps) > 0:
 
             # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-            r_one_eps[-1] += self.gamma * self._greedy_action(s2, with_Q=True)[1]
+            r_one_eps[-1] += self.gamma * self._greedy_action(s2, active_head=k, with_Q=True)[1]
 
             # transform rewards to returns and store them
             MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=self.gamma)
-
-        # continue training
-        self.mode = "train"
 
         return np.stack(s_all_eps), np.expand_dims(a_all_eps, 1), np.expand_dims(MC_ret_all_eps, 1)
