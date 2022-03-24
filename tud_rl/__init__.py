@@ -24,3 +24,8 @@ register(
     id="FossenEnvScenarioOne-v0", 
     entry_point="tud_rl.envs:FossenEnvScenarioOne",
 )
+
+register(
+    id="PathFollower-v0", 
+    entry_point="tud_rl.envs:PathFollower",
+)

@@ -49,7 +49,6 @@ def visualize_policy(env, agent, c):
 
             # select action
             a = agent.select_action(s)
-            #a = 2
             
             # perform step
             s2, r, d, _ = env.step(a)
