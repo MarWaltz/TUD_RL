@@ -29,3 +29,8 @@ register(
     id="PathFollower-v0", 
     entry_point="tud_rl.envs:PathFollower",
 )
+
+register(
+    id="PathFollowerV-v0", 
+    entry_point="tud_rl.envs:PathFollowerV",
+)

@@ -4,3 +4,4 @@ from tud_rl.envs.ObstacleAvoidance import ObstacleAvoidance
 from tud_rl.envs.FossenEnv import FossenEnv
 from tud_rl.envs.FossenEnvScenarioOne import FossenEnvScenarioOne
 from tud_rl.envs.PathFollower import PathFollower
+from tud_rl.envs.PathFollowerV import PathFollowerV

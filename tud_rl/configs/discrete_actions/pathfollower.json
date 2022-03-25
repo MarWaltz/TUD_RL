@@ -1,12 +1,12 @@
 {
   "env": {
-    "name": "PathFollower-v0",
-    "max_episode_steps": 10000,
+    "name": "PathFollowerV-v0",
+    "max_episode_steps": 2000,
     "state_type": "feature",
     "wrappers": [],
     "wrapper_kwargs": {},
-    "env_kwargs": { "mode": "abs" },
-    "info": "deriv-ang-10000"
+    "env_kwargs": { "mode": "step" },
+    "info": "2000-step-w/o-ang-rew"
   },
   "agent": {
     "DQN": {},
@@ -18,8 +18,7 @@
     "BootDQN": { "K": 10, "mask_p": 1, "grad_rescale": true },
     "EnsembleDQN": { "N": 5, "N_to_update": 1 },
     "MaxMinDQN_a": { "N": 2, "N_to_update": 1 },
-    "MaxMinDQN_b": { "N": 5, "N_to_update": 1 },
-    "TQC": {}
+    "MaxMinDQN_b": { "N": 5, "N_to_update": 1 }
   },
   "seed": 1,
   "timesteps": 2e6,
@@ -39,6 +38,7 @@
   "lr": 0.0001,
   "buffer_length": 1e5,
   "grad_rescale": false,
+  "mode": "test",
   "grad_clip": false,
   "act_start_step": 5000,
   "upd_start_step": 5000,

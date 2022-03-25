@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from tud_rl.envs.MountainCar import MountainCar
 from tud_rl.envs.FossenEnv import *
+from tud_rl.envs.PathFollower import PathFollower
 from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.discrete.DDQN import DDQNAgent
@@ -114,9 +115,9 @@ if __name__ == "__main__":
 
     # get config and name of agent
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="FossenEnvRecDQN.json")
-    parser.add_argument("--agent_name", type=str, default="RecDQN")
-    parser.add_argument("--dqn_weights", type=str, default="RecDQN_weights.pth")
+    parser.add_argument("--config_file", type=str, default="pathfollower.json")
+    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_deriv-ang-10000_2022-03-24_27611/DQN_weights.pth")
     args = parser.parse_args()
 
     # read config file
