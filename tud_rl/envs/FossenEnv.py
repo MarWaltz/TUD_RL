@@ -25,14 +25,14 @@ class FossenEnv(gym.Env):
         self.E_max           = 100              # maximum E-coordinate (in m)
         self.N_TSs           = N_TSs            # number of other vessels
         self.safety_dist     = 7.5              # minimum distance, if less then collision (in m)
-        self.COLREG_dist     = 40               # distance under which COLREGs should be considered (in m)
+        self.sight           = 50               # sight of the agent (in m)
         self.TCPA_crit       = 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
         self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
         self.goal_reach_dist = 25               # euclidean distance (in m) at which goal is considered as reached 
 
         # gym definitions
-        obs_size = 8 + self.N_TSs * 6
+        obs_size = 6 + self.N_TSs * 7
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -333,8 +333,8 @@ class FossenEnv(gym.Env):
         """State consists of (all from agent's perspective): 
         
         OS:
-            u, v, r, 
-            N_rel, E_rel, heading
+            u, v, r
+            heading
 
         Goal:
             relative bearing
@@ -346,6 +346,7 @@ class FossenEnv(gym.Env):
             heading intersection angle C_T
             u_TS
             COLREG mode TS (sigma_TS)
+            Inside ship domain (bool)
             TCPA
         
         Note: Everything is normalized. If a TS is outside the ship domain, everything for this TS is set 0 or na, respectively.
@@ -357,7 +358,7 @@ class FossenEnv(gym.Env):
         VOS = self.OS._get_V()                  # aggregated velocity
 
         #-------------------------------- OS related ---------------------------------
-        state_OS = np.concatenate([self.OS.nu, np.array([N0 / self.N_max, E0 / self.E_max, head0 / (2*np.pi)])])
+        state_OS = np.concatenate([self.OS.nu, np.array([head0 / (2*np.pi)])])
 
 
         #------------------------------ goal related ---------------------------------
@@ -376,13 +377,10 @@ class FossenEnv(gym.Env):
             chiTS = TS._get_course()            # course angle (heading + sideslip)
             VTS   = TS._get_V()                 # aggregated velocity
 
-            # construct ship domain
-            domain = self._get_ship_domain(OS=self.OS, TS=TS)
-
-            # consider TS if it is inside the domain
+            # consider TS if it is in sight
             ED_OS_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True)
 
-            if ED_OS_TS <= domain:
+            if ED_OS_TS <= self.sight:
 
                 # euclidean distance
                 ED_TS = ED_OS_TS / self.E_max
@@ -399,15 +397,19 @@ class FossenEnv(gym.Env):
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
 
+                # inside ship domain
+                domain = self._get_ship_domain(OS=self.OS, TS=TS)
+                inside_domain = 1.0 if ED_OS_TS <= domain else 0.0
+
                 # TCPA
                 TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / self.TCPA_crit
 
                 # store it
-                state_TSs.append([ED_TS, bng_rel_TS, C_TS, u_TS, sigma_TS, TCPA_TS])
+                state_TSs.append([ED_TS, bng_rel_TS, C_TS, u_TS, sigma_TS, inside_domain, TCPA_TS])
 
-        # create dummy state if no TS is inside ship domain
+        # create dummy state if no TS is in sight
         if len(state_TSs) == 0:
-            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
+            state_TSs = np.array([self.state_pad] * 7 * self.N_TSs, dtype=np.float32)
 
         # otherwise sort according to descending ED
         else:
@@ -415,7 +417,7 @@ class FossenEnv(gym.Env):
             state_TSs = state_TSs.flatten(order="C")
 
             # pad nan or zeroes at the right side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
+            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 7 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])
@@ -435,7 +437,7 @@ class FossenEnv(gym.Env):
         self.OS._upd_dynamics()
 
         # handle map-leaving of agent
-        self.OS, _ = self._handle_map_leaving(self.OS, respawn=False, mirrow=False, clip=True)
+        #self.OS, _ = self._handle_map_leaving(self.OS, respawn=False, mirrow=False, clip=True)
 
         # update environmental dynamics, e.g., other vessels
         [TS._upd_dynamics() for TS in self.TSs]
@@ -553,8 +555,8 @@ class FossenEnv(gym.Env):
             # if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
 
-                # check whether TS is close enough to evaluate COLREGs
-                if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self.COLREG_dist:
+                # check whether TS is close enough to evaluate COLREGs (= inside ship domain)
+                if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self._get_ship_domain(OS=self.OS, TS=TS):
 
                     # should steer to the right (r >= 0) in Head-on and starboard crossing situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
@@ -568,8 +570,8 @@ class FossenEnv(gym.Env):
                                 r_COLREG -= 10
 
         # ----------------------------------- 5. Leave-the-map reward --------------------------------------
-        r_map = -10 if self.OS._is_off_map() else 0
-
+        #r_map = -10 if self.OS._is_off_map() else 0
+        r_map = 0
 
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
@@ -643,7 +645,7 @@ class FossenEnv(gym.Env):
         chiTS = TS._get_course()
 
         # check whether TS is too far away
-        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.COLREG_dist:
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.sight:
             return 0
 
         # relative bearing from OS to TS
@@ -797,11 +799,11 @@ class FossenEnv(gym.Env):
 
             # add jets according to COLREGS
             for COLREG_deg in [5, 112.5, 247.5, 355]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                           angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
 
             for COLREG_deg in [67.5, 175, 185, 292.5]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
+                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                           angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
             # set goal (stored as NE)
@@ -830,7 +832,7 @@ class FossenEnv(gym.Env):
 
                 # add two jets according to COLREGS
                 for COLREG_deg in [5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.COLREG_dist, 
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.sight, 
                                               angle = headTS + dtr(COLREG_deg), color=col, alpha=0.75)
 
                 # TCPA
