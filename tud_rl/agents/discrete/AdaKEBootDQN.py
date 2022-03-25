@@ -52,6 +52,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d, env)
 
+
     @torch.no_grad()
     def _target_update(self):
         if self.tgt_up_cnt % self.tgt_update_freq == 0:
@@ -62,7 +63,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
             # get delta's between Q and MC rollouts
             delta = 0.0
             for k in range(self.K):
-                delta += self._get_Q_MC_delta(k)
+                delta += self._get_MC_Q_delta(k)
             delta /= self.K
 
             # update kernel param
@@ -87,45 +88,18 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         self.kernel_param = np.clip(self.kernel_param, self.kernel_param_l, self.kernel_param_u)
 
 
-    def _get_Q_MC_delta(self, k):
-        """Updates the kernel param based on MC rollouts.
-        Args:
-            k (int): Index of the bootstrap head serving as an update basis"""
+    def _get_MC_Q_delta(self, k):
+        """Samples random initial env-specifications and acts greedy wrt k-th bootstrap head. Computes the delta between
+        the actual observed MC return and the estimated Q-values for each encountered (s,a) pair.
 
-        # perform rollouts
-        s, a, MC = self._get_s_a_MC(k)
-
-        # convert to tensors
-        s  = torch.tensor(s, dtype=torch.float32)
-        a  = torch.tensor(a, dtype=torch.int64)
-        MC = torch.tensor(MC, dtype=torch.float32)
-
-        # estimate Q for each (s,a) pair for the k-th head
-        Q = self.DQN(s, k)
-
-        # gather relevant actions
-        Q = torch.gather(input=Q, dim=1, index=a)
-
-        # get difference term
-        return torch.sum(MC - Q).item()
-
-
-    def _get_s_a_MC(self, k):
-        """Samples random initial env-specifications and acts greedy wrt k-th bootstrap head.
         Args:
             k (int): Index of the bootstrap head serving as an update basis
 
         Returns:
-            s:  np.array([MC_batch_size, in_channels, height, width]))
-            a:  np.array([MC_batch_size, 1]))
-            MC: np.array([MC_batch_size, 1])"""
+            Delta as a float."""
 
-        # s and a of ALL episodes
-        s_all_eps = []
-        a_all_eps = []
-
-        # MC-vals of all (s,a) pairs of ALL episodes
-        MC_ret_all_eps = []
+        # MC-vals, Q-vals of all (s,a) pairs of ALL episodes
+        MC_ret_all_eps, Q_all_eps = [], []
 
         # init epi steps and rewards for ONE episode
         epi_steps = 0
@@ -142,15 +116,14 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
 
             epi_steps += 1
 
-            # select action
-            a = self._greedy_action(s, k)
+            # get action and Q
+            a, Q = self._greedy_action(s, k, with_Q=True)
+            Q_all_eps.append(Q)
 
             # perform step
             s2, r, d, _ = sampled_env.step(a)
 
-            # save s, a, r
-            s_all_eps.append(s)
-            a_all_eps.append(a)
+            # save r
             r_one_eps.append(r)
 
             # potentially normalize s2
@@ -191,4 +164,4 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
             # transform rewards to returns and store them
             MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=self.gamma)
 
-        return np.stack(s_all_eps), np.expand_dims(a_all_eps, 1), np.expand_dims(MC_ret_all_eps, 1)
+        return sum(np.array(MC_ret_all_eps) - np.array(Q_all_eps))
