@@ -125,7 +125,7 @@ class FossenEnvScenarioOne(FossenEnv):
         [agent._upd_dynamics() for agent in self.agents]
 
         # handle map-leaving of agents
-        self.agents = [self._handle_map_leaving(agent, respawn=False, mirrow=False, clip=True)[0] for agent in self.agents]
+        #self.agents = [self._handle_map_leaving(agent, respawn=False, mirrow=False, clip=True)[0] for agent in self.agents]
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -190,11 +190,11 @@ class FossenEnvScenarioOne(FossenEnv):
 
                 # add jets according to COLREGS
                 for COLREG_deg in [5, 112.5, 247.5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                               angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
                 for COLREG_deg in [67.5, 175, 185, 292.5]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                             angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
                 self.ax0.scatter(self.goals[idx]["E"], self.goals[idx]["N"], color=col)
