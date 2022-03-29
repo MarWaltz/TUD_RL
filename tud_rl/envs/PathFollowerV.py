@@ -89,7 +89,7 @@ class PathFollowerV(gym.Env):
         # Vessel set-up ------------------------------------------------
         
         # Propeller revolutions [s⁻¹]
-        self.nps = 5.0
+        self.nps = 10.0
         
         # Rudder angle [rad]
         self.delta = 0.0

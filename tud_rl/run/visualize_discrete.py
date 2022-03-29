@@ -117,7 +117,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="pathfollower.json")
     parser.add_argument("--agent_name", type=str, default="DQN")
-    parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_deriv-ang-10000_2022-03-24_27611/DQN_weights.pth")
+    #parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-abs-ang-rew-incr-3°_2022-03-25_27611/DQN_weights.pth")
+    #parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-3°-10rps-none_2022-03-28_27611/DQN_weights.pth")
+    parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-3°-10rps-none-2_2022-03-28_27611/DQN_weights2.pth")
     args = parser.parse_args()
 
     # read config file

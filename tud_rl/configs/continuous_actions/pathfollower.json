@@ -6,19 +6,27 @@
     "wrappers": [],
     "wrapper_kwargs": {},
     "env_kwargs": { "mode": "cont" },
-    "info": "cont-deriv-pen"
+    "info": "2000-none"
   },
   "agent": {
-    "DQN": {},
-    "DDQN": {},
-    "SCDQN_a": { "sc_beta": 2.0 },
-    "SCDQN_b": { "sc_beta": 3.0 },
-    "SCDQN_c": { "sc_beta": 4.0 },
-    "ACCDDQN_a": { "AC_K": 2 },
-    "BootDQN": { "K": 10, "mask_p": 1, "grad_rescale": true },
-    "EnsembleDQN": { "N": 5, "N_to_update": 1 },
-    "MaxMinDQN_a": { "N": 2, "N_to_update": 1 },
-    "MaxMinDQN_b": { "N": 5, "N_to_update": 1 },
+    "DDPG": {},
+    "TD3": { "tgt_noise": 0.2, "tgt_noise_clip": 0.5, "pol_upd_delay": 2 },
+    "LSTMDDPG": { "history_length": 2, "use_past_actions": false },
+    "LSTMTD3": {
+      "tgt_noise": 0.2,
+      "tgt_noise_clip": 0.5,
+      "pol_upd_delay": 2,
+      "history_length": 2,
+      "use_past_actions": false
+    },
+    "SAC": { "lr_temp": 0.0001, "temp_tuning": true, "init_temp": 0.2 },
+    "LSTMSAC": {
+      "history_length": 2,
+      "use_past_actions": false,
+      "lr_temp": 0.0001,
+      "temp_tuning": true,
+      "init_temp": 0.2
+    },
     "TQC": {
       "lr_temp": 0.0001,
       "temp_tuning": true,
@@ -30,7 +38,7 @@
   },
   "seed": 1,
   "timesteps": 1e7,
-  "epoch_length": 5e3,
+  "epoch_length": 2e3,
   "eval_episodes": 3,
   "dqn_weights": null,
   "input_norm": false,
@@ -53,6 +61,6 @@
   "act_start_step": 5000,
   "upd_start_step": 5000,
   "upd_every": 1,
-  "batch_size": 128,
+  "batch_size": 64,
   "device": "cpu"
 }
