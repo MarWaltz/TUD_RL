@@ -11,7 +11,6 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         super().__init__(c, agent_name, logging=True)      
 
         # attributes and hyperparameter
-        self.env_max_episode_steps = c["env"]["max_episode_steps"]
         self.kernel_batch_size     = c["agent"][agent_name]["kernel_batch_size"]
         self.kernel_lr             = c["agent"][agent_name]["kernel_lr"]
 
@@ -101,8 +100,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         # MC-vals, Q-vals of all (s,a) pairs of ALL episodes
         MC_ret_all_eps, Q_all_eps = [], []
 
-        # init epi steps and rewards for ONE episode
-        epi_steps = 0
+        # init rewards for ONE episode
         r_one_eps = []
 
         # get env and current state | Note: This selection is MinAtar specific.
@@ -113,8 +111,6 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
 
         # main loop
         for _ in range(self.kernel_batch_size):
-
-            epi_steps += 1
 
             # get action and Q
             a, Q = self._greedy_action(s, k, with_Q=True)
@@ -133,20 +129,20 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
             # s becomes s2
             s = s2
 
-            # end of episode: for artificial time limit in env, we need to correct final reward to be a return
-            if epi_steps == self.env_max_episode_steps:
+            # end of episode
+            if d:
 
-                # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
-                r_one_eps[-1] += self.gamma * self._greedy_action(s2, active_head=k, with_Q=True)[1]
-
-            # end of episode: artificial or true done signal
-            if epi_steps == self.env_max_episode_steps or d:
+                # when done signal is artifical, correct final reward to be a return | Note: Again, MinAtar specific.
+                if sampled_env.env.game.game_name() == "freeway":
+                    if sampled_env.env.game.env.terminate_timer < 0:
+                    
+                        # backup from current Q-net: r + gamma * Q(s2, pi(s2)) with greedy pi
+                        r_one_eps[-1] += self.gamma * self._greedy_action(s2, active_head=k, with_Q=True)[1]
 
                 # transform rewards to returns and store them
                 MC_ret_all_eps += get_MC_ret_from_rew(rews=r_one_eps, gamma=self.gamma)
 
                 # reset
-                epi_steps = 0
                 r_one_eps = []
 
                 # get another initial state
