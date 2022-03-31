@@ -618,7 +618,7 @@ class RecDQN(nn.Module):
         self.dense1 = nn.Linear(6, 128)
 
         # features for other vessels
-        self.LSTM   = nn.LSTM(input_size = 7, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.LSTM   = nn.LSTM(input_size = 6, hidden_size = 128, num_layers = 1, batch_first = True)
         self.dense2 = nn.Linear(128, 128)
 
         # post combination
@@ -654,7 +654,7 @@ class RecDQN(nn.Module):
         if self.N_TSs > 0:
 
             s_TS = s[:, 6:]
-            s_TS = s_TS.view(-1, self.N_TSs, 7)     # torch.Size([batch_size, N_TSs, 7])
+            s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
             # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 
             # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])

@@ -21,18 +21,17 @@ class FossenEnv(gym.Env):
 
         # simulation settings
         self.delta_t         = 0.5              # simulation time interval (in s)
-        self.N_max           = 100              # maximum N-coordinate (in m)
-        self.E_max           = 100              # maximum E-coordinate (in m)
+        self.N_max           = 200              # maximum N-coordinate (in m)
+        self.E_max           = 200              # maximum E-coordinate (in m)
         self.N_TSs           = N_TSs            # number of other vessels
-        self.safety_dist     = 7.5              # minimum distance, if less then collision (in m)
-        self.sight           = 50               # sight of the agent (in m)
-        self.TCPA_crit       = 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.sight           = self.N_max/2     # sight of the agent (in m)
+        self.TCPA_crit       = 120              # critical TCPA (in s), relevant for state and spawning of TSs
         self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
         self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
-        self.goal_reach_dist = 25               # euclidean distance (in m) at which goal is considered as reached 
+        self.goal_reach_dist = self.N_max/5     # euclidean distance (in m) at which goal is considered as reached 
 
         # gym definitions
-        obs_size = 6 + self.N_TSs * 7
+        obs_size = 6 + self.N_TSs * 6
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -43,14 +42,14 @@ class FossenEnv(gym.Env):
             self.action_space = spaces.Discrete(9)
 
         # custom inits
-        self._max_episode_steps = 500
+        self._max_episode_steps = 1000
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
         self.r_coll   = 0
         self.r_COLREG = 0
-        self.r_coll_sigma = 5
-        self.state_names = ["u", "v", "r", "N_rel", "E_rel", r"$\Psi$", r"$\beta_{G}$", r"$ED_{G}$"]
+        self.r_coll_sigma = 25
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
     def reset(self):
@@ -65,27 +64,27 @@ class FossenEnv(gym.Env):
         # init goal
         #self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max), "E" : np.random.uniform(self.E_max - 25, self.E_max)}
         if sit_init == 0:
-            self.goal = {"N" : 20, "E" : 20}
-            N_init = 80
-            E_init = 80
+            self.goal = {"N" : 0.2 * self.N_max, "E" : 0.2 * self.E_max}
+            N_init = 0.8 * self.N_max
+            E_init = 0.8 * self.E_max
             head   = np.random.uniform(np.pi, 3/2 * np.pi)
         
         elif sit_init == 1:
-            self.goal = {"N" : 80, "E" : 20}
-            N_init = 20
-            E_init = 80
+            self.goal = {"N" : 0.8 * self.N_max, "E" : 0.2 * self.E_max}
+            N_init = 0.2 * self.N_max
+            E_init = 0.8 * self.E_max
             head   = np.random.uniform(3/2 * np.pi, 2 * np.pi)
 
         elif sit_init == 2:
-            self.goal = {"N" : 80, "E" : 80}
-            N_init = 20
-            E_init = 20
+            self.goal = {"N" : 0.8 * self.N_max, "E" : 0.8 * self.E_max}
+            N_init = 0.2 * self.N_max
+            E_init = 0.2 * self.E_max
             head   = np.random.uniform(0, np.pi / 2)
 
         elif sit_init == 3:
-            self.goal = {"N" : 20, "E" : 80}
-            N_init = 80
-            E_init = 20
+            self.goal = {"N" : 0.2 * self.N_max, "E" : 0.8 * self.E_max}
+            N_init = 0.8 * self.N_max
+            E_init = 0.2 * self.E_max
             head   = np.random.uniform(np.pi / 2, np.pi)
 
         # init agent (OS for 'Own Ship')
@@ -173,8 +172,8 @@ class FossenEnv(gym.Env):
         #--------------------------------------- front mode --------------------------------------
         if spawn_mode == "front":
 
-            # sample DCPA
-            DCPA_s = 0 #np.random.uniform(0, self.safety_dist)
+            # set DCPA
+            DCPA_s = 0
 
             # forecast position of OS if it keeps course (heading + sideslip) and speed (u and v combined)
             E_OS_tcpa0 = E0 + VOS * np.sin(chiOS) * self.TCPA_crit
@@ -259,7 +258,7 @@ class FossenEnv(gym.Env):
             VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
             
             # sample time
-            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+            t_hit = np.random.uniform(self.TCPA_crit * 0.5, self.TCPA_crit)
 
             # compute hit point
             E_hit = E0 + VR_goal_x * t_hit
@@ -344,10 +343,9 @@ class FossenEnv(gym.Env):
             ED_TS
             relative bearing
             heading intersection angle C_T
-            u_TS
+            speed (V)
             COLREG mode TS (sigma_TS)
             Inside ship domain (bool)
-            TCPA
         
         Note: Everything is normalized. If a TS is outside the ship domain, everything for this TS is set 0 or na, respectively.
         """
@@ -374,8 +372,8 @@ class FossenEnv(gym.Env):
         for TS_idx, TS in enumerate(self.TSs):
 
             N, E, headTS = TS.eta               # N, E, heading
-            chiTS = TS._get_course()            # course angle (heading + sideslip)
-            VTS   = TS._get_V()                 # aggregated velocity
+            #chiTS = TS._get_course()            # course angle (heading + sideslip)
+            #VTS   = TS._get_V()                 # aggregated velocity
 
             # consider TS if it is in sight
             ED_OS_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True)
@@ -391,8 +389,8 @@ class FossenEnv(gym.Env):
                 # heading intersection angle
                 C_TS = head_inter(head_OS=head0, head_TS=headTS) / (2*np.pi)
 
-                # longitudinal speed
-                u_TS = TS.nu[0]
+                # speed
+                V_TS = TS._get_V()
 
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
@@ -402,14 +400,14 @@ class FossenEnv(gym.Env):
                 inside_domain = 1.0 if ED_OS_TS <= domain else 0.0
 
                 # TCPA
-                TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / self.TCPA_crit
+                #TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / self.TCPA_crit
 
                 # store it
-                state_TSs.append([ED_TS, bng_rel_TS, C_TS, u_TS, sigma_TS, inside_domain, TCPA_TS])
+                state_TSs.append([ED_TS, bng_rel_TS, C_TS, V_TS, sigma_TS, inside_domain])
 
         # create dummy state if no TS is in sight
         if len(state_TSs) == 0:
-            state_TSs = np.array([self.state_pad] * 7 * self.N_TSs, dtype=np.float32)
+            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
 
         # otherwise sort according to descending ED
         else:
@@ -417,7 +415,7 @@ class FossenEnv(gym.Env):
             state_TSs = state_TSs.flatten(order="C")
 
             # pad nan or zeroes at the right side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 7 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
+            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])
@@ -436,16 +434,12 @@ class FossenEnv(gym.Env):
         # update agent dynamics
         self.OS._upd_dynamics()
 
-        # handle map-leaving of agent
-        #self.OS, _ = self._handle_map_leaving(self.OS, respawn=False, mirrow=False, clip=True)
-
         # update environmental dynamics, e.g., other vessels
         [TS._upd_dynamics() for TS in self.TSs]
 
-        # handle map-leaving and respawning of other vessels
+        # handle respawning of other vessels
         if self.N_TSs > 0:
-            self.TSs, self.respawn_flags = list(zip(*[self._handle_map_leaving(TS, respawn=True, mirrow=False, clip=False) for TS in self.TSs]))
-            self.TSs, self.respawn_flags = list(zip(*[self._handle_respawn(TS) for TS in self.TSs]))
+            self.TSs, self.respawn_flags = list(zip(*[self._handle_respawn(TS, respawn=True) for TS in self.TSs]))
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -462,63 +456,59 @@ class FossenEnv(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _handle_map_leaving(self, CS, respawn, mirrow, clip):
-        """Handles the case when a ship reaches the border of the simulation area.
+    def _handle_respawn(self, TS, respawn=True, mirrow=False, clip=False):
+        """Handles respawning of a vessel. Considers two situations:
+        1) Respawn due to leaving of the simulation map.
+        2) Respawn due to being too far away from the agent.
 
         Args:
-            CS (CyberShipII): Vessel of interest.
-            respawn (bool):   Whether the vessel should respawn somewhere else.
-            mirrow (bool):    Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
-                              Inspired by Xu et al. (2022, Neurocomputing).
-            clip (bool):      Whether to artificially keep vessel on the map by clipping. Thus, it will stay on boarder.
+            TS (CyberShipII): Vessel of interest.
+            respawn (bool):   For 1) Whether the vessel should respawn somewhere else.
+            mirrow (bool):    For 1) Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
+                                     Inspired by Xu et al. (2022, Neurocomputing).
+            clip (bool):      For 1) Whether to artificially keep vessel on the map by clipping. Thus, it will stay on boarder.
         Returns
             CybershipII, respawn_flag (bool)
         """
 
-        # check whether vessel left the map
-        if CS._is_off_map():
+        assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
+
+        # 1) leaving of simulation area
+        if TS._is_off_map():
             
             if respawn:
                 return self._get_TS(), True
             
             elif mirrow:
                 # quick access
-                psi = CS.eta[2]
+                psi = TS.eta[2]
 
                 # right or left bound (E-axis)
-                if CS.eta[1] <= 0 or CS.eta[1] >= CS.E_max:
-                    CS.eta[2] = 2*np.pi - psi
+                if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
+                    TS.eta[2] = 2*np.pi - psi
                 
                 # upper and lower bound (N-axis)
                 else:
-                    CS.eta[2] = np.pi - psi
+                    TS.eta[2] = np.pi - psi
             
             elif clip:
-                CS.eta[0] = np.clip(CS.eta[0], 0, CS.N_max)
-                CS.eta[1] = np.clip(CS.eta[1], 0, CS.E_max)
+                TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
+                TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
+
+            return TS, False
         
-        return CS, False
+        # 2) too far away from agent
+        else:
+            TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
+                           chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+            
+            if TCPA_TS < -10 or TCPA_TS > 1.5*self.TCPA_crit:
+                return self._get_TS(), True
 
-
-    def _handle_respawn(self, TS):
-        """Checks whether a ship passed the OS (in the sense of TCPA) and should thus be respawned somewhere else.
-
-        Args:
-            TS (CyberShipII): Vessel of interest.
-        Returns:
-            CybershipII, respawn_flag (bool)
-        """
-
-        TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
-                       chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
-        
-        if TCPA_TS < -10 or TCPA_TS > 1.5*self.TCPA_crit:
-            return self._get_TS(), True
-        
         return TS, False
 
 
-    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_map=1.):
+    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1.):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -533,53 +523,43 @@ class FossenEnv(gym.Env):
         r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
 
-        # ----------------------------------- 3. Collision reward ------------------------------------------
+        # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
-
-        for TS in self.TSs:
-
-            EDsq_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=False)
-
-            # Basic Gaussian reward
-            r_coll -= np.exp(-0.5 * EDsq_TS / self.r_coll_sigma**2)
-
-            # Explicit collision penalty
-            r_coll -= 50 if EDsq_TS < self.safety_dist**2 else 0
-
-
-        # -------------------------------------- 4. COLREG reward ------------------------------------------
         r_COLREG = 0
 
         for TS_idx, TS in enumerate(self.TSs):
 
-            # if vessel just spawned, don't assess COLREG reward
+            # compute ship domain and ED
+            domain = self._get_ship_domain(OS=self.OS, TS=TS)
+            ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+
+            # Collision: basic Gaussian reward if in ship domain
+            if ED_TS <= domain:
+                r_coll -= 5 * np.exp(-0.5 * ED_TS**2 / self.r_coll_sigma**2)
+
+            # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
 
-                # check whether TS is close enough to evaluate COLREGs (= inside ship domain)
-                if ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= self._get_ship_domain(OS=self.OS, TS=TS):
+                # only evaluate if TS in ship domain
+                if ED_TS <= domain:
 
                     # should steer to the right (r >= 0) in Head-on and starboard crossing situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 2.0
+                        r_COLREG -= 10.0
 
                     # assess when COLREG situation changes
-                    if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
+                    #if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
                     
                         # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
-                        if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
-                                r_COLREG -= 10
-
-        # ----------------------------------- 5. Leave-the-map reward --------------------------------------
-        #r_map = -10 if self.OS._is_off_map() else 0
-        r_map = 0
+                    #    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
+                    #            r_COLREG -= 10
 
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
         self.r_head   = r_head
         self.r_coll   = r_coll
         self.r_COLREG = r_COLREG
-        self.r_map    = r_map
-        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_map * r_map
+        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG
 
 
     def _done(self):
@@ -890,7 +870,7 @@ class FossenEnv(gym.Env):
             self.ax2.set_xlabel("Timestep in episode")
             self.ax2.set_ylabel("State information")
 
-            for i in range(8):
+            for i in range(6):
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
                                label=self.state_names[i])          
