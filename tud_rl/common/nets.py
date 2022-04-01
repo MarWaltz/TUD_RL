@@ -615,7 +615,7 @@ class RecDQN(nn.Module):
         self.N_TSs = N_TSs
 
         # own ship and goal related features
-        self.dense1 = nn.Linear(6, 128)
+        self.dense1 = nn.Linear(7, 128)
 
         # features for other vessels
         self.LSTM   = nn.LSTM(input_size = 6, hidden_size = 128, num_layers = 1, batch_first = True)
@@ -628,7 +628,7 @@ class RecDQN(nn.Module):
 
     def forward(self, s) -> tuple:
         """s is a torch tensor. Shape:
-        s:       torch.Size([batch_size, 6 + 7 * N_TSs])
+        s:       torch.Size([batch_size, 7 + 6 * N_TSs])
 
         returns: torch.Size([batch_size, num_actions])
         
@@ -649,11 +649,11 @@ class RecDQN(nn.Module):
 
         # -------------------------------- preprocessing ----------------------------------------
         # extract OS and TS states
-        s_OS = s[:, :6]                         # torch.Size([batch_size, 6])
+        s_OS = s[:, :7]                         # torch.Size([batch_size, 7])
         
         if self.N_TSs > 0:
 
-            s_TS = s[:, 6:]
+            s_TS = s[:, 7:]
             s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
             # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 

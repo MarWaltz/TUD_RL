@@ -32,7 +32,7 @@ class FossenEnv(gym.Env):
         self.goal_reach_dist = self.N_max/5     # euclidean distance (in m) at which goal is considered as reached 
 
         # gym definitions
-        obs_size = 6 + self.N_TSs * 6
+        obs_size = 7 + self.N_TSs * 6
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -50,7 +50,7 @@ class FossenEnv(gym.Env):
         self.r_coll   = 0
         self.r_COLREG = 0
         self.r_coll_sigma = 25
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\beta_{G}$", r"$ED_{G}$"]
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
     def reset(self):
@@ -335,6 +335,7 @@ class FossenEnv(gym.Env):
         OS:
             u, v, r
             heading
+            tau_r
 
         Goal:
             relative bearing
@@ -353,11 +354,11 @@ class FossenEnv(gym.Env):
 
         # quick access for OS
         N0, E0, head0 = self.OS.eta             # N, E, heading
-        chiOS = self.OS._get_course()           # course angle (heading + sideslip)
-        VOS = self.OS._get_V()                  # aggregated velocity
+        #chiOS = self.OS._get_course()           # course angle (heading + sideslip)
+        #VOS = self.OS._get_V()                  # aggregated velocity
 
         #-------------------------------- OS related ---------------------------------
-        state_OS = np.concatenate([self.OS.nu, np.array([head0 / (2*np.pi)])])
+        state_OS = np.concatenate([self.OS.nu, np.array([head0 / (2*np.pi), self.OS.tau_cnt_r / self.OS.tau_cnt_r_max])])
 
 
         #------------------------------ goal related ---------------------------------
@@ -871,7 +872,7 @@ class FossenEnv(gym.Env):
             self.ax2.set_xlabel("Timestep in episode")
             self.ax2.set_ylabel("State information")
 
-            for i in range(6):
+            for i in range(7):
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
                                label=self.state_names[i])          
@@ -915,7 +916,7 @@ class FossenEnv(gym.Env):
                 self.ax3_twin.set_ylim(-self.OS.tau_cnt_r_max - 0.1, self.OS.tau_cnt_r_max + 0.1)
                 self.ax3_twin.set_yticks(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
                 self.ax3_twin.set_yticklabels(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
-                self.ax3_twin.set_ylabel("Tau_r (in Nm, blue)")
+                self.ax3_twin.set_ylabel(r"$\tau_r$ (in Nm, blue)")
                 self.ax3.old_tau_cnt_r = self.OS.tau_cnt_r
 
             self.ax3.old_time = self.step_cnt

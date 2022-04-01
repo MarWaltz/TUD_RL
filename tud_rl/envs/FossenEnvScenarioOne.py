@@ -14,10 +14,10 @@ class FossenEnvScenarioOne(FossenEnv):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init four goals
-        self.goals = [{"N" : 10, "E" : 50},
-                      {"N" : 50, "E" : 10},
-                      {"N" : 90, "E" : 50},
-                      {"N" : 50, "E" : 90}]
+        self.goals = [{"N" : self.N_max * 0.1, "E" : self.E_max * 0.5},
+                      {"N" : self.N_max * 0.5, "E" : self.E_max * 0.1},
+                      {"N" : self.N_max * 0.9, "E" : self.E_max * 0.5},
+                      {"N" : self.N_max * 0.5, "E" : self.E_max * 0.9}]
 
         # init four agents
         self.agents = []
@@ -25,23 +25,23 @@ class FossenEnvScenarioOne(FossenEnv):
             
             if i == 0:
                 head   = np.pi
-                N_init = 90
-                E_init = 50
+                N_init = self.N_max * 0.9
+                E_init = self.E_max * 0.5
 
             elif i == 1:
                 head   = 3/2 * np.pi
-                N_init = 50
-                E_init = 90
+                N_init = self.N_max * 0.5
+                E_init = self.E_max * 0.9
             
             elif i == 2:
                 head   = 0
-                N_init = 10
-                E_init = 50
+                N_init = self.N_max * 0.1
+                E_init = self.E_max * 0.5
             
             elif i == 3:
                 head   = np.pi/2
-                N_init = 50
-                E_init = 10
+                N_init = self.N_max * 0.5
+                E_init = self.E_max * 0.1
             
             self.agents.append(CyberShipII(N_init       = N_init, 
                                            E_init       = E_init, 
