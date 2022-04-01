@@ -1,5 +1,6 @@
 import copy
 import random
+from math import sqrt
 
 import gym
 import matplotlib.patches as patches
@@ -9,7 +10,7 @@ from matplotlib import pyplot as plt
 from tud_rl.envs.FossenCS2 import CyberShipII
 from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_abs, bng_rel,
-                                   dtr, head_inter, polar_from_xy,
+                                   dcpa, dtr, head_inter, polar_from_xy,
                                    project_vector, rtd, tcpa, xy_from_polar)
 
 
@@ -502,7 +503,7 @@ class FossenEnv(gym.Env):
             TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
                            chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
             
-            if TCPA_TS < -10 or TCPA_TS > 1.5*self.TCPA_crit:
+            if TCPA_TS < -0.25*self.TCPA_crit or TCPA_TS > 1.5*self.TCPA_crit:
                 return self._get_TS(), True
 
         return TS, False
@@ -594,7 +595,7 @@ class FossenEnv(gym.Env):
         # compute relative speed
         vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
         vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        VR = np.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+        VR = sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
 
         # compute domain
         V = np.max([VOS, VR])
