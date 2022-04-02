@@ -120,6 +120,12 @@ class PathFollower(gym.Env):
 
         # Vessel to be simulated
         self.vessel: Dict[str, float] = seiunmaru  # calibrate(GMS,1000)
+        
+        # Movement heading can include drift angles
+        self.movement_heading = 0.0
+        
+        # Heading the longitudinal vessel axis points to
+        self.aghead = 0.0
 
         # Get the border to port and starboard where
         # the water depth equals the ship draft
@@ -134,7 +140,7 @@ class PathFollower(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(8,)
+            shape=(43207,)
         )
 
         # Set action space according to mode

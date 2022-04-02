@@ -22,6 +22,7 @@ from tud_rl.agents.discrete.KEEnsembleDQN import KEEnsembleDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
 from tud_rl.agents.discrete.RecDQN import RecDQNAgent
+from tud_rl.agents.discrete.ComboDQN import ComboDQNAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
@@ -93,10 +94,11 @@ def train(c, agent_name):
 
     # get state_shape
     if c["env"]["state_type"] == "image":
-        assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
-
-        # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        if "MinAtar" in c["env"]["name"]:
+            # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
+            c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+        else:
+            c["state_shape"] = env.observation_space.shape[0]
     
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]

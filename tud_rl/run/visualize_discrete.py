@@ -22,12 +22,13 @@ from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.agents.discrete.MaxMinDQN import MaxMinDQNAgent
 from tud_rl.agents.discrete.SCDQN import SCDQNAgent
 from tud_rl.agents.discrete.RecDQN import RecDQNAgent
+from tud_rl.agents.discrete.ComboDQN import ComboDQNAgent
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.discrete_actions import __path__
 
 
 def visualize_policy(env, agent, c):
-    
+
     for _ in range(c["eval_episodes"]):
 
         # get initial state
@@ -50,7 +51,7 @@ def visualize_policy(env, agent, c):
 
             # select action
             a = agent.select_action(s)
-            
+
             # perform step
             s2, r, d, _ = env.step(a)
 
@@ -83,8 +84,9 @@ def test(c, agent_name, dqn_weights):
         assert "MinAtar" in c["env"]["name"], "Only MinAtar-interface available for images."
 
         # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-        c["state_shape"] = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
-    
+        c["state_shape"] = (env.observation_space.shape[2],
+                            *env.observation_space.shape[0:2])
+
     elif c["env"]["state_type"] == "feature":
         c["state_shape"] = env.observation_space.shape[0]
 
@@ -116,10 +118,14 @@ if __name__ == "__main__":
     # get config and name of agent
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str, default="pathfollower.json")
-    parser.add_argument("--agent_name", type=str, default="DQN")
+    parser.add_argument("--agent_name", type=str, default="SCDQN_b")
     #parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-abs-ang-rew-incr-3°_2022-03-25_27611/DQN_weights.pth")
     #parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-3°-10rps-none_2022-03-28_27611/DQN_weights.pth")
-    parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-3°-10rps-none-2_2022-03-28_27611/DQN_weights2.pth")
+    #parser.add_argument("--dqn_weights", type=str, default="/home/neural/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_2000-3°-10rps-none-2_2022-03-28_27611/DQN_weights2.pth")
+    #parser.add_argument("--dqn_weights", type=str, default="/home/niklaspaulig/Dropbox/TU Dresden/hpc/experiments/DQN_PathFollower-v0_5000-3°-nonstop_2022-03-28_27611/DQN_weights.pth")
+    #parser.add_argument("--dqn_weights", type=str, default="/home/niklaspaulig/Dropbox/TU Dresden/experiments/DQN_PathFollower-v0_seiun_2022-03-30_27611/DQN_weights.pth")
+    parser.add_argument("--dqn_weights", type=str,
+                        default="/home/niklaspaulig/Dropbox/TU Dresden/hpc/experiments/SCDQN_b_PathFollower-v0_2000-5-seiun-norot-5th_2022-03-31_21442/SCDQN_b_weights.pth")
     args = parser.parse_args()
 
     # read config file
@@ -127,8 +133,8 @@ if __name__ == "__main__":
         c = json.load(f)
 
     # convert certain keys in integers
-    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",\
-        "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
+    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "eps_decay_steps", "tgt_update_freq",
+                "buffer_length", "act_start_step", "upd_start_step", "upd_every", "batch_size"]:
         c[key] = int(c[key])
 
     # handle maximum episode steps
@@ -136,8 +142,5 @@ if __name__ == "__main__":
         c["env"]["max_episode_steps"] = np.inf
     else:
         c["env"]["max_episode_steps"] = int(c["env"]["max_episode_steps"])
-
-    # set number of torch threads
-    torch.set_num_threads(torch.get_num_threads())
 
     test(c, args.agent_name, args.dqn_weights)
