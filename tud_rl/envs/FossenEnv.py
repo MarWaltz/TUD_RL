@@ -49,7 +49,7 @@ class FossenEnv(gym.Env):
         self.r_dist   = 0
         self.r_coll   = 0
         self.r_COLREG = 0
-        self.r_coll_sigma = 25
+        self.r_comf   = 0
         self.state_names = ["u", "v", "r", r"$\Psi$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
@@ -510,7 +510,7 @@ class FossenEnv(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1.):
+    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -535,9 +535,8 @@ class FossenEnv(gym.Env):
             domain = self._get_ship_domain(OS=self.OS, TS=TS)
             ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
-            # Collision: basic Gaussian reward if in ship domain
-            if ED_TS <= domain:
-                r_coll -= 5 * np.exp(-0.5 * ED_TS**2 / self.r_coll_sigma**2)
+            # Collision: basic Gaussian reward
+            r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -556,12 +555,16 @@ class FossenEnv(gym.Env):
                     #    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
                     #            r_COLREG -= 10
 
+        # --------------------------------- 5. Comfort penalty --------------------------------
+        r_comf = -3 * abs(self.OS.nu[2])**2
+
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
         self.r_head   = r_head
         self.r_coll   = r_coll
         self.r_COLREG = r_COLREG
-        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG
+        self.r_comf   = r_comf
+        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf
 
 
     def _done(self):
@@ -743,7 +746,7 @@ class FossenEnv(gym.Env):
         """Renders the current environment."""
 
         # plot every nth timestep
-        if self.step_cnt % 1 == 0: 
+        if self.step_cnt % 2 == 0: 
 
             # check whether figure has been initialized
             if len(plt.get_fignums()) == 0:
@@ -840,6 +843,7 @@ class FossenEnv(gym.Env):
                 self.ax1.old_r_dist = 0
                 self.ax1.old_r_coll = 0
                 self.ax1.old_r_COLREG = 0
+                self.ax1.old_r_comf = 0
 
             self.ax1.set_xlim(0, self._max_episode_steps)
             #self.ax1.set_ylim(-1.25, 0.1)
@@ -850,6 +854,7 @@ class FossenEnv(gym.Env):
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
             self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
+            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
             
             if self.step_cnt == 0:
                 self.ax1.legend()
@@ -859,6 +864,7 @@ class FossenEnv(gym.Env):
             self.ax1.old_r_dist = self.r_dist
             self.ax1.old_r_coll = self.r_coll
             self.ax1.old_r_COLREG = self.r_COLREG
+            self.ax1.old_r_comf = self.r_comf
 
 
             # ------------------------------ state plot --------------------------------
