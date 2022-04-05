@@ -753,8 +753,7 @@ class ComboDQN(nn.Module):
         width = self._output_size(width, kernel_size=4, stride=2)
 
         # calculate input size for FC layer (which is size of a single feature map multiplied by number of out_channels)
-        self.in_size_FC = self._output_size(
-            height) * self._output_size(width) * out_channels
+        self.in_size_FC = height * width * out_channels
 
         # Dense layers ----------------------
 
@@ -771,11 +770,12 @@ class ComboDQN(nn.Module):
 
     def forward(self, s: Tuple[np.ndarray, np.ndarray]):
 
-        image = s[:-7].reshape(3,120,120)
-        feature = s[-7:]
+        print(s.shape)
+        image = torch.reshape(s[:, :-7],(-1,3,120,120))
+        feature = s[:, -7:]
         
         i = F.relu(self.conv1(image))
-        i = F.relu(self.conv2(image))
+        i = F.relu(self.conv2(i))
 
         # reshape from torch.Size([batch_size, out_channels, out_height, out_width]) to
         # torch.Size([batch_size, out_channels * out_height * out_width])

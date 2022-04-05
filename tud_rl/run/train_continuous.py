@@ -9,27 +9,22 @@ import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
+from tud_rl.agents.base import AbstractAgent
 from tud_rl.envs.MountainCar import MountainCar
-from tud_rl.wrappers.MinAtar_wrapper import MinAtar_wrapper
-from tud_rl.agents.continuous.DDPG import DDPGAgent
-from tud_rl.agents.continuous.TD3 import TD3Agent
-from tud_rl.agents.continuous.SAC import SACAgent
-from tud_rl.agents.continuous.LSTMDDPG import LSTMDDPGAgent
-from tud_rl.agents.continuous.LSTMTD3 import LSTMTD3Agent
-from tud_rl.agents.continuous.LSTMSAC import LSTMSACAgent
-from tud_rl.agents.continuous.TQC import TQCAgent
+from tud_rl.wrappers import get_wrapper
+from tud_rl.agents.continuous import *
 from tud_rl.common.logging_plot import plot_from_progress
 from tud_rl.configs.continuous_actions import __path__
 
 
-def evaluate_policy(test_env, agent, c):
+def evaluate_policy(test_env: gym.Env, agent: AbstractAgent, c: Configfile):
 
     # go greedy
     agent.mode = "test"
     
     rets = []
     
-    for _ in range(c["eval_episodes"]):
+    for _ in range(c.eval_episodes):
 
         # LSTM: init history
         if "LSTM" in agent.name:
@@ -39,7 +34,7 @@ def evaluate_policy(test_env, agent, c):
 
         # get initial state
         s = test_env.reset()
-        if c["input_norm"]:
+        if c.input_norm:
             s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
@@ -60,7 +55,7 @@ def evaluate_policy(test_env, agent, c):
             s2, r, d, _ = test_env.step(a)
 
             # potentially normalize s2
-            if c["input_norm"]:
+            if c.input_norm:
                 s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
             # LSTM: update history
@@ -81,7 +76,7 @@ def evaluate_policy(test_env, agent, c):
             cur_ret += r
 
             # break option
-            if eval_epi_steps == c["env"]["max_episode_steps"]:
+            if eval_epi_steps == c.Env.max_episode_steps:
                 break
         
         # append return
@@ -93,47 +88,47 @@ def evaluate_policy(test_env, agent, c):
     return rets
 
 
-def train(c, agent_name):
+def train(c: Configfile, agent_name: str):
     """Main training loop."""
 
     # measure computation time
     start_time = time.time()
     
     # init envs
-    env = gym.make(c["env"]["name"], **c["env"]["env_kwargs"])
-    test_env = gym.make(c["env"]["name"], **c["env"]["env_kwargs"])
+    env: gym.Env = gym.make(c.Env.name, **c.Env.env_kwargs)
+    test_env: gym.Env = gym.make(c.Env.name, **c.Env.env_kwargs)
 
     # wrappers
-    for wrapper in c["env"]["wrappers"]:
+    for wrapper in c.Env.wrappers:
         wrapper_kwargs = c["env"]["wrapper_kwargs"][wrapper]
-        env = eval(wrapper)(env, **wrapper_kwargs)
-        test_env = eval(wrapper)(test_env, **wrapper_kwargs)
+        env: gym.Env = get_wrapper(name=wrapper, env=env, **wrapper_kwargs)
+        test_env: gym.Env = get_wrapper(wrapper,env=test_env, **wrapper_kwargs)
 
     # get state_shape
-    if c["env"]["state_type"] == "image":
+    if c.Env.state_type == "image":
         raise NotImplementedError("Currently, image input is not available for continuous action spaces.")
     
-    elif c["env"]["state_type"] == "feature":
-        c["state_shape"] = env.observation_space.shape[0]
+    elif c.Env.state_type == "feature":
+        c.state_shape = env.observation_space.shape[0]
 
     # mode and action details
-    c["mode"] = "train"
-    c["num_actions"] = env.action_space.shape[0]
-    c["action_high"] = env.action_space.high[0]
-    c["action_low"]  = env.action_space.low[0]
+    c.mode = "train"
+    c.num_actions = env.action_space.shape[0]
+    c.action_high = env.action_space.high[0]
+    c.action_low  = env.action_space.low[0]
 
     # seeding
-    env.seed(c["seed"])
-    test_env.seed(c["seed"])
-    torch.manual_seed(c["seed"])
-    np.random.seed(c["seed"])
-    random.seed(c["seed"])
+    env.seed(c.seed)
+    test_env.seed(c.seed)
+    torch.manual_seed(c.seed)
+    np.random.seed(c.seed)
+    random.seed(c.seed)
 
     # init agent
     if agent_name[-1].islower():
-        agent = eval(agent_name[:-2] + "Agent")(c, agent_name)
+        agent: AbstractAgent = eval(agent_name[:-2] + "Agent")(c, agent_name)
     else:
-        agent = eval(agent_name + "Agent")(c, agent_name)
+        agent: AbstractAgent = eval(agent_name + "Agent")(c, agent_name)
 
     # LSTM: init history
     if "LSTM" in agent.name:
@@ -143,7 +138,7 @@ def train(c, agent_name):
 
     # get initial state and normalize it
     s = env.reset()
-    if c["input_norm"]:
+    if c.input_norm:
         s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
     # init epi step counter and epi return
@@ -151,12 +146,12 @@ def train(c, agent_name):
     epi_ret = 0
     
     # main loop    
-    for total_steps in range(c["timesteps"]):
+    for total_steps in range(c.timesteps):
 
         epi_steps += 1
         
         # select action
-        if total_steps < c["act_start_step"]:
+        if total_steps < c.act_start_step:
             a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.num_actions)
         else:
             if "LSTM" in agent.name:
@@ -168,10 +163,10 @@ def train(c, agent_name):
         s2, r, d, _ = env.step(a)
         
         # Ignore "done" if it comes from hitting the time horizon of the environment
-        d = False if epi_steps == c["env"]["max_episode_steps"] else d
+        d = False if epi_steps == c.Env.max_episode_steps else d
 
         # potentially normalize s2
-        if c["input_norm"]:
+        if c.input_norm:
             s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
 
         # add epi ret
@@ -194,15 +189,15 @@ def train(c, agent_name):
                 hist_len += 1
 
         # train
-        if (total_steps >= c["upd_start_step"]) and (total_steps % c["upd_every"] == 0):
-            for _ in range(c["upd_every"]):
+        if (total_steps >= c.upd_start_step) and (total_steps % c.upd_every == 0):
+            for _ in range(c.upd_every):
                 agent.train()
 
         # s becomes s2
         s = s2
 
         # end of episode handling
-        if d or (epi_steps == c["env"]["max_episode_steps"]):
+        if d or (epi_steps == c.Env.max_episode_steps):
  
             # reset noise after episode
             if hasattr(agent, "noise"):
@@ -216,7 +211,7 @@ def train(c, agent_name):
 
             # reset to initial state and normalize it
             s = env.reset()
-            if c["input_norm"]:
+            if c.input_norm:
                 s = agent.inp_normalizer.normalize(s, mode=agent.mode)
             
             # log episode return
@@ -227,9 +222,9 @@ def train(c, agent_name):
             epi_ret = 0
 
         # end of epoch handling
-        if (total_steps + 1) % c["epoch_length"] == 0 and (total_steps + 1) > c["upd_start_step"]:
+        if (total_steps + 1) % c.epoch_length == 0 and (total_steps + 1) > c.upd_start_step:
 
-            epoch = (total_steps + 1) // c["epoch_length"]
+            epoch = (total_steps + 1) // c.epoch_length
 
             # evaluate agent with deterministic policy
             eval_ret = evaluate_policy(test_env=test_env, agent=agent, c=c)
@@ -255,7 +250,10 @@ def train(c, agent_name):
             agent.logger.dump_tabular()
 
             # create evaluation plot based on current 'progress.txt'
-            plot_from_progress(dir=agent.logger.output_dir, alg=agent.name, env_str=c["env"]["name"], info=c["env"]["info"])
+            plot_from_progress(
+                dir=agent.logger.output_dir, 
+                alg=agent.name, env_str=c.Env.name, 
+                info=c.Env.info)
 
             # save weights
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
@@ -275,27 +273,17 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--agent_name", type=str, default="LSTMDDPG")
     args = parser.parse_args()
-
-    # read config file
-    with open(__path__._path[0] + "/" + args.config_file) as f:
-        c = json.load(f)
+    
+    config_path = __path__._path[0] + "/" + args.config_file
+        
+    config = Configfile(config_path)
 
     # potentially overwrite seed
     if args.seed is not None:
-        c["seed"] = args.seed
-
-    # convert certain keys in integers
-    for key in ["seed", "timesteps", "epoch_length", "eval_episodes", "buffer_length", "act_start_step",\
-         "upd_start_step", "upd_every", "batch_size"]:
-        c[key] = int(c[key])
+        config.seed = args.seed
 
     # handle maximum episode steps
-    if c["env"]["max_episode_steps"] == -1:
-        c["env"]["max_episode_steps"] = np.inf
-    else:
-        c["env"]["max_episode_steps"] = int(c["env"]["max_episode_steps"])
+    if config.Env.max_episode_steps == -1:
+        config.Env.max_episode_steps = np.inf
 
-    # set number of torch threads
-    torch.set_num_threads(torch.get_num_threads())
-
-    train(c, args.agent_name)
+    train(config, args.agent_name)

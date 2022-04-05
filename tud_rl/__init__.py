@@ -1,36 +1,38 @@
 from gym.envs.registration import register 
 
+loc = "tud_rl.envs:"
+
 register(
     id="MyMountainCar-v0", 
-    entry_point="tud_rl.envs:MountainCar",
+    entry_point= loc + "MountainCar",
 )
 
 register(
     id="Ski-v0", 
-    entry_point="tud_rl.envs:Ski",
+    entry_point= loc + "Ski",
 )
 
 register(
     id="ObstacleAvoidance-v0", 
-    entry_point="tud_rl.envs:ObstacleAvoidance",
+    entry_point= loc + "ObstacleAvoidance",
 )
 
 register(
     id="FossenEnv-v0", 
-    entry_point="tud_rl.envs:FossenEnv",
+    entry_point= loc + "FossenEnv",
 )
 
 register(
     id="FossenEnvScenarioOne-v0", 
-    entry_point="tud_rl.envs:FossenEnvScenarioOne",
+    entry_point= loc + "FossenEnvScenarioOne",
 )
 
 register(
     id="PathFollower-v0", 
-    entry_point="tud_rl.envs:PathFollower",
+    entry_point= loc + "PathFollower",
 )
 
 register(
     id="PathFollowerV-v0", 
-    entry_point="tud_rl.envs:PathFollowerV",
+    entry_point= loc + "PathFollowerV",
 )
