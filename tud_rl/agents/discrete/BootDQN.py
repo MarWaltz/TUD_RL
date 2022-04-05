@@ -15,6 +15,7 @@ class BootDQNAgent(DQNAgent):
         super().__init__(c, agent_name, logging=False)
 
         # attributes and hyperparameters
+        self.double       = c["agent"][agent_name]["double"]
         self.K            = c["agent"][agent_name]["K"]
         self.mask_p       = c["agent"][agent_name]["mask_p"]
         self.grad_rescale = c["agent"][agent_name]["grad_rescale"]
@@ -165,8 +166,11 @@ class BootDQNAgent(DQNAgent):
             # targets
             with torch.no_grad():
 
-                a2 = torch.argmax(Q_s2_main[k], dim=1).reshape(self.batch_size, 1)
-                Q_next = torch.gather(input=Q_s2_tgt[k], dim=1, index=a2)
+                if self.double:
+                    a2 = torch.argmax(Q_s2_main[k], dim=1).reshape(self.batch_size, 1)
+                    Q_next = torch.gather(input=Q_s2_tgt[k], dim=1, index=a2)
+                else:
+                    Q_next = torch.max(Q_s2_tgt[k], dim=1).values.reshape(self.batch_size, 1)
 
                 y = r + self.gamma * Q_next * (1 - d)
 
