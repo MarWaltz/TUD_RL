@@ -99,7 +99,7 @@ def train(c: Configfile, agent_name: str):
 
     # wrappers
     for wrapper in c.Env.wrappers:
-        wrapper_kwargs = c["env"]["wrapper_kwargs"][wrapper]
+        wrapper_kwargs = c.Env.wrapper_kwargs[wrapper]
         env: gym.Env = get_wrapper(name=wrapper, env=env, **wrapper_kwargs)
         test_env: gym.Env = get_wrapper(wrapper,env=test_env, **wrapper_kwargs)
 
