@@ -1,5 +1,4 @@
 import argparse
-import json
 import pickle
 import random
 import time

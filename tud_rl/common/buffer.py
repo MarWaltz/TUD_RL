@@ -3,7 +3,9 @@ import torch
 
 
 class UniformReplayBuffer:
-    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
+    def __init__(self, state_type, state_shape, 
+                 buffer_length, batch_size, 
+                 device, disc_actions, action_dim=None):
         """A simple replay buffer with uniform sampling."""
 
         self.state_type  = state_type

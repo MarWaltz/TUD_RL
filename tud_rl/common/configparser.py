@@ -54,7 +54,7 @@ class Configfile:
     tau: float
     actor_weights: Optional[str]
     critic_weights: Optional[str]
-    net_struc_actor:List[Union[Union[int,str],str]]
+    net_struc_actor: List[Union[Union[int,str],str]]
     net_struc_critic: List[Union[Union[int,str],str]]
     
     class Env:

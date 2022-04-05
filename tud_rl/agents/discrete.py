@@ -682,13 +682,14 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
             self.kernel_param_l, self.kernel_param_u = 0.0, np.inf
 
         # new buffer since we store envs
-        self.replay_buffer = buffer.UniformReplayBufferEnvs_BootDQN(state_type    = self.state_type, 
-                                                             state_shape   = self.state_shape,
-                                                             buffer_length = self.buffer_length, 
-                                                             batch_size    = self.batch_size, 
-                                                             device        = self.device,
-                                                             K             = self.K, 
-                                                             mask_p        = self.mask_p)
+        self.replay_buffer = buffer.UniformReplayBufferEnvs_BootDQN(
+            state_type    = self.state_type, 
+            state_shape   = self.state_shape,
+            buffer_length = self.buffer_length, 
+            batch_size    = self.batch_size, 
+            device        = self.device,
+            K             = self.K, 
+            mask_p        = self.mask_p)
 
     def _set_g(self):
         """Sets the kernel function depending on the current kernel param."""
