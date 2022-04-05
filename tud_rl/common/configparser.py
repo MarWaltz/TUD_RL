@@ -17,7 +17,7 @@ class Configfile:
     seed: int
     timesteps: int
     epoch_length: int
-    eval_episodes: 4
+    eval_episodes: int
     optimizer: str
     loss: str
     buffer_length: int
