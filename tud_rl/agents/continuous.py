@@ -17,19 +17,19 @@ from tud_rl.common.normalizer import Action_Normalizer
 
 
 class DDPGAgent(BaseAgent):
-    def __init__(self, c, agent_name, logging=True, init_critic=True):
+    def __init__(self, c: Configfile, agent_name, logging=True, init_critic=True):
         super().__init__(c, agent_name,logging)
 
         # attributes and hyperparameters
-        self.action_high      = c["action_high"]
-        self.action_low       = c["action_low"]
-        self.lr_actor         = c["lr_actor"]
-        self.lr_critic        = c["lr_critic"]
-        self.tau              = c["tau"]
-        self.actor_weights    = c["actor_weights"]
-        self.critic_weights   = c["critic_weights"]
-        self.net_struc_actor  = c["net_struc_actor"]
-        self.net_struc_critic = c["net_struc_critic"]
+        self.action_high      = c.action_high
+        self.action_low       = c.action_low
+        self.lr_actor         = c.lr_actor
+        self.lr_critic        = c.lr_critic
+        self.tau              = c.tau
+        self.actor_weights    = c.actor_weights
+        self.critic_weights   = c.critic_weights
+        self.net_struc_actor  = c.net_struc_actor
+        self.net_struc_critic = c.net_struc_critic
 
         # checks
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
@@ -42,13 +42,14 @@ class DDPGAgent(BaseAgent):
 
         # replay buffer
         if self.mode == "train":
-            self.replay_buffer = buffer.UniformReplayBuffer(state_type    = self.state_type, 
-                                                     state_shape   = self.state_shape, 
-                                                     buffer_length = self.buffer_length,
-                                                     batch_size    = self.batch_size,
-                                                     device        = self.device,
-                                                     disc_actions  = False,
-                                                     action_dim    = self.num_actions)
+            self.replay_buffer = buffer.UniformReplayBuffer(
+                state_type    = self.state_type, 
+                state_shape   = self.state_shape, 
+                buffer_length = self.buffer_length,
+                batch_size    = self.batch_size,
+                device        = self.device,
+                disc_actions  = False,
+                action_dim    = self.num_actions)
         # action normalizer
         self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
 
@@ -66,7 +67,8 @@ class DDPGAgent(BaseAgent):
         # init logger and save config
         if logging:
             print("--------------------------------------------")
-            print(f"n_params_actor: {self._count_params(self.actor)}  |  n_params_critic: {self._count_params(self.critic)}")
+            print(f"n_params_actor: {self._count_params(self.actor)}  "
+                  f"|  n_params_critic: {self._count_params(self.critic)}")
             print("--------------------------------------------")
 
         # load prior weights if available
@@ -92,14 +94,18 @@ class DDPGAgent(BaseAgent):
 
         # define optimizer
         if self.optimizer == "Adam":
-            self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
+            self.actor_optimizer  = optim.Adam(
+                self.actor.parameters(), lr=self.lr_actor)
             if init_critic:
-                self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic)
+                self.critic_optimizer = optim.Adam(
+                    self.critic.parameters(), lr=self.lr_critic)
         
         else:
-            self.actor_optimizer = optim.RMSprop(self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
+            self.actor_optimizer = optim.RMSprop(
+                self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
             if init_critic:
-                self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
+                self.critic_optimizer = optim.RMSprop(
+                    self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
 
     @torch.no_grad()
@@ -245,21 +251,21 @@ class DDPGAgent(BaseAgent):
 
 
 class LSTMDDPGAgent(BaseAgent):
-    def __init__(self, c, agent_name, logging=True, init_critic=True):
+    def __init__(self, c: Configfile, agent_name, logging=True, init_critic=True):
         super().__init__(c, agent_name,logging)
 
         # attributes and hyperparameters
-        self.action_high      = c["action_high"]
-        self.action_low       = c["action_low"]
-        self.lr_actor         = c["lr_actor"]
-        self.lr_critic        = c["lr_critic"]
-        self.tau              = c["tau"]
-        self.actor_weights    = c["actor_weights"]
-        self.critic_weights   = c["critic_weights"]
-        self.net_struc_actor  = c["net_struc_actor"]
-        self.net_struc_critic = c["net_struc_critic"]
-        self.history_length   = c["agent"][agent_name]["history_length"]
-        self.use_past_actions = c["agent"][agent_name]["use_past_actions"]
+        self.action_high      = c.action_high
+        self.action_low       = c.action_low
+        self.lr_actor         = c.lr_actor
+        self.lr_critic        = c.lr_critic
+        self.tau              = c.tau
+        self.actor_weights    = c.actor_weights
+        self.critic_weights   = c.critic_weights
+        self.net_struc_actor  = c.net_struc_actor
+        self.net_struc_critic = c.net_struc_critic
+        self.history_length   = getattr(c.Agent,agent_name)["history_length"]
+        self.use_past_actions = getattr(c.Agent,agent_name)["use_past_actions"]
 
         # checks
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
@@ -275,32 +281,34 @@ class LSTMDDPGAgent(BaseAgent):
 
         # replay buffer
         if self.mode == "train":
-            self.replay_buffer = buffer.UniformReplayBuffer_LSTM(state_type     = self.state_type, 
-                                                          state_shape    = self.state_shape, 
-                                                          buffer_length  = self.buffer_length,
-                                                          batch_size     = self.batch_size,
-                                                          device         = self.device,
-                                                          disc_actions   = False,
-                                                          action_dim     = self.num_actions,
-                                                          history_length = self.history_length)
+            self.replay_buffer = buffer.UniformReplayBuffer_LSTM(
+                state_type     = self.state_type, 
+                state_shape    = self.state_shape, 
+                buffer_length  = self.buffer_length,
+                batch_size     = self.batch_size,
+                device         = self.device,
+                disc_actions   = False,
+                action_dim     = self.num_actions,
+                history_length = self.history_length)
         # action normalizer
         self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
 
         # init actor and critic
         if self.state_type == "feature":
-            self.actor = nets.LSTM_Actor(state_shape      = self.state_shape,
+            self.actor = nets.LSTM_Actor(state_shape = self.state_shape,
                                     action_dim       = self.num_actions,
                                     use_past_actions = self.use_past_actions).to(self.device)
             
             if init_critic:
-                self.critic = nets.LSTM_Critic(state_shape      = self.state_shape,
+                self.critic = nets.LSTM_Critic(state_shape = self.state_shape,
                                           action_dim       = self.num_actions,
                                           use_past_actions = self.use_past_actions).to(self.device)
 
         # init logger and save config
         if logging:
             print("--------------------------------------------")
-            print(f"n_params_actor: {self._count_params(self.actor)}  |  n_params_critic: {self._count_params(self.critic)}")
+            print(f"n_params_actor: {self._count_params(self.actor)}  "
+                  f"|  n_params_critic: {self._count_params(self.critic)}")
             print("--------------------------------------------")
 
         # load prior weights if available
@@ -326,14 +334,18 @@ class LSTMDDPGAgent(BaseAgent):
 
         # define optimizer
         if self.optimizer == "Adam":
-            self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
+            self.actor_optimizer  = optim.Adam(
+                self.actor.parameters(), lr=self.lr_actor)
             if init_critic:
-                self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic)
+                self.critic_optimizer = optim.Adam(
+                    self.critic.parameters(), lr=self.lr_critic)
         
         else:
-            self.actor_optimizer = optim.RMSprop(self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
+            self.actor_optimizer = optim.RMSprop(
+                self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
             if init_critic:
-                self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
+                self.critic_optimizer = optim.RMSprop(
+                    self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
 
     @torch.no_grad()
@@ -351,8 +363,12 @@ class LSTMDDPGAgent(BaseAgent):
 
         # reshape arguments and convert to tensors
         s = torch.tensor(s, dtype=torch.float32).view(1, self.state_shape).to(self.device)
-        s_hist = torch.tensor(s_hist, dtype=torch.float32).view(1, self.history_length, self.state_shape).to(self.device)
-        a_hist = torch.tensor(a_hist, dtype=torch.float32).view(1, self.history_length, self.num_actions).to(self.device)
+        s_hist = torch.tensor(
+            s_hist, dtype=torch.float32).view(
+                1, self.history_length, self.state_shape).to(self.device)
+        a_hist = torch.tensor(
+            a_hist, dtype=torch.float32).view(
+                1, self.history_length, self.num_actions).to(self.device)
         hist_len = torch.tensor(hist_len).to(self.device)
 
         # forward pass
@@ -379,10 +395,12 @@ class LSTMDDPGAgent(BaseAgent):
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
         with torch.no_grad():
-            target_a, _ = self.target_actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            target_a, _ = self.target_actor(
+                s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
                         
             # next Q-estimate
-            Q_next = self.target_critic(s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, log_info=False)
+            Q_next = self.target_critic(
+                s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, log_info=False)
 
             # target
             y = r + self.gamma * Q_next * (1 - d)
@@ -410,7 +428,8 @@ class LSTMDDPGAgent(BaseAgent):
         self.critic_optimizer.zero_grad()
         
         # Q-estimates
-        Q, critic_net_info = self.critic(s=s, a=a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=True)
+        Q, critic_net_info = self.critic(
+            s=s, a=a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=True)
  
         # calculate targets
         y = self._compute_target(s2_hist, a2_hist, hist_len2, r, s2, d)
@@ -445,10 +464,12 @@ class LSTMDDPGAgent(BaseAgent):
         self.actor_optimizer.zero_grad()
         
         # get current actions via actor
-        curr_a, act_net_info = self.actor(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+        curr_a, act_net_info = self.actor(
+            s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
         
         # compute loss, which is negative Q-values from critic
-        actor_loss = -self.critic(s=s, a=curr_a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=False).mean()
+        actor_loss = -self.critic(
+            s=s, a=curr_a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len, log_info=False).mean()
 
         # compute gradients
         actor_loss.backward()
@@ -484,29 +505,30 @@ class LSTMDDPGAgent(BaseAgent):
 
 
 class LSTMSACAgent(BaseAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name)
+    def __init__(self, c: Configfile, agent_name, logging=True):
+        super().__init__(c, agent_name,logging)
 
         # attributes and hyperparameters
-        self.action_high      = c["action_high"]
-        self.action_low       = c["action_low"]
-        self.lr_actor         = c["lr_actor"]
-        self.lr_critic        = c["lr_critic"]
-        self.tau              = c["tau"]
-        self.actor_weights    = c["actor_weights"]
-        self.critic_weights   = c["critic_weights"]
-        self.net_struc_actor  = c["net_struc_actor"]
-        self.net_struc_critic = c["net_struc_critic"]
+        self.action_high      = c.action_high
+        self.action_low       = c.action_low
+        self.lr_actor         = c.lr_actor
+        self.lr_critic        = c.lr_critic
+        self.tau              = c.tau
+        self.actor_weights    = c.actor_weights
+        self.critic_weights   = c.critic_weights
+        self.net_struc_actor  = c.net_struc_actor
+        self.net_struc_critic = c.net_struc_critic
 
-        self.lr_temp     = c["agent"][agent_name]["lr_temp"]
-        self.temp_tuning = c["agent"][agent_name]["temp_tuning"]
-        self.init_temp   = c["agent"][agent_name]["init_temp"]
+        self.lr_temp     = getattr(c.Agent,agent_name)["lr_temp"]
+        self.temp_tuning = getattr(c.Agent,agent_name)["temp_tuning"]
+        self.init_temp   = getattr(c.Agent,agent_name)["init_temp"]
 
-        self.history_length   = c["agent"][agent_name]["history_length"]
-        self.use_past_actions = c["agent"][agent_name]["use_past_actions"]
+        self.history_length   = getattr(c.Agent,agent_name)["history_length"]
+        self.use_past_actions = getattr(c.Agent,agent_name)["use_past_actions"]
 
         # checks
-        assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
+        assert not (self.mode == "test" and\
+            (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
 
         if self.state_type == "image":
             raise Exception("Currently, image input is not supported for continuous action spaces.")
@@ -554,11 +576,9 @@ class LSTMSACAgent(BaseAgent):
 
         # init logger and save config
         if logging:
-            self.logger = EpochLogger(alg_str = self.name, env_str = self.env_str, info = self.info)
-            self.logger.save_config({"agent_name" : self.name, **c})
-            
             print("--------------------------------------------")
-            print(f"n_params_actor: {self._count_params(self.actor)}  |  n_params_critic: {self._count_params(self.critic)}")
+            print(f"n_params_actor: {self._count_params(self.actor)}  "
+                  f"|  n_params_critic: {self._count_params(self.critic)}")
             print("--------------------------------------------")
 
         # load prior weights if available
@@ -575,11 +595,15 @@ class LSTMSACAgent(BaseAgent):
 
         # define optimizer
         if self.optimizer == "Adam":
-            self.actor_optimizer  = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
-            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic)
+            self.actor_optimizer  = optim.Adam(
+                self.actor.parameters(), lr=self.lr_actor)
+            self.critic_optimizer = optim.Adam(
+                self.critic.parameters(), lr=self.lr_critic)
         else:
-            self.actor_optimizer = optim.RMSprop(self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
-            self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
+            self.actor_optimizer = optim.RMSprop(
+                self.actor.parameters(), lr=self.lr_actor, alpha=0.95, centered=True, eps=0.01)
+            self.critic_optimizer = optim.RMSprop(
+                self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
     @torch.no_grad()
     def select_action(self, s, s_hist, a_hist, hist_len):
@@ -634,10 +658,13 @@ class LSTMSACAgent(BaseAgent):
         with torch.no_grad():
 
             # target actions come from current policy (no target actor)
-            target_a, target_logp_a, _ = self.actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, deterministic=False, with_logprob=True)
+            target_a, target_logp_a, _ = self.actor(
+                s=s2, s_hist=s2_hist, a_hist=a2_hist, 
+                hist_len=hist_len2, deterministic=False, with_logprob=True)
 
             # Q-value of next state-action pair
-            Q_next1, Q_next2, _ = self.target_critic(s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
+            Q_next1, Q_next2, _ = self.target_critic(
+                s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
             Q_next = torch.min(Q_next1, Q_next2)
 
             # target
