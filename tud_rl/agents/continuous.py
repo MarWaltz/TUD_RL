@@ -6,11 +6,12 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+
 import tud_rl.common.buffer as buffer
-from tud_rl.common.configparser import Configfile
 import tud_rl.common.nets as nets
 
 from tud_rl.agents.base import BaseAgent
+from tud_rl.common.configparser import Configfile
 from tud_rl.common.logging_func import *
 from tud_rl.common.exploration import Gaussian_Noise
 from tud_rl.common.normalizer import Action_Normalizer
@@ -55,14 +56,16 @@ class DDPGAgent(BaseAgent):
 
         # init actor and critic
         if self.state_type == "feature":
-            self.actor = nets.MLP(in_size   = self.state_shape,
-                            out_size  = self.num_actions,
-                            net_struc = self.net_struc_actor).to(self.device)
+            self.actor = nets.MLP(
+                in_size   = self.state_shape,
+                out_size  = self.num_actions,
+                net_struc = self.net_struc_actor).to(self.device)
             
             if init_critic:
-                self.critic = nets.MLP(in_size   = self.state_shape + self.num_actions,
-                                  out_size  = 1,
-                                  net_struc = self.net_struc_critic).to(self.device)
+                self.critic = nets.MLP(
+                    in_size   = self.state_shape + self.num_actions,
+                    out_size  = 1,
+                    net_struc = self.net_struc_critic).to(self.device)
         
         # init logger and save config
         if logging:
@@ -519,12 +522,12 @@ class LSTMSACAgent(BaseAgent):
         self.net_struc_actor  = c.net_struc_actor
         self.net_struc_critic = c.net_struc_critic
 
-        self.lr_temp     = getattr(c.Agent,agent_name)["lr_temp"]
-        self.temp_tuning = getattr(c.Agent,agent_name)["temp_tuning"]
-        self.init_temp   = getattr(c.Agent,agent_name)["init_temp"]
+        self.lr_temp     = getattr(c.Agent, agent_name)["lr_temp"]
+        self.temp_tuning = getattr(c.Agent, agent_name)["temp_tuning"]
+        self.init_temp   = getattr(c.Agent, agent_name)["init_temp"]
 
-        self.history_length   = getattr(c.Agent,agent_name)["history_length"]
-        self.use_past_actions = getattr(c.Agent,agent_name)["use_past_actions"]
+        self.history_length   = getattr(c.Agent, agent_name)["history_length"]
+        self.use_past_actions = getattr(c.Agent, agent_name)["use_past_actions"]
 
         # checks
         assert not (self.mode == "test" and\
@@ -553,26 +556,29 @@ class LSTMSACAgent(BaseAgent):
 
         # replay buffer
         if self.mode == "train":
-            self.replay_buffer = buffer.UniformReplayBuffer_LSTM(state_type     = self.state_type, 
-                                                          state_shape    = self.state_shape, 
-                                                          buffer_length  = self.buffer_length,
-                                                          batch_size     = self.batch_size,
-                                                          device         = self.device,
-                                                          disc_actions   = False,
-                                                          action_dim     = self.num_actions,
-                                                          history_length = self.history_length)
+            self.replay_buffer = buffer.UniformReplayBuffer_LSTM(
+                state_type     = self.state_type, 
+                state_shape    = self.state_shape, 
+                buffer_length  = self.buffer_length,
+                batch_size     = self.batch_size,
+                device         = self.device,
+                disc_actions   = False,
+                action_dim     = self.num_actions,
+                history_length = self.history_length)
         # action normalizer
         self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
 
         # init actor and critic
         if self.state_type == "feature":
-            self.actor = nets.LSTM_GaussianActor(state_shape = self.state_shape,
-                                            action_dim  = self.num_actions,
-                                            use_past_actions = self.use_past_actions).to(self.device)
+            self.actor = nets.LSTM_GaussianActor(
+                state_shape = self.state_shape,
+                action_dim  = self.num_actions,
+                use_past_actions = self.use_past_actions).to(self.device)
             
-            self.critic = nets.LSTM_Double_Critic(state_shape      = self.state_shape,
-                                             action_dim       = self.num_actions,
-                                             use_past_actions = self.use_past_actions).to(self.device)
+            self.critic = nets.LSTM_Double_Critic(
+                state_shape      = self.state_shape,
+                action_dim       = self.num_actions,
+                use_past_actions = self.use_past_actions).to(self.device)
 
         # init logger and save config
         if logging:

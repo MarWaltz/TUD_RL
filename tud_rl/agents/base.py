@@ -1,27 +1,63 @@
+import sys
+import inspect
 import pickle
 import torch
 
 import numpy as np
+from tud_rl.common.nets import (
+    MLP,MinAtar_DQN,MinAtar_CoreNet,
+    MinAtar_BootDQN,Double_MLP,RecDQN,
+    ComboDQN,LSTM_Double_Critic,
+    LSTM_Actor,GaussianActor,LSTM_GaussianActor,
+    TQC_Critics,LSTM_Critic
+)
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Optional, Tuple, Union
 
 from tud_rl.common.configparser import Configfile
 from tud_rl.common.logging_func import EpochLogger
 from tud_rl.common.normalizer import Input_Normalizer
+from tud_rl.common.exploration import Gaussian_Noise, OU_Noise
 
+# Type alias for all neural nets 
+# in the `nets` module.
+Network = Union[
+    MLP,MinAtar_DQN,MinAtar_CoreNet,
+    MinAtar_BootDQN,Double_MLP,RecDQN,
+    ComboDQN,LSTM_Double_Critic,
+    LSTM_Actor,GaussianActor,
+    LSTM_GaussianActor,
+    TQC_Critics,LSTM_Critic
+]
 
-class AbstractAgent(ABC):
-    """Abstract Base Class for all agents.
+# Type alias for Noise
+Noise = Union[Gaussian_Noise, OU_Noise]
+
+class _Agent(ABC):
+    """Abstract Base Class for any agent
+    that defining its strucure
     """
-    
-    inp_normalizer: Input_Normalizer
-    logger: EpochLogger
+    # Agent mode can be ["train", "test"]
+    mode: str
+
+    # Agent name
+    name: str
+
+    # Possible additional attributes
+    inp_normalizer: Optional[Input_Normalizer]
+    logger: Optional[EpochLogger]
+    noise: Optional[Noise] 
+    history_length: Optional[int]
+    state_shape: Optional[Tuple]
+    num_actions: Optional[int]
+    actor: Optional[Network]
+    critic: Optional[Network]
     
     @abstractmethod
     def select_action(self, s: np.ndarray) -> Union[int,np.ndarray]:
         """Select an action for the agent to take.
-        Must take in a state and output an action
+        Must take in a state and output an action.
         """
         raise NotImplementedError
     
@@ -41,7 +77,7 @@ class AbstractAgent(ABC):
         """
         raise NotImplementedError
     
-class AbstractBootAgent(AbstractAgent):   
+class AbstractBootAgent(_Agent):   
      
     @abstractmethod
     def reset_active_head(self) -> None:
@@ -50,7 +86,7 @@ class AbstractBootAgent(AbstractAgent):
         """
         raise NotImplementedError
 
-class BaseAgent(AbstractAgent):
+class BaseAgent(_Agent):
     def __init__(self, c: Configfile, agent_name: str, logging: bool):
 
         # attributes and hyperparameters
@@ -87,19 +123,25 @@ class BaseAgent(AbstractAgent):
         assert c.mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
 
         if self.input_norm:
-            assert not (self.mode == "test" and self.input_norm_prior is None), "Please supply 'input_norm_prior' in test mode with input normalization."
+            assert not (self.mode == "test" and self.input_norm_prior is None), \
+                "Please supply 'input_norm_prior' in test mode with input normalization."
 
-        assert self.state_type in ["image", "feature"], "'state_type' can be either 'image' or 'feature'."
+        assert self.state_type in ["image", "feature"],\
+            "'state_type' can be either 'image' or 'feature'."
 
         if self.state_type == "image":
-            assert len(self.state_shape) == 3 and type(self.state_shape) == tuple, "'state_shape' should be: (in_channels, height, width) for images."
+            assert len(self.state_shape) == 3 and type(self.state_shape) == tuple, \
+                "'state_shape' should be: (in_channels, height, width) for images."
 
             if self.input_norm:
                 raise NotImplementedError("Input normalization is not available for images.")
 
-        assert self.loss in ["SmoothL1Loss", "MSELoss"], "Pick 'SmoothL1Loss' or 'MSELoss', please."
-        assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
-        assert self.device in ["cpu", "cuda"], "Unknown device."
+        assert self.loss in ["SmoothL1Loss", "MSELoss"], \
+            "Pick 'SmoothL1Loss' or 'MSELoss', please."
+        assert self.optimizer in ["Adam", "RMSprop"], \
+            "Pick 'Adam' or 'RMSprop' as optimizer, please."
+        assert self.device in ["cpu", "cuda"], \
+            "Unknown device."
 
         # gpu support
         if self.device == "cpu":    

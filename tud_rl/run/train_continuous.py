@@ -262,27 +262,3 @@ def train(c: Configfile, agent_name: str):
             if c["input_norm"]:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
-
-
-if __name__ == "__main__":
-
-    # get config and name of agent
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="ski_mdp.json")
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--agent_name", type=str, default="LSTMDDPG")
-    args = parser.parse_args()
-    
-    config_path = __path__._path[0] + "/" + args.config_file
-        
-    config = Configfile(config_path)
-
-    # potentially overwrite seed
-    if args.seed is not None:
-        config.seed = args.seed
-
-    # handle maximum episode steps
-    if config.Env.max_episode_steps == -1:
-        config.Env.max_episode_steps = np.inf
-
-    train(config, args.agent_name)
