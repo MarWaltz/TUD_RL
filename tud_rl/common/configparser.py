@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import yaml
 
 @dataclass
-class Configfile:
+class ConfigFile:
     """Configuration class for storing the parsed 
     yaml config file.
     

@@ -1,5 +1,4 @@
 import copy
-from turtle import forward
 from typing import Tuple
 
 import numpy as np
@@ -771,9 +770,9 @@ class ComboDQN(nn.Module):
     def forward(self, s: Tuple[np.ndarray, np.ndarray]):
 
         print(s.shape)
-        image = torch.reshape(s[:, :-7],(-1,3,120,120))
+        image = torch.reshape(s[:, :-7], (-1, 3, 120, 120))
         feature = s[:, -7:]
-        
+
         i = F.relu(self.conv1(image))
         i = F.relu(self.conv2(i))
 

@@ -1,22 +1,22 @@
-import argparse
 import pickle
 import random
 import time
-
 import gym
 import gym_minatar
 import gym_pygame
 import numpy as np
 import torch
-from tud_rl.agents.base import AbstractAgent
+
+import tud_rl.agents.continuous as agents
+
+from tud_rl.agents.base import _Agent
+from tud_rl.common.configparser import ConfigFile
+from tud_rl.common.logging_func import EpochLogger
 from tud_rl.envs.MountainCar import MountainCar
 from tud_rl.wrappers import get_wrapper
-from tud_rl.agents.continuous import *
 from tud_rl.common.logging_plot import plot_from_progress
-from tud_rl.configs.continuous_actions import __path__
 
-
-def evaluate_policy(test_env: gym.Env, agent: AbstractAgent, c: Configfile):
+def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
 
     # go greedy
     agent.mode = "test"
@@ -87,7 +87,7 @@ def evaluate_policy(test_env: gym.Env, agent: AbstractAgent, c: Configfile):
     return rets
 
 
-def train(c: Configfile, agent_name: str):
+def train(c: ConfigFile, agent_name: str):
     """Main training loop."""
 
     # measure computation time
@@ -122,13 +122,23 @@ def train(c: Configfile, agent_name: str):
     torch.manual_seed(c.seed)
     np.random.seed(c.seed)
     random.seed(c.seed)
-
-    # init agent
+    
     if agent_name[-1].islower():
-        agent: AbstractAgent = eval(agent_name[:-2] + "Agent")(c, agent_name)
+        base_agent = agent_name[:-2] + "Agent"
     else:
-        agent: AbstractAgent = eval(agent_name + "Agent")(c, agent_name)
-
+        base_agent = agent_name + "Agent"
+    
+    # init agent
+    agent_: type = getattr(agents,base_agent) # Get agent class by name
+    agent: _Agent = agent_(c, agent_name,logging=True) # Instantiate agent
+    
+    # Initialize logging         
+    agent.logger = EpochLogger(
+                alg_str = agent.name, 
+                env_str = c.Env.name, 
+                info = c.Env.info)
+    agent.logger.save_config({"agent_name": agent.name, **c.config_dict})
+    
     # LSTM: init history
     if "LSTM" in agent.name:
         s_hist = np.zeros((agent.history_length, agent.state_shape))

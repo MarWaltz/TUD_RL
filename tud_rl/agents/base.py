@@ -1,5 +1,3 @@
-import sys
-import inspect
 import pickle
 import torch
 
@@ -15,20 +13,27 @@ from tud_rl.common.nets import (
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Union
 
-from tud_rl.common.configparser import Configfile
+from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import EpochLogger
 from tud_rl.common.normalizer import Input_Normalizer
 from tud_rl.common.exploration import Gaussian_Noise, OU_Noise
 
-# Type alias for all neural nets 
+# Type alias for all actors and critics 
 # in the `nets` module.
-Network = Union[
-    MLP,MinAtar_DQN,MinAtar_CoreNet,
+Actor = Union[
+    MLP,LSTM_Actor,GaussianActor,
+    LSTM_GaussianActor
+]
+
+Critic = Union[
+    TQC_Critics,LSTM_Critic,
+    LSTM_Double_Critic
+]
+
+Net = Union[
+    MinAtar_DQN,MinAtar_CoreNet,
     MinAtar_BootDQN,Double_MLP,RecDQN,
-    ComboDQN,LSTM_Double_Critic,
-    LSTM_Actor,GaussianActor,
-    LSTM_GaussianActor,
-    TQC_Critics,LSTM_Critic
+    ComboDQN,
 ]
 
 # Type alias for Noise
@@ -36,12 +41,12 @@ Noise = Union[Gaussian_Noise, OU_Noise]
 
 class _Agent(ABC):
     """Abstract Base Class for any agent
-    that defining its strucure
+    defining its strucure.
     """
     # Agent mode can be ["train", "test"]
     mode: str
 
-    # Agent name
+    # Agent name. Base name without extensions
     name: str
 
     # Possible additional attributes
@@ -51,8 +56,10 @@ class _Agent(ABC):
     history_length: Optional[int]
     state_shape: Optional[Tuple]
     num_actions: Optional[int]
-    actor: Optional[Network]
-    critic: Optional[Network]
+    
+    DQN: Optional[Net]
+    actor: Optional[Actor]
+    critic: Optional[Critic]
     
     @abstractmethod
     def select_action(self, s: np.ndarray) -> Union[int,np.ndarray]:
@@ -77,7 +84,7 @@ class _Agent(ABC):
         """
         raise NotImplementedError
     
-class AbstractBootAgent(_Agent):   
+class _BootAgent(_Agent):   
      
     @abstractmethod
     def reset_active_head(self) -> None:
@@ -87,7 +94,7 @@ class AbstractBootAgent(_Agent):
         raise NotImplementedError
 
 class BaseAgent(_Agent):
-    def __init__(self, c: Configfile, agent_name: str, logging: bool):
+    def __init__(self, c: ConfigFile, agent_name: str):
 
         # attributes and hyperparameters
         self.name             = agent_name
@@ -108,17 +115,8 @@ class BaseAgent(_Agent):
         self.upd_every        = c.upd_every           # used in training files, purely for logging here
         self.batch_size       = c.batch_size
         self.device           = c.device
-        self.env_str          = c.Env.name
-        self.info             = c.Env.info
         self.seed             = c.seed
         
-        if logging:
-            self.logger: EpochLogger = EpochLogger(
-                alg_str = self.name, 
-                env_str = self.env_str, 
-                info = self.info)
-            self.logger.save_config({"agent_name" : self.name, **c.config_dict})
-
         # checks
         assert c.mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
 

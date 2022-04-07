@@ -11,15 +11,15 @@ import tud_rl.common.buffer as buffer
 import tud_rl.common.nets as nets
 
 from tud_rl.agents.base import BaseAgent
-from tud_rl.common.configparser import Configfile
+from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import *
 from tud_rl.common.exploration import Gaussian_Noise
 from tud_rl.common.normalizer import Action_Normalizer
 
 
 class DDPGAgent(BaseAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True, init_critic=True):
-        super().__init__(c, agent_name,logging)
+    def __init__(self, c: ConfigFile, agent_name, logging=True, init_critic=True):
+        super().__init__(c, agent_name)
 
         # attributes and hyperparameters
         self.action_high      = c.action_high
@@ -254,8 +254,8 @@ class DDPGAgent(BaseAgent):
 
 
 class LSTMDDPGAgent(BaseAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True, init_critic=True):
-        super().__init__(c, agent_name,logging)
+    def __init__(self, c: ConfigFile, agent_name, logging=True, init_critic=True):
+        super().__init__(c, agent_name)
 
         # attributes and hyperparameters
         self.action_high      = c.action_high
@@ -508,7 +508,7 @@ class LSTMDDPGAgent(BaseAgent):
 
 
 class LSTMSACAgent(BaseAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name,logging)
 
         # attributes and hyperparameters
@@ -793,7 +793,7 @@ class LSTMSACAgent(BaseAgent):
 
 
 class LSTMTD3Agent(LSTMDDPGAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging, init_critic=False)
 
         # attributes and hyperparameters
@@ -936,7 +936,7 @@ class LSTMTD3Agent(LSTMDDPGAgent):
 
 
 class SACAgent(BaseAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True, init_critic=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True, init_critic=True):
         super().__init__(c, agent_name,logging)
 
         # attributes and hyperparameters
@@ -1201,7 +1201,7 @@ class SACAgent(BaseAgent):
 
 
 class TD3Agent(DDPGAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging, init_critic=False)
 
         # attributes and hyperparameters
@@ -1344,7 +1344,7 @@ class TD3Agent(DDPGAgent):
 
 
 class TQCAgent(SACAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging, init_critic=False)
 
         # attributes and hyperparameters

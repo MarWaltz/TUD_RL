@@ -12,18 +12,18 @@ import torch.optim as optim
 import tud_rl.common.nets as nets
 import tud_rl.common.buffer as buffer
 
-from tud_rl.agents.base import BaseAgent, AbstractBootAgent
+from tud_rl.agents.base import BaseAgent, _BootAgent
 
 from collections import Counter
 
 from tud_rl.common.helper_fnc import get_MC_ret_from_rew
 from tud_rl.common.exploration import LinearDecayEpsilonGreedy
-from tud_rl.common.configparser import Configfile
+from tud_rl.common.configparser import ConfigFile
 
 
 class DQNAgent(BaseAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
-        super().__init__(c, agent_name, logging)
+    def __init__(self, c: ConfigFile, agent_name, logging):
+        super().__init__(c, agent_name)
 
         # attributes and hyperparameters
         self.lr              = c.lr
@@ -74,7 +74,7 @@ class DQNAgent(BaseAgent):
         
         # load prior weights if available
         if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights))
+            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
         # init target net and counter for target update
         self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
@@ -210,7 +210,7 @@ class DQNAgent(BaseAgent):
         self.tgt_up_cnt += 1
 
 class ACCDDQNAgent(DQNAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
         # attributes and hyperparameters
@@ -358,8 +358,8 @@ class ACCDDQNAgent(DQNAgent):
         self.logger.store(Loss=loss_A.detach().cpu().numpy().item())
         self.logger.store(Q_val=QA.detach().mean().cpu().numpy().item())
 
-class BootDQNAgent(DQNAgent, AbstractBootAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+class BootDQNAgent(DQNAgent, _BootAgent):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
         # attributes and hyperparameters
@@ -544,7 +544,7 @@ class BootDQNAgent(DQNAgent, AbstractBootAgent):
 
 
 class KEBootDQNAgent(BootDQNAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging)
 
         # attributes and hyperparameter
@@ -654,7 +654,7 @@ class KEBootDQNAgent(BootDQNAgent):
         self._target_update()
 
 class AdaKEBootDQNAgent(KEBootDQNAgent):
-    def __init__(self, c: Configfile, agent_name):
+    def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name, logging=True)      
 
         # attributes and hyperparameter
@@ -845,7 +845,7 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
 
 
 class EnsembleDQNAgent(DQNAgent):
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging=False)
 
         # attributes and hyperparameters
@@ -1016,7 +1016,7 @@ class KEEnsembleDQNAgent(EnsembleDQNAgent):
     """This agent performs action selection like the EnsembleDQN (epsilon-greedy over average of ensemble). 
     Only the target computation differs."""
 
-    def __init__(self, c: Configfile, agent_name, logging=True):
+    def __init__(self, c: ConfigFile, agent_name, logging=True):
         super().__init__(c, agent_name, logging)
 
         # attributes and hyperparameter
@@ -1123,7 +1123,7 @@ class KEEnsembleDQNAgent(EnsembleDQNAgent):
 
 
 class AdaKEEnsembleDQNAgent(KEEnsembleDQNAgent):
-    def __init__(self, c: Configfile, agent_name):
+    def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name, logging=True)      
 
         # attributes and hyperparameter
@@ -1314,7 +1314,7 @@ class AdaKEEnsembleDQNAgent(KEEnsembleDQNAgent):
 
 
 class ComboDQNAgent(DQNAgent):
-    def __init__(self, c: Configfile, agent_name, logging=False):
+    def __init__(self, c: ConfigFile, agent_name, logging=False):
 
         # Note: Since the 'dqn_weights' in the config-file 
         # wouldn't fit the plain DQN, we need to artificially 
@@ -1384,7 +1384,7 @@ class DDQNAgent(DQNAgent):
 
 
 class MaxMinDQNAgent(EnsembleDQNAgent):
-    def __init__(self, c: Configfile, agent_name):
+    def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name, logging=True)
      
     def _ensemble_reduction(self, q_ens):
@@ -1395,7 +1395,7 @@ class MaxMinDQNAgent(EnsembleDQNAgent):
         return torch.min(q_ens, dim=0).values
 
 class RecDQNAgent(DDQNAgent):
-    def __init__(self, c: Configfile, agent_name, logging=False):
+    def __init__(self, c: ConfigFile, agent_name, logging=False):
 
         # Note: Since the 'dqn_weights' in the config-file wouldn't fit the plain DQN,
         #       we need to artificially provide a 'None' entry for them and set the mode to 'train'.
@@ -1447,8 +1447,8 @@ class RecDQNAgent(DDQNAgent):
 
 
 class SCDQNAgent(DQNAgent):
-    def __init__(self, c:Configfile, agent_name):
-        super().__init__(c, agent_name, logging=True)
+    def __init__(self, c:ConfigFile, agent_name,logging):
+        super().__init__(c, agent_name, logging)
 
         # attributes and hyperparameters
         self.sc_beta = getattr(c.Agent,agent_name)["sc_beta"]
