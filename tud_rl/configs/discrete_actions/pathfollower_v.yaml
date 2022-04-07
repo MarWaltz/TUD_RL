@@ -8,7 +8,7 @@ env:
   env_kwargs:
     mode: abs
     epi_steps: 2000
-  info: oha
+  info: gimme
 agent:
   DQN: {}
   DDQN: {}
@@ -39,8 +39,8 @@ img_width: 120
 seed: 26757
 timesteps: 10_000_000
 epoch_length: 5000
-eval_episodes: 10
-dqn_weights:
+eval_episodes: 4
+dqn_weights: /home/neural/Dropbox/TU Dresden/hpc/experiments/SCDQN_b_PathFollower-v0_5000-k-pretrained_2022-04-05_91980/SCDQN_b_weights.pth
 input_norm: false
 input_norm_prior:
 gamma: 0.995

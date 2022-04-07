@@ -258,23 +258,29 @@ class PathFollower(gym.Env):
         self.ivs[3] = self.delta
 
         # Simulate the vessel with the MMG model for one second (default)
-        sol = mmg.step(
-            X=self.ivs,
-            params=self.vessel,
-            nps_old=self.nps,
-            delta_old=delta_old,
-            fl_psi=self.rel_current_attack_angle(),
-            water_depth=self.curr_wd,
-            #water_depth=None,
-            #fl_vel=None,
-            fl_vel=self.get_str_vel(),
-            atol=1e-5,
-            rtol=1e-5,
-            sps=1
-        )
+        try:
+            sol = mmg.step(
+                X=self.ivs,
+                params=self.vessel,
+                nps_old=self.nps,
+                delta_old=delta_old,
+                fl_psi=self.rel_current_attack_angle(),
+                water_depth=self.curr_wd,
+                #water_depth=None,
+                #fl_vel=None,
+                fl_vel=self.get_str_vel(),
+                atol=1e-5,
+                rtol=1e-5,
+                sps=1
+            )
+            
+            # Unpack values of solver
+            u, v, r, *_ = sol
+            
+        except ValueError:
+            self.done = True
+            u,v,r = 0,0,0
 
-        # Unpack values of solver
-        u, v, r, *_ = sol
 
         for val, name in zip([u, v, r, self.ivs, self.delta, action, self.timestep],
                              ["u", "v", "r", "ivs", "delta", "action", "timestep"]):
@@ -350,7 +356,7 @@ class PathFollower(gym.Env):
             self.delta += rad(rud)
 
     def calculate_reward(self) -> float:
-
+        
         draft = self.vessel["d"]
         wd = self.curr_wd
 
@@ -505,9 +511,9 @@ class PathFollower(gym.Env):
         }
 
         self.star_border = self.smooth(
-            self.star_border, 1, alpha=0.07)
+            self.star_border, 1, alpha=0.5)
         self.port_border = self.smooth(
-            self.port_border, 1, alpha=0.07)
+            self.port_border, 1, alpha=0.5)
 
     def smooth(self, path: Dict[str, np.ndarray],
                every_nth: int = 2, alpha: float = 0.05) -> Dict[str, np.ndarray]:
@@ -881,7 +887,7 @@ class PathFollower(gym.Env):
                                      height=self.vessel["Lpp"],
                                      rotation_point="center",
                                      angle=360-self.aghead*180/math.pi,
-                                     color="yellow")
+                                     color="black")
 
         # Corner points of the vessel rectangle
         self.vessel_exterior_xy = self.vessel_rect.get_corners()
@@ -1019,19 +1025,19 @@ class PathFollower(gym.Env):
         if mode == "human":
 
             if not plt.get_fignums():
-                self.fig = plt.figure()
+                self.fig = plt.figure()        
+                self.fig.patch.set_facecolor("#212529")
                 self.ax = self.fig.add_subplot(1, 1, 1)
 
             self.ax.clear()
             self.ax.contourf(self.rx, self.ry, self.wd, cmap=cm.ocean)
             self.ax.plot(self.path["x"], self.path["y"],
                          color="red", marker=None)
-            self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
+            #self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
             self.ax.plot(self.port_border["x"],
                          self.port_border["y"], color="maroon")
             self.ax.plot(self.star_border["x"],
                          self.star_border["y"], color="maroon")
-            self.ax.add_patch(self.vessel_rect)
 
             self.ax.arrow(
                 *self.draw_heading(self.aghead, len=100),
@@ -1051,6 +1057,8 @@ class PathFollower(gym.Env):
                 label=f"Current Attack Angle: {np.round(self.abs_current_attack_angle()*180/math.pi,2)}°",
                 head_width=0, shape="right")
 
+            self.ax.add_patch(self.vessel_rect)
+
             handles, _ = self.ax.get_legend_handles_labels()
             speed_count = Patch(
                 color="white", label=f"Vessel Speed: {round(self.speed,2)} m/s")
@@ -1063,7 +1071,7 @@ class PathFollower(gym.Env):
             self.ax.legend(handles=handles)
             self.ax.set_facecolor("#363a47")
 
-            zoom = 1000
+            zoom = 600
             self.ax.set_xlim(self.agpos[0] - zoom, self.agpos[0] + zoom)
             self.ax.set_ylim(self.agpos[1] - zoom, self.agpos[1] + zoom)
 
