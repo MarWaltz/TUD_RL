@@ -66,3 +66,4 @@ upd_start_step: 1000
 upd_every: 1
 batch_size: 128
 device: cpu
+output_dir:

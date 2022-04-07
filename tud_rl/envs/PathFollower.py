@@ -88,27 +88,36 @@ class PathFollower(gym.Env):
         self.wd = self.wd.reshape((-1, self.GRIDPOINTS))
         self.max_wd = np.max(self.wd)
 
+        # Stream direction
+        self.str_diry: np.ndarray = np.array(
+            [self.metrics[row][1] for row, _ in enumerate(self.metrics)])
+        self.str_diry = self.str_diry.reshape((-1, self.GRIDPOINTS))
+
+        self.str_dirx: np.ndarray = np.array(
+            [self.metrics[row][2] for row, _ in enumerate(self.metrics)])
+        self.str_dirx = self.str_dirx.reshape((-1, self.GRIDPOINTS))
+
         # Extract stream velocity and reshape
         self.str_vel: np.ndarray = np.array([math.sqrt(self.metrics[row][1]**2 +
                                                        self.metrics[row][2]**2)
                                              for row, _ in enumerate(self.metrics)])
         self.str_vel = self.str_vel.reshape((-1, self.GRIDPOINTS))
         self.max_str_vel = np.max(self.str_vel)
-        #self.str_vel = np.clip(self.str_vel,0,1)
+        # self.str_vel = np.clip(self.str_vel,0,1)
 
         # Index list of the path to follow
         self.path_index: np.ndarray = np.empty(self.wd.shape[0], dtype=int)
 
         # Path roughness (Use only every nth data point of the path)
-        self.ROUGHNESS: int = 5
+        self.ROUGHNESS: int = 10
 
         # The path_index variable gets filled here.
         self.path: Dict[str, List[float]] = self.get_river_path(
             roughness=self.ROUGHNESS)
 
         # Plotting offsets for CNN image generation
-        self.lookahead = 100//self.ROUGHNESS
-        self.lookbehind = 30//self.ROUGHNESS
+        self.lookahead = 50//self.ROUGHNESS
+        self.lookbehind = 50//self.ROUGHNESS
 
         # Vessel set-up ------------------------------------------------
 
@@ -122,7 +131,8 @@ class PathFollower(gym.Env):
         self.speed = 0
 
         # Vessel to be simulated
-        self.vessel: Dict[str, float] = kvlcc2# seiunmaru  # calibrate(GMS,1000)
+        # seiunmaru  # calibrate(GMS,1000)
+        self.vessel: Dict[str, float] = kvlcc2
 
         # Movement heading can include drift angles
         self.movement_heading = 0.0
@@ -168,11 +178,11 @@ class PathFollower(gym.Env):
         def start_y(y): return self.path["y"][y]
 
         self.DIR = random.choice([1, -1])
-        #self.DIR = 1
+        # self.DIR = 1
 
         # Index of the current waypoint that is in use. Starts with its starting value
-        #self.waypoint_idx = self.STARTIND
-        mid_path_index = len(self.path_index) // self.ROUGHNESS // 2
+        # self.waypoint_idx = self.STARTIND
+        mid_path_index = len(self.path_index) / self.ROUGHNESS // 2
         if self.DIR == 1:
             self.waypoint_idx = random.randrange(
                 10,
@@ -220,7 +230,7 @@ class PathFollower(gym.Env):
         # for the current postition
         # Water depth in [m]
         # Stream velocity in [m/s]
-        self.curr_wd, self.curr_str_vel = self.get_river_metrics()
+        self.curr_wd, self.curr_str_vel, self.curr_str_dir = self.get_river_metrics()
 
         # Cross track error [m]
         self.cte = self.cross_track_error()
@@ -266,21 +276,21 @@ class PathFollower(gym.Env):
                 delta_old=delta_old,
                 fl_psi=self.rel_current_attack_angle(),
                 water_depth=self.curr_wd,
-                #water_depth=None,
-                #fl_vel=None,
+                # water_depth=None,
+                # fl_vel=None,
                 fl_vel=self.get_str_vel(),
                 atol=1e-5,
                 rtol=1e-5,
                 sps=1
             )
-            
+
             # Unpack values of solver
             u, v, r, *_ = sol
-            
-        except ValueError:
-            self.done = True
-            u,v,r = 0,0,0
 
+        except ValueError:
+            sol = self.ivs
+            self.done = True
+            u, v, r = 0, 0, 0
 
         for val, name in zip([u, v, r, self.ivs, self.delta, action, self.timestep],
                              ["u", "v", "r", "ivs", "delta", "action", "timestep"]):
@@ -293,11 +303,14 @@ class PathFollower(gym.Env):
         self.update_vessel_heading(r)
         self.update_movement_heading(u, v)
         self.update_position(u, v)
-        self.update_waypoints()
-        self.construct_frames()
+
+        # Check if agent crossed a waypoint
+        if self.crossed_waypoint():
+            self.update_waypoints()
+            self.construct_frames()
 
         # Get new river metrics
-        self.curr_wd, self.curr_str_vel = self.get_river_metrics()
+        self.curr_wd, self.curr_str_vel, self.curr_str_dir = self.get_river_metrics()
 
         # Cross track error [m]
         self.cte = self.cross_track_error()
@@ -323,7 +336,7 @@ class PathFollower(gym.Env):
         else:
             self.timestep += 1
 
-        #print(round(reward,2))
+        # print(round(reward,2))
         return self.state, reward, self.done, {}
 
     def map_action(self, action: int) -> None:
@@ -356,7 +369,7 @@ class PathFollower(gym.Env):
             self.delta += rad(rud)
 
     def calculate_reward(self) -> float:
-        
+
         draft = self.vessel["d"]
         wd = self.curr_wd
 
@@ -377,9 +390,9 @@ class PathFollower(gym.Env):
                         self.action_space.high[0]-self.action_space.low[0])
                     deriv_rew = ((deriv**2)/span) * self.C
                 else:
-                    #deriv_rew = (deriv/(self.n_actions-1))
+                    # deriv_rew = (deriv/(self.n_actions-1))
                     deriv_rew = (deriv/(self.n_actions-1))**2 * self.C
-                    #deriv_rew = inv_logit(deriv_rew,coef = 2) * self.C
+                    # deriv_rew = inv_logit(deriv_rew,coef = 2) * self.C
             except IndexError:
                 deriv_rew = 0
         else:
@@ -416,7 +429,7 @@ class PathFollower(gym.Env):
         return r_cog*r_dist*r_rot  # + coll
 
     def get_river_path(self, roughness: int) -> dict:
-        """Generate the path for the vessel to follow. 
+        """Generate the path for the vessel to follow.
         For now this is (approx) the deepest point of the fairway
         for the entire river part
 
@@ -442,13 +455,13 @@ class PathFollower(gym.Env):
         # To use only the middle portion of the river
         offset = self.GRIDPOINTS // 3
 
-        #print("Building waypoints...")
+        # print("Building waypoints...")
         for col in range(self.wd.shape[0]):
             # Get middle thrid per column
             frame = self.wd[col][offset:2*offset+1]
             max_ind = np.argmax(frame)  # Find deepest index
             max_ind += offset  # Add back offset
-            
+
             # Average to river midpoint to keep the path
             # more centered on the river
             max_ind = (max_ind + self.GRIDPOINTS//2)//2
@@ -462,7 +475,7 @@ class PathFollower(gym.Env):
             path["y"][col] = self.ry[col][max_ind]
 
         # Exponential smoothing for coordinates
-        return self.smooth(path, roughness, alpha=0.04)
+        return self.smooth(path, roughness, alpha=0.08)
 
     def build_fairway_border(self) -> None:
         """Build a border to port and starboard of the vessel
@@ -510,10 +523,10 @@ class PathFollower(gym.Env):
                            for i in range(self.wd.shape[0])])
         }
 
-        self.star_border = self.smooth(
-            self.star_border, 1, alpha=0.5)
-        self.port_border = self.smooth(
-            self.port_border, 1, alpha=0.5)
+        # self.star_border = self.smooth(
+        #     self.star_border, 1, alpha=0.5)
+        # self.port_border = self.smooth(
+        #     self.port_border, 1, alpha=0.5)
 
     def smooth(self, path: Dict[str, np.ndarray],
                every_nth: int = 2, alpha: float = 0.05) -> Dict[str, np.ndarray]:
@@ -591,7 +604,7 @@ class PathFollower(gym.Env):
     def abs_current_attack_angle(self) -> float:
         """Get the attack angle of river currents.
         We assume the river flow direction is the
-        same as the path heading. 
+        same as the path heading.
         Therefore we calulate the current attack angle
         as the difference between the agent heading
         and the path heading
@@ -621,12 +634,11 @@ class PathFollower(gym.Env):
 
     def rel_current_attack_angle(self) -> float:
 
-        cta = self.abs_current_attack_angle()
-
-        return self.rel_ang_diff(cta, self.aghead)
+        curr_str_dir = self.curr_str_dir + math.pi/2
+        return self.rel_ang_diff(self.aghead, curr_str_dir)
 
     def get_str_vel(self) -> float:
-        """Return the stream velocity based 
+        """Return the stream velocity based
         on the agent direction
 
         Returns:
@@ -635,7 +647,7 @@ class PathFollower(gym.Env):
 
         return self.curr_str_vel  # if self.DIR==1 else -self.curr_str_vel
 
-    @staticmethod
+    @ staticmethod
     def rel_ang_diff(a1: float, a2: float) -> float:
         """Relative angle difference for an angle range of [0,2*pi]
 
@@ -714,9 +726,9 @@ class PathFollower(gym.Env):
 
         return course if course <= 2*math.pi else course - 2*math.pi
 
-    @staticmethod
+    @ staticmethod
     def dist(p1: Tuple, p2: Tuple) -> float:
-        """Euler distance 
+        """Euler distance
 
         Args:
             p1 (Tuple): (x,y) of 1st point
@@ -732,7 +744,7 @@ class PathFollower(gym.Env):
         return math.sqrt((y1-y2)**2 + (x1-x2)**2)
 
     def cross_track_error(self) -> float:
-        """Calculate the cross track error for vector field guidance 
+        """Calculate the cross track error for vector field guidance
 
         Source:
 
@@ -756,7 +768,7 @@ class PathFollower(gym.Env):
         return two_a/d(self.lwp, self.nwp)
 
     def desired_course(self, cte: float, k: float) -> float:
-        """Calculate the desired course of the vessel 
+        """Calculate the desired course of the vessel
 
         Args:
             cte (float): cross track error to current path
@@ -792,16 +804,7 @@ class PathFollower(gym.Env):
         # print(dc)
         return dc
 
-    def update_waypoints(self) -> None:
-        """Update the waypoints according to the agents position.
-        This function checks whether the waypoint behind the vessel
-        is closer than the waypoint 2 indices ahead.
-
-        If the distance to the two-steps-ahead waypoint is closer,
-        we know that the vessel has crossed the next waypoint in
-        front of it. Therefore last and next waypoint switch, and the
-        waypoint to be checked becomes the next waypoint.
-        """
+    def crossed_waypoint(self) -> bool:
 
         # Get the next waypoint in the dir of the vessel that is
         # not already a waypoint
@@ -815,8 +818,22 @@ class PathFollower(gym.Env):
 
         # Last waypoint is still the closest -> do nothing
         if dist_to_last < dist_to_check:
-            return
+            return False
+        else:
+            return True
 
+    def update_waypoints(self) -> None:
+        """Update the waypoints according to the agents position.
+        This function checks whether the waypoint behind the vessel
+        is closer than the waypoint 2 indices ahead.
+
+        If the distance to the two-steps-ahead waypoint is closer,
+        we know that the vessel has crossed the next waypoint in
+        front of it. Therefore last and next waypoint switch, and the
+        waypoint to be checked becomes the next waypoint.
+        """
+
+        to_check = self.get_wp(self.waypoint_idx, 2)
         # Waypoint to check is closer than the old one
         # -> switch waypoints
         self.lwp = self.nwp
@@ -831,7 +848,7 @@ class PathFollower(gym.Env):
 
         Args:
             index (int): Index of the waypoint
-            plus_n (int): waypoint n ahead of the current 
+            plus_n (int): waypoint n ahead of the current
                           dependent on vessel direction
 
         Returns:
@@ -847,7 +864,7 @@ class PathFollower(gym.Env):
         return x, y
 
     def update_position(self, u: float, v: float) -> None:
-        """Transform the numerical integration result from 
+        """Transform the numerical integration result from
         vessel fixed coordinate system to earth-fixed coordinate system
         and update the agent's x and y positions.
 
@@ -877,7 +894,7 @@ class PathFollower(gym.Env):
             self.update_exterior()
 
     def update_exterior(self) -> None:
-        """Update the corner points of the vessel according to 
+        """Update the corner points of the vessel according to
         movement
         """
 
@@ -916,7 +933,7 @@ class PathFollower(gym.Env):
 
         self.movement_heading = math.atan2(v, u) + self.aghead
 
-    @staticmethod
+    @ staticmethod
     def swap_xy(x: float, y: float) -> Tuple[float, float]:
         """Swaps x and y coordinate in order to assign
         longitudinal motion to the ascending y axis
@@ -934,25 +951,25 @@ class PathFollower(gym.Env):
     def get_river_metrics(self) -> Tuple[float, float]:
         """Get the mean water depth and stream velocity under the vessel:
         Water depth:
-            We first grid-search through the x-y coordinate vector 
+            We first grid-search through the x-y coordinate vector
             to find the column and index of the closest known point
-            to the current position of the vessel. 
+            to the current position of the vessel.
 
-            Then the column number and index are used to find 
+            Then the column number and index are used to find
             the corresponding water depth value.
 
-            This is done for each of the four exterior points 
+            This is done for each of the four exterior points
             of the vessel
 
             This is a exhausive search algorithm for now. To
-            map each point of the vessel to its corresponding 
+            map each point of the vessel to its corresponding
             water depth, around 200 distances are needed be calculated.
 
         Stream velocity:
-            Since the stream velocity array is of the same shape as the 
-            water depth array, therefore resembling the same positions, 
+            Since the stream velocity array is of the same shape as the
+            water depth array, therefore resembling the same positions,
             we can just take the column and index value for the water depth
-            and plug it into the velocity array. 
+            and plug it into the velocity array.
 
         Returns:
             float: Mean water depth under vessel
@@ -988,7 +1005,11 @@ class PathFollower(gym.Env):
         wd = [self.wd[col][idx] for col, idx in col_idx]
         str_vel = [self.str_vel[col][idx] for col, idx in col_idx]
 
-        return np.mean(wd), np.mean(str_vel)
+        str_dirx = [self.str_dirx[col][idx] for col, idx in col_idx]
+        str_diry = [self.str_diry[col][idx] for col, idx in col_idx]
+        str_dir = np.arctan2(str_dirx, str_diry)
+
+        return np.mean(wd), np.mean(str_vel), np.mean(str_dir)
 
     def heading_error(self, desired_heading: float) -> float:
         """Calculate the error from current to desired heading
@@ -1025,15 +1046,18 @@ class PathFollower(gym.Env):
         if mode == "human":
 
             if not plt.get_fignums():
-                self.fig = plt.figure()        
+                self.fig = plt.figure()
                 self.fig.patch.set_facecolor("#212529")
-                self.ax = self.fig.add_subplot(1, 1, 1)
+                self.ax: plt.Axes = self.fig.add_subplot(1, 1, 1)
 
             self.ax.clear()
             self.ax.contourf(self.rx, self.ry, self.wd, cmap=cm.ocean)
+            self.ax.quiver(self.rx_frame, self.ry_frame,
+                           self.str_diry_frame, self.str_dirx_frame,
+                           scale=50, headwidth=2)
             self.ax.plot(self.path["x"], self.path["y"],
                          color="red", marker=None)
-            #self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
+            # self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
             self.ax.plot(self.port_border["x"],
                          self.port_border["y"], color="maroon")
             self.ax.plot(self.star_border["x"],
@@ -1054,7 +1078,7 @@ class PathFollower(gym.Env):
             self.ax.arrow(
                 *self.draw_heading(self.abs_current_attack_angle()),
                 color="#3d405b", width=5,
-                label=f"Current Attack Angle: {np.round(self.abs_current_attack_angle()*180/math.pi,2)}°",
+                label=f"Current Attack Angle: {np.round(self.curr_str_dir*180/math.pi,2)}°",
                 head_width=0, shape="right")
 
             self.ax.add_patch(self.vessel_rect)
@@ -1071,11 +1095,12 @@ class PathFollower(gym.Env):
             self.ax.legend(handles=handles)
             self.ax.set_facecolor("#363a47")
 
-            zoom = 600
-            self.ax.set_xlim(self.agpos[0] - zoom, self.agpos[0] + zoom)
+            zoom = 800
+            self.ax.set_xlim(self.agpos[0] - zoom *
+                             1.27, self.agpos[0] + zoom*1.27)
             self.ax.set_ylim(self.agpos[1] - zoom, self.agpos[1] + zoom)
 
-            plt.pause(0.01)
+            plt.pause(0.001)
 
         else:
             raise NotImplementedError(
@@ -1158,7 +1183,7 @@ class PathFollower(gym.Env):
     def img(self) -> np.ndarray:
 
         fig = Figure(figsize=(3, 3), dpi=40, layout="tight")
-        #ax = fig.add_subplot(1, 1, 1)
+        # ax = fig.add_subplot(1, 1, 1)
         fig.patch.set_facecolor("#000000")
         width, height = fig.get_size_inches() * fig.get_dpi()
         canvas = FigureCanvas(fig)
@@ -1179,7 +1204,7 @@ class PathFollower(gym.Env):
             self.agpos[1]*math.sin(self.movement_heading)
         agy = self.agpos[0]*math.sin(self.movement_heading) + \
             self.agpos[1]*math.cos(self.movement_heading)
-        #ax.plot(agx,agy, color="w", marker=".", lw=2)
+        # ax.plot(agx,agy, color="w", marker=".", lw=2)
         zoom = 1000
         ax.set_xlim(agx - zoom, agx + zoom)
         ax.set_ylim(agy - zoom/50, agy + zoom)
@@ -1274,8 +1299,21 @@ class PathFollower(gym.Env):
             la=self.lookahead,
             lb=self.lookbehind
         )
+
         self.star_border_frame = make(
             obj=self.star_border,
+            la=self.lookahead,
+            lb=self.lookbehind
+        )
+
+        self.str_dirx_frame = make(
+            obj=self.str_dirx,
+            la=self.lookahead,
+            lb=self.lookbehind
+        )
+
+        self.str_diry_frame = make(
+            obj=self.str_diry,
             la=self.lookahead,
             lb=self.lookbehind
         )
@@ -1290,7 +1328,7 @@ class PathFollower(gym.Env):
         return float(x), float(y), endx, endy
 
     def ship_anchor(self) -> Tuple:
-        """Build a coordinate tuple resembling the 
+        """Build a coordinate tuple resembling the
         anchor point of this rectangle (used to plot the vessel)
         :                + - width - +
         :   y            |           |
@@ -1322,7 +1360,7 @@ def import_river(path: str) -> Tuple[Dict[str, list], Dict[str, list]]:
         path (str): destination of the files
 
     Returns:
-        Tuple[list, list]: list of coordinates and list of metrics 
+        Tuple[list, list]: list of coordinates and list of metrics
         (water depth, stream velocity)
     """
     data = {
@@ -1336,7 +1374,7 @@ def import_river(path: str) -> Tuple[Dict[str, list], Dict[str, list]]:
     for file in ["coords", "metrics"]:
         with open(path + file + ".txt", "r") as f:
             reader = csv.reader(f, delimiter=' ')
-            #print(f"Loading {file}.txt...",end="\r")
+            # print(f"Loading {file}.txt...",end="\r")
             for row in reader:
                 tmp = [float(entry) for entry in row]
                 data[file].append(tmp)
