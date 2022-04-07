@@ -22,9 +22,9 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
 
     # go greedy
     agent.mode = "test"
-    
+
     rets = []
-    
+
     for _ in range(c.eval_episodes):
 
         # get initial state
@@ -42,7 +42,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
 
             # select action
             a = agent.select_action(s)
-            
+
             # perform step
             s2, r, d, _ = test_env.step(a)
 
@@ -57,7 +57,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
             # break option
             if eval_epi_steps == c.Env.max_episode_steps:
                 break
-        
+
         # append return
         rets.append(cur_ret)
 
@@ -72,7 +72,7 @@ def train(c: ConfigFile, agent_name: str):
 
     # measure computation time
     start_time = time.time()
-    
+
     # init envs
     env = gym.make(c.Env.name, **c.Env.env_kwargs)
     test_env = gym.make(c.Env.name, **c.Env.env_kwargs)
@@ -81,16 +81,17 @@ def train(c: ConfigFile, agent_name: str):
     for wrapper in c.Env.wrappers:
         wrapper_kwargs = c.Env.wrapper_kwargs[wrapper]
         env: gym.Env = get_wrapper(wrapper, env, **wrapper_kwargs)
-        test_env: gym.Env = get_wrapper(wrapper,test_env, **wrapper_kwargs)
+        test_env: gym.Env = get_wrapper(wrapper, test_env, **wrapper_kwargs)
 
     # get state_shape
     if c.Env.state_type == "image":
         if "MinAtar" in c.Env.name:
             # careful, MinAtar constructs state as (height, width, in_channels), which is NOT aligned with PyTorch
-            c.state_shape = (env.observation_space.shape[2], *env.observation_space.shape[0:2])
+            c.state_shape = (
+                env.observation_space.shape[2], *env.observation_space.shape[0:2])
         else:
             c.state_shape = env.observation_space.shape[0]
-    
+
     elif c.Env.state_type == "feature":
         c.state_shape = env.observation_space.shape[0]
 
@@ -109,17 +110,20 @@ def train(c: ConfigFile, agent_name: str):
         base_agent = agent_name[:-2] + "Agent"
     else:
         base_agent = agent_name + "Agent"
-    
-    # init agent
-    agent_: type = getattr(agents,base_agent) # Get agent class by name
-    agent: _Agent = agent_(c, agent_name,logging=True) # Instantiate agent
 
-    # Initialize logging         
+    # init agent
+    agent_: type = getattr(agents, base_agent)  # Get agent class by name
+    agent: _Agent = agent_(c, agent_name)  # Instantiate agent
+
+    # Initialize logging
     agent.logger = EpochLogger(
-                alg_str = agent.name, 
-                env_str = c.Env.name, 
-                info = c.Env.info)
+        alg_str=agent.name,
+        env_str=c.Env.name,
+        info=c.Env.info,
+        output_dir=c.output_dir if hasattr(c, "output_dir") else None)
+
     agent.logger.save_config({"agent_name": agent.name, **c.config_dict})
+    agent.print_params(agent.n_params, mode=0)
 
     # get initial state and normalize it
     s = env.reset()
@@ -129,21 +133,22 @@ def train(c: ConfigFile, agent_name: str):
     # init epi step counter and epi return
     epi_steps = 0
     epi_ret = 0
-    
-    # main loop    
+
+    # main loop
     for total_steps in range(c.timesteps):
 
         epi_steps += 1
-        
+
         # select action
         if total_steps < c.act_start_step:
-            a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
+            a = np.random.randint(
+                low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
             a = agent.select_action(s)
-        
+
         # perform step
         s2, r, d, _ = env.step(a)
-        
+
         # Ignore "done" if it comes from hitting the time horizon of the environment
         d = False if epi_steps == c.Env.max_episode_steps else d
 
@@ -153,7 +158,7 @@ def train(c: ConfigFile, agent_name: str):
 
         # add epi ret
         epi_ret += r
-        
+
         # memorize
         agent.memorize(s, a, r, s2, d)
 
@@ -167,7 +172,7 @@ def train(c: ConfigFile, agent_name: str):
 
         # end of episode handling
         if d or (epi_steps == c.Env.max_episode_steps):
- 
+
             # reset active head for BootDQN
             if "Boot" in agent_name:
                 agent: _BootAgent
@@ -177,10 +182,10 @@ def train(c: ConfigFile, agent_name: str):
             s = env.reset()
             if c.input_norm:
                 s = agent.inp_normalizer.normalize(s, mode=agent.mode)
-            
+
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
-            
+
             # reset epi steps and epi ret
             epi_steps = 0
             epi_ret = 0
@@ -198,7 +203,8 @@ def train(c: ConfigFile, agent_name: str):
             # log and dump tabular
             agent.logger.log_tabular("Epoch", epoch)
             agent.logger.log_tabular("Timestep", total_steps)
-            agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
+            agent.logger.log_tabular(
+                "Runtime_in_h", (time.time() - start_time) / 3600)
             agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
             agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
             agent.logger.log_tabular("Q_val", with_min_and_max=True)
@@ -207,16 +213,17 @@ def train(c: ConfigFile, agent_name: str):
 
             # create evaluation plot based on current 'progress.txt'
             plot_from_progress(
-                dir=agent.logger.output_dir, 
-                alg=agent.name, 
-                env_str=c.Env.name, 
+                dir=agent.logger.output_dir,
+                alg=agent.name,
+                env_str=c.Env.name,
                 info=c.Env.info)
 
             # save weights
             if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
-                torch.save(agent.DQN.state_dict(), f"{agent.logger.output_dir}/{agent.name}_weights.pth")
-    
-            # save input normalizer values 
+                torch.save(agent.DQN.state_dict(),
+                           f"{agent.logger.output_dir}/{agent.name}_weights.pth")
+
+            # save input normalizer values
             if c.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)

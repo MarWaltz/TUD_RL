@@ -119,7 +119,7 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
-        
+
         # create output directory
         if output_dir is not None:
             self.output_dir = output_dir
@@ -137,15 +137,18 @@ class Logger:
 
             if env_str is None and info is None:
                 self.output_dir = "experiments/" + alg_str + "_" + today + random_str
-            
+
             elif info is None:
-                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + random_str
-            
+                self.output_dir = "experiments/" + alg_str + \
+                    "_" + env_str + "_" + today + random_str
+
             elif env_str is None:
-                self.output_dir = "experiments/" + alg_str + "_" + info + "_" + today + random_str
-            
+                self.output_dir = "experiments/" + alg_str + \
+                    "_" + info + "_" + today + random_str
+
             else:
-                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + info + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + \
+                    env_str + "_" + info + "_" + today + random_str
 
         os.makedirs(self.output_dir)
 

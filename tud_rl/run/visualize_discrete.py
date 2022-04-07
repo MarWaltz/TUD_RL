@@ -98,7 +98,7 @@ def test(c: ConfigFile, agent_name: str):
 
     # init agent
     agent_: type = getattr(agents, base_agent)  # Get agent class by name
-    agent: _Agent = agent_(c, agent_name, logging=False)  # Instantiate agent
+    agent: _Agent = agent_(c, agent_name)  # Instantiate agent
 
     # visualization
     visualize_policy(env=env, agent=agent, c=c)

@@ -12,16 +12,16 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 
 # get config and name of agent
 parser = ArgumentParser()
-parser.add_argument("-m", "--mode", type=str, default="discr", choices=["train", "test"],
+parser.add_argument("-m", "--mode", type=str, default="train", choices=["train", "test"],
                     help="Agent mode. Use `train` for training and `test` for validation")
 parser.add_argument("-t", "--type", type=str, default="discr", choices=["discr", "cont"],
                     help="Train mode: Use `discr` for discre training environments "
                     "and `cont` for continuous ones.")
-parser.add_argument("-c", "--config_file", type=str, default="ski_mdp.json",
+parser.add_argument("-c", "--config_file", type=str,
                     help="Name of configuration file with file extension.")
 parser.add_argument("-s", "--seed", type=int, default=None,
                     help="Random number generator seed.")
-parser.add_argument("-a", "--agent_name", type=str, default="LSTMDDPG",
+parser.add_argument("-a", "--agent_name", type=str,
                     help="Agent from config for training. Example: `DQN` or `DQN_b`.")
 args: Namespace = parser.parse_args()
 
