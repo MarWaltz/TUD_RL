@@ -783,13 +783,13 @@ class FossenEnv(gym.Env):
             #    angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
 
             # add jets according to COLREGS
-            for COLREG_deg in [5, 112.5, 247.5, 355]:
+            for COLREG_deg in [5, 355]:
                 self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                           angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
 
-            for COLREG_deg in [67.5, 175, 185, 292.5]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-                                          angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
+            #for COLREG_deg in [67.5, 175, 185, 292.5]:
+            #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
+            #                              angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
             # set goal (stored as NE)
             self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")

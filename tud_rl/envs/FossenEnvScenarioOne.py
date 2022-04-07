@@ -189,14 +189,16 @@ class FossenEnvScenarioOne(FossenEnv):
                 self.ax0.add_patch(rect)
 
                 # add jets according to COLREGS
-                for COLREG_deg in [5, 112.5, 247.5, 355]:
+                for COLREG_deg in [5, 355]:
                     self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                               angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
-                for COLREG_deg in [67.5, 175, 185, 292.5]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-                                            angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
+                #for COLREG_deg in [67.5, 175, 185, 292.5]:
+                #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
+                #                            angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
                 self.ax0.scatter(self.goals[idx]["E"], self.goals[idx]["N"], color=col)
+                circ = patches.Circle((self.goals[idx]["E"], self.goals[idx]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.3)
+                self.ax0.add_patch(circ)
 
             plt.pause(0.001)
