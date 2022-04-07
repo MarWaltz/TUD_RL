@@ -2,16 +2,16 @@ import scipy.stats
 import torch
 import torch.nn as nn
 from tud_rl.agents.discrete.BootDQN import BootDQNAgent
-from tud_rl.common.logging_func import *
+from tud_rl.common.configparser import ConfigFile
 
 
 class KEBootDQNAgent(BootDQNAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging)
+    def __init__(self, c: ConfigFile, agent_name):
+        super().__init__(c, agent_name)
 
         # attributes and hyperparameter
-        self.kernel       = c["agent"][agent_name]["kernel"]
-        self.kernel_param = c["agent"][agent_name]["kernel_param"]
+        self.kernel = getattr(c.Agent, agent_name)["kernel"]
+        self.kernel_param = getattr(c.Agent, agent_name)["kernel_param"]
 
         # checks
         assert self.kernel in ["test", "gaussian_cdf"], "Unknown kernel."
@@ -22,25 +22,25 @@ class KEBootDQNAgent(BootDQNAgent):
             self.g = lambda u: (u >= self.critical_value) + 0.0
 
         elif self.kernel == "gaussian_cdf":
-            self.g = lambda u: torch.tensor(scipy.stats.norm.cdf(u, scale=self.kernel_param), dtype=torch.float32)
-
+            self.g = lambda u: torch.tensor(scipy.stats.norm.cdf(
+                u, scale=self.kernel_param), dtype=torch.float32)
 
     def train(self):
-        """Samples from replay_buffer, updates critic and the target networks."""        
+        """Samples from replay_buffer, updates critic and the target networks."""
         # sample batch
         batch = self.replay_buffer.sample()
-        
+
         # unpack batch
         s, a, r, s2, d, m = batch
 
-        #-------- train DQN --------
+        # -------- train DQN --------
         # clear gradients
         self.DQN_optimizer.zero_grad()
-        
+
         # current and next Q-values
         Q_main = self.DQN(s)
         Q_s2_tgt = self.target_DQN(s2)
-       
+
         # stack list into torch.Size([K, batch_size, num_actions])
         Q_s2_tgt_stacked = torch.stack(Q_s2_tgt)
 
@@ -52,7 +52,7 @@ class KEBootDQNAgent(BootDQNAgent):
 
         # calculate loss for each head
         for k in range(self.K):
-            
+
             # gather actions
             Q = torch.gather(input=Q_main[k], dim=1, index=a)
 
@@ -69,13 +69,16 @@ class KEBootDQNAgent(BootDQNAgent):
                 ME_a_indices = ME_a_indices.reshape(self.batch_size, 1)
 
                 # get variance of ME
-                ME_var = torch.gather(Q_s2_var, dim=1, index=ME_a_indices).reshape(self.batch_size)
+                ME_var = torch.gather(
+                    Q_s2_var, dim=1, index=ME_a_indices).reshape(self.batch_size)
 
                 # compute weights
-                w = torch.zeros((self.batch_size, self.num_actions)).to(self.device)
+                w = torch.zeros(
+                    (self.batch_size, self.num_actions)).to(self.device)
 
                 for a_idx in range(self.num_actions):
-                    u = (Q_tgt[:, a_idx] - ME_values) / torch.sqrt(Q_s2_var[:, a_idx] + ME_var)
+                    u = (Q_tgt[:, a_idx] - ME_values) / \
+                        torch.sqrt(Q_s2_var[:, a_idx] + ME_var)
                     w[:, a_idx] = self.g(u)
 
                 # compute weighted mean
@@ -93,7 +96,7 @@ class KEBootDQNAgent(BootDQNAgent):
 
             # append loss
             losses.append(torch.sum(loss_k) / torch.sum(m[:, k]))
-       
+
         # compute gradients
         loss = sum(losses)
         loss.backward()
@@ -104,13 +107,13 @@ class KEBootDQNAgent(BootDQNAgent):
                 p.grad *= 1/float(self.K)
         if self.grad_clip:
             nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
-        
+
         # perform optimizing step
         self.DQN_optimizer.step()
-        
+
         # log critic training
         self.logger.store(Loss=loss.detach().cpu().numpy().item())
         self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
 
-        #------- Update target networks -------
+        # ------- Update target networks -------
         self._target_update()

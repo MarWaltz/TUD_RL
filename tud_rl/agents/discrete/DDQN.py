@@ -1,11 +1,11 @@
 import torch
 from tud_rl.agents.discrete.DQN import DQNAgent
-from tud_rl.common.logging_func import *
+from tud_rl.common.configparser import ConfigFile
 
 
 class DDQNAgent(DQNAgent):
-    def __init__(self, c, agent_name, logging=True):
-        super().__init__(c, agent_name, logging)
+    def __init__(self, c: ConfigFile, agent_name):
+        super().__init__(c, agent_name)
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():

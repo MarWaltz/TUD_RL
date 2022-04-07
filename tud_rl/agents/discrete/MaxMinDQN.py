@@ -1,11 +1,10 @@
 import torch
 from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
-from tud_rl.common.logging_func import *
 
 
 class MaxMinDQNAgent(EnsembleDQNAgent):
     def __init__(self, c, agent_name):
-        super().__init__(c, agent_name, logging=True)
+        super().__init__(c, agent_name)
      
     def _ensemble_reduction(self, q_ens):
         """

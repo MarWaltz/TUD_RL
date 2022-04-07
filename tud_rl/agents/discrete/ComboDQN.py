@@ -1,21 +1,22 @@
 import copy
-import warnings
+from logging import warning
+import math
 
 import torch
 import torch.optim as optim
 
 import tud_rl.common.nets as nets
 
-from tud_rl.agents.discrete.DDQN import DDQNAgent
+from tud_rl.agents.discrete.DQN import DQNAgent
 from tud_rl.common.configparser import ConfigFile
 
-
-class RecDQNAgent(DDQNAgent):
+class ComboDQNAgent(DQNAgent):
     def __init__(self, c: ConfigFile, agent_name):
 
-        # Note: Since the 'dqn_weights' in the config-file wouldn't fit the plain DQN,
-        #       we need to artificially provide a 'None' entry for them and set the mode to 'train'.
-        c_cpy = copy.copy(c)
+        # Note: Since the 'dqn_weights' in the config-file
+        # wouldn't fit the plain DQN, we need to artificially
+        # provide a 'None' entry for them and set the mode to 'train'.
+        c_cpy = copy.deepcopy(c)
         c_cpy.dqn_weights = None
         c_cpy.mode = "train"
 
@@ -28,16 +29,18 @@ class RecDQNAgent(DDQNAgent):
         assert not (self.mode == "test" and (self.dqn_weights is None)
                     ), "Need prior weights in test mode."
 
-        assert self.state_type == "feature", "RecDQN is currently based on features."
+        #assert self.state_type == "image", "ComboDQN is not setup to take feature vectors."
 
         if self.net_struc is not None:
-            warnings.warn(
-                "The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            warning.warn(
+                "The net structure cannot be controlled via the config-spec for this agent.")
 
         # init DQN
-        if self.state_type == "feature":
-            self.DQN = nets.RecDQN(num_actions=self.num_actions,
-                                   N_TSs=c.Env.env_kwargs["N_TSs"]).to(self.device)
+        self.DQN = nets.ComboDQN(
+            n_actions=self.num_actions,
+            height=c.img_height,
+            width=c.img_width
+        )
 
         # Common name for param count
         self.n_params = self._count_params(self.DQN)
