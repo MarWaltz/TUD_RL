@@ -14,10 +14,10 @@ class FossenEnvScenarioOne(FossenEnv):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init four goals
-        self.goals = [{"N" : 10, "E" : 50},
-                      {"N" : 50, "E" : 10},
-                      {"N" : 90, "E" : 50},
-                      {"N" : 50, "E" : 90}]
+        self.goals = [{"N" : self.N_max * 0.1, "E" : self.E_max * 0.5},
+                      {"N" : self.N_max * 0.5, "E" : self.E_max * 0.1},
+                      {"N" : self.N_max * 0.9, "E" : self.E_max * 0.5},
+                      {"N" : self.N_max * 0.5, "E" : self.E_max * 0.9}]
 
         # init four agents
         self.agents = []
@@ -25,23 +25,23 @@ class FossenEnvScenarioOne(FossenEnv):
             
             if i == 0:
                 head   = np.pi
-                N_init = 90
-                E_init = 50
+                N_init = self.N_max * 0.9
+                E_init = self.E_max * 0.5
 
             elif i == 1:
                 head   = 3/2 * np.pi
-                N_init = 50
-                E_init = 90
+                N_init = self.N_max * 0.5
+                E_init = self.E_max * 0.9
             
             elif i == 2:
                 head   = 0
-                N_init = 10
-                E_init = 50
+                N_init = self.N_max * 0.1
+                E_init = self.E_max * 0.5
             
             elif i == 3:
                 head   = np.pi/2
-                N_init = 50
-                E_init = 10
+                N_init = self.N_max * 0.5
+                E_init = self.E_max * 0.1
             
             self.agents.append(CyberShipII(N_init       = N_init, 
                                            E_init       = E_init, 
@@ -125,7 +125,7 @@ class FossenEnvScenarioOne(FossenEnv):
         [agent._upd_dynamics() for agent in self.agents]
 
         # handle map-leaving of agents
-        self.agents = [self._handle_map_leaving(agent, respawn=False, mirrow=False, clip=True)[0] for agent in self.agents]
+        #self.agents = [self._handle_map_leaving(agent, respawn=False, mirrow=False, clip=True)[0] for agent in self.agents]
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -189,14 +189,16 @@ class FossenEnvScenarioOne(FossenEnv):
                 self.ax0.add_patch(rect)
 
                 # add jets according to COLREGS
-                for COLREG_deg in [5, 112.5, 247.5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
+                for COLREG_deg in [5, 355]:
+                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
                                               angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
-                for COLREG_deg in [67.5, 175, 185, 292.5]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.COLREG_dist, 
-                                            angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
+                #for COLREG_deg in [67.5, 175, 185, 292.5]:
+                #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
+                #                            angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
                 self.ax0.scatter(self.goals[idx]["E"], self.goals[idx]["N"], color=col)
+                circ = patches.Circle((self.goals[idx]["E"], self.goals[idx]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.3)
+                self.ax0.add_patch(circ)
 
             plt.pause(0.001)

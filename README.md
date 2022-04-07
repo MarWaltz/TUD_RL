@@ -4,24 +4,24 @@ This Suite implements several model-free off-policy deep reinforcement learning 
 
 ## Algorithms
 
-| Name             | Action Space |                                                                                                  Source |
-| ---------------- | :----------: | ------------------------------------------------------------------------------------------------------: |
-| DQN              |   Discrete   |                                        [Minh et. al. 2015](https://www.nature.com/articles/nature14236) |
-| Double DQN       |   Discrete   |                              [van Hasselt et. al. 2016](https://dl.acm.org/doi/10.5555/3016100.3016191) |
-| Bootstrapped DQN |   Discrete   |                                                 [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
-| Ensemble DQN     |   Discrete   |                                 [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
-| MaxMin DQN       |   Discrete   |                                                    [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
-| SCDQN            |   Discrete   |                                [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
-| ACCDDQN          |   Discrete   |                                                  [Jiang et. al. 2021](https://arxiv.org/abs/2105.00704) |
-| KE-BootDQN       |   Discrete   |                                                  [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
+| Name             | Action Space |                                                                        Source |
+| ---------------- | :----------: | ----------------------------------------------------------------------------: |
+| DQN              |   Discrete   |                          [Mnih et. al. 2015](https://www.nature.com/articles/nature14236) |
+| Double DQN       |   Discrete   |                  [van Hasselt et. al. 2016](https://dl.acm.org/doi/10.5555/3016100.3016191) |
+| Bootstrapped DQN |   Discrete   |                       [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
+| Ensemble DQN     |   Discrete   |       [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
+| MaxMin DQN      |   Discrete   |                          [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
+| SCDQN            |   Discrete   |      [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
+| ACCDDQN          | Discrete   | [Jiang et. al. 2021](https://arxiv.org/abs/2105.00704)
+| KE-BootDQN       |   Discrete   |                        [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
 |                  |
-| DDPG             |  Continuous  |                                              [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
-| LSTM-DDPG        |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| TD3              |  Continuous  |                             [Fujimoto et. al. 2018](https://proceedings.mlr.press/v80/fujimoto18a.html) |
-| LSTM-TD3         |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| SAC              |  Continuous  |                                               [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
-| LSTM-SAC         |  Continuous  | Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| TQC              |  Continuous  |                           [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
+| DDPG             |  Continuous  |                    [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
+| LSTM-DDPG        |  Continuous  |    [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| TD3              |  Continuous  |   [Fujimoto et. al. 2018](https://proceedings.mlr.press/v80/fujimoto18a.html) |
+| LSTM-TD3         |  Continuous  |    [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| SAC              |  Continuous  |                     [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
+| LSTM-SAC         |  Continuous  |   Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| TQC              |  Continuous  | [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
 
 ## Prerequisites
 
@@ -54,7 +54,7 @@ $ pip install -e .
 
 ### Configuration files
 
-In order to train an environment using this package you must specify a training configuration `.yaml` file and place it in one of the two folders in `/tud_rl/configs/` dependening on the type of action space (discrete, continuous) your environment implements.
+In order to train an environment using this package you must specify a training configuration `.json` file and place it in one of the two folders in `/tud_rl/configs` dependening on the type of action space (discrete, continuous) your environment implements.
 
 In this folder you also find a variety of different example configuration files.
 
@@ -62,26 +62,27 @@ For an increased flexibility, please make yourself familiar with the different a
 
 ### Training
 
-You can call this package directly as a module from the command line using the `python -m` flag.
+Depending on the type of your task (discrete, continuous), there are two different training scripts under `/tud_rl/run`
 
-To begin training you need to supply the following flags to the module
+- `train_discrete.py`
+- `train_continuous.py`
 
-#### -m (--mode)
+You need to call either of those scripts with the following flags:
 
-Either `discr` for dicrete agents or `cont` for continuous agents.
-
-#### -c (--config_file)
+#### --config_file
 
 This is the name of your config file. Note that the resprctive script only searches through the folder connected to its task. Put differently, if you put your configuration file in `/tud_rl/configs/discrete_actions` folder you can only use discrete algorithms for training.
 
-#### -a (--agent_name)
+#### --agent_name
 
 In your configuration file you can define one or more agents that you want to use with your script. However, training can only be performed for one agent at a time. Therefore it is neccessary to specify the exact agent name you want to choose with this flag.
+
+##### The string of the Agent name correspondes to the file name of the respective agent without extensions.
 
 #### Example:
 
 ```bash
-$ python -m tud_rl -m "discr" -c "example.yaml" -a "DQN"
+$ python TUD_RL/tud_rl/run/train_continuous.py --config_file="asterix.json" --agent_name="DQN"
 ```
 
 ## Gym environment integration
@@ -129,7 +130,7 @@ and register it with gym in order to add it to the list of callable environments
 
 ```python
 register(
-    id="MyEnv-v0",
+    id="MyEnv-v0", 
     entry_point="tud_rl.envs:MyEnv",
 )
 ```
@@ -140,18 +141,20 @@ Example (incomplete):
 
 ```json
 {
-  "env": {
-    "name": "MyEnv-v0",
-    "max_episode_steps": 100,
-    "state_type": "feature",
-    "wrappers": [],
-    "wrapper_kwargs": {},
-    "env_kwargs": {},
-    "info": ""
-  },
-  "agent": {
-    "DQN": {}
-  }
+    "env":
+    {
+        "name"              : "MyEnv-v0",
+        "max_episode_steps" : 100,
+        "state_type"        : "feature",
+        "wrappers"          : [],
+        "wrapper_kwargs"    : {},
+        "env_kwargs"        : {},
+        "info"              : ""
+    },
+    "agent":
+    {
+        "DQN": {}
+    }
 }
 ```
 
@@ -159,7 +162,7 @@ Example (incomplete):
 
 If you use this code in one of your projects or papers, please cite it as follows.
 
-```bibtex
+~~~bibtex
 @misc{TUDRL,
   author = {Waltz, Martin and Paulig, Niklas},
   title = {RL Dresden Algorithm Suite},
@@ -168,4 +171,5 @@ If you use this code in one of your projects or papers, please cite it as follow
   journal = {GitHub Repository},
   howpublished = {\url{https://github.com/MarWaltz/TUD_RL}}
 }
-```
+~~~
+

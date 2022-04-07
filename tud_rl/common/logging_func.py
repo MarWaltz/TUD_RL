@@ -119,7 +119,7 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
-
+        
         # create output directory
         if output_dir is not None:
             self.output_dir = output_dir
@@ -137,18 +137,15 @@ class Logger:
 
             if env_str is None and info is None:
                 self.output_dir = "experiments/" + alg_str + "_" + today + random_str
-
+            
             elif info is None:
-                self.output_dir = "experiments/" + alg_str + \
-                    "_" + env_str + "_" + today + random_str
-
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + random_str
+            
             elif env_str is None:
-                self.output_dir = "experiments/" + alg_str + \
-                    "_" + info + "_" + today + random_str
-
+                self.output_dir = "experiments/" + alg_str + "_" + info + "_" + today + random_str
+            
             else:
-                self.output_dir = "experiments/" + alg_str + "_" + \
-                    env_str + "_" + info + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + info + "_" + today + random_str
 
         os.makedirs(self.output_dir)
 
@@ -278,7 +275,8 @@ class EpochLogger(Logger):
             super().log_tabular(key, val)
         else:
             v = self.epoch_dict[key]
-            vals = np.hstack(v) if v else []
+            vals = np.concatenate(v) if isinstance(
+                v[0], np.ndarray) and len(v[0].shape) > 0 else v
             stats = mpi_statistics_scalar(
                 vals, with_min_and_max=with_min_and_max)
             super().log_tabular(

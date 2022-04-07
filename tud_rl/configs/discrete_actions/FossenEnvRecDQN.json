@@ -2,7 +2,7 @@
    "env":
    {
       "name"              : "FossenEnv-v0",
-      "max_episode_steps" : 500,
+      "max_episode_steps" : 1000,
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},

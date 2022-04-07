@@ -1,3 +1,4 @@
+from math import sqrt
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -74,7 +75,7 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
 
     #------------ radius ---------------
     if with_r:
-        r = np.sqrt(x**2 + y**2)
+        r = sqrt(x**2 + y**2)
     else:
         r = None
 
@@ -133,7 +134,7 @@ def bng_rel(N0, E0, N1, E1, head0):
 
 
 def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
-    """Computes the time to closest point of approach (TCPA). Follows Lenart (2017)."""
+    """Computes the time to closest point of approach (TCPA). Follows Lenart (1983)."""
 
     # easy access
     xOS = EOS
@@ -145,10 +146,42 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
     vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
 
-    nom = - ((yTS - yOS)*(vyTS - vyOS) + (xTS - xOS)*(vxTS - vxOS))
-    den = (vyTS - vyOS)**2 + (vxTS - vxOS)**2
+    # relative velocity
+    vrx = vxTS - vxOS
+    vry = vyTS - vyOS
 
-    return nom / den
+    # tcpa
+    nom = (xTS - xOS)*vrx + (yTS - yOS)*vry
+    den = vrx**2 + vry**2
+
+    return - nom / den
+
+
+def dcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
+    """Computes distance of closest point of approach. Follows Chun et al. (2021, OE)."""
+
+    # easy access
+    xOS = EOS
+    yOS = NOS
+    xTS = ETS
+    yTS = NTS
+
+    # compute velocities in x,y-coordinates
+    vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+    vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
+
+    # get TCPA
+    TCPA = tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS)
+
+    # forecast OS
+    xOS_tcpa = xOS + TCPA * vxOS
+    yOS_tcpa = yOS + TCPA * vyOS
+
+    # forecast TS
+    xTS_tcpa = xTS + TCPA * vxTS
+    yTS_tcpa = yTS + TCPA * vyTS
+
+    return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa)
 
 
 def project_vector(VA, angleA, VB, angleB):
