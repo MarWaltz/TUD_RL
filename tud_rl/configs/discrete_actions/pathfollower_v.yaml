@@ -36,14 +36,14 @@ agent:
   ComboDQN: {}
 img_height: 120
 img_width: 120
-seed: 26757
+seed: 267
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 4
-dqn_weights: /home/neural/Dropbox/TU Dresden/hpc/experiments/SCDQN_b_PathFollower-v0_5000-k-pretrained_2022-04-05_91980/SCDQN_b_weights.pth
+dqn_weights: /home/niklaspaulig/Dropbox/TU Dresden/candidate_nets/SCDQN_b_PathFollower-v0_5000-k-pretrained_2022-04-05_91980/SCDQN_b_weights.pth
 input_norm: false
 input_norm_prior:
-gamma: 0.995
+gamma: 0.99
 eps_init: 1
 eps_final: 0.1
 eps_decay_steps: 2_000_000
