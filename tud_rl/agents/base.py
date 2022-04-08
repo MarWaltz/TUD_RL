@@ -5,7 +5,7 @@ import numpy as np
 from tud_rl.common.nets import (
     MLP, MinAtar_DQN, MinAtar_CoreNet,
     MinAtar_BootDQN, Double_MLP, RecDQN,
-    ComboDQN, LSTM_Double_Critic,
+    LSTM_Double_Critic,
     LSTM_Actor, GaussianActor, LSTM_GaussianActor,
     TQC_Critics, LSTM_Critic
 )
@@ -32,8 +32,7 @@ Critic = Union[
 
 Net = Union[
     MinAtar_DQN, MinAtar_CoreNet,
-    MinAtar_BootDQN, Double_MLP, RecDQN,
-    ComboDQN,
+    MinAtar_BootDQN, Double_MLP, RecDQN
 ]
 
 # Type alias for Noise
