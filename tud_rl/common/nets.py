@@ -1,4 +1,5 @@
 import copy
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -6,9 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
 
-ACTIVATIONS = {"relu"     : F.relu,
-               "identity" : nn.Identity(),
-               "tanh"     : torch.tanh}
+ACTIVATIONS = {"relu": F.relu,
+               "identity": nn.Identity(),
+               "tanh": torch.tanh}
 
 
 # --------------------------- MLP ---------------------------------
@@ -20,10 +21,13 @@ class MLP(nn.Module):
 
         self.struc = net_struc
 
-        assert isinstance(self.struc, list), "net should be a list,  e.g. [[64, 'relu'], [64, 'relu'], 'identity']."
-        assert len(self.struc) >= 2, "net should have at least one hidden layer and a final activation."
-        assert isinstance(self.struc[-1], str), "Final element of net should only be the activation string."
-   
+        assert isinstance(
+            self.struc, list), "net should be a list,  e.g. [[64, 'relu'], [64, 'relu'], 'identity']."
+        assert len(
+            self.struc) >= 2, "net should have at least one hidden layer and a final activation."
+        assert isinstance(
+            self.struc[-1], str), "Final element of net should only be the activation string."
+
         self.layers = nn.ModuleList()
 
         # create input-hidden_1
@@ -31,7 +35,8 @@ class MLP(nn.Module):
 
         # create hidden_1-...-hidden_n
         for idx in range(len(self.struc) - 2):
-            self.layers.append(nn.Linear(self.struc[idx][0], self.struc[idx+1][0]))
+            self.layers.append(
+                nn.Linear(self.struc[idx][0], self.struc[idx+1][0]))
 
         # create hidden_n-out
         self.layers.append(nn.Linear(self.struc[-2][0], out_size))
@@ -64,14 +69,14 @@ class Double_MLP(nn.Module):
     def __init__(self, in_size, out_size, net_struc):
         super().__init__()
 
-        self.MLP1 = MLP(in_size   = in_size, 
-                        out_size  = out_size, 
-                        net_struc = net_struc)
+        self.MLP1 = MLP(in_size=in_size,
+                        out_size=out_size,
+                        net_struc=net_struc)
 
-        self.MLP2 = MLP(in_size   = in_size, 
-                        out_size  = out_size, 
-                        net_struc = net_struc)
-    
+        self.MLP2 = MLP(in_size=in_size,
+                        out_size=out_size,
+                        net_struc=net_struc)
+
     def forward(self, x):
         return self.MLP1(x), self.MLP2(x)
 
@@ -88,16 +93,17 @@ class MinAtar_CoreNet(nn.Module):
 
         # CNN hyperparams
         self.out_channels = 16
-        self.kernel_size  = 3
-        self.stride       = 1
-        self.padding      = 0
+        self.kernel_size = 3
+        self.stride = 1
+        self.padding = 0
 
         # define CNN
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=self.out_channels, kernel_size=self.kernel_size, \
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=self.out_channels, kernel_size=self.kernel_size,
                               stride=self.stride, padding=self.padding)
 
         # calculate input size for FC layer (which is size of a single feature map multiplied by number of out_channels)
-        self.in_size_FC = self._output_size_filter(height) * self._output_size_filter(width) * self.out_channels
+        self.in_size_FC = self._output_size_filter(
+            height) * self._output_size_filter(width) * self.out_channels
 
     def _output_size_filter(self, size, kernel_size=3, stride=1):
         """Computes for given height or width (here named 'size') of ONE input channel, given
@@ -114,7 +120,7 @@ class MinAtar_CoreNet(nn.Module):
         # CNN
         x = F.relu(self.conv(s))
 
-        # reshape from torch.Size([batch_size, out_channels, out_height, out_width]) to 
+        # reshape from torch.Size([batch_size, out_channels, out_height, out_width]) to
         # torch.Size([batch_size, out_channels * out_height * out_width])
         x = x.view(x.shape[0], -1)
 
@@ -123,17 +129,18 @@ class MinAtar_CoreNet(nn.Module):
 
 class MinAtar_DQN(nn.Module):
     """Defines the DQN consisting of the CNN part and a fully-connected layer."""
+
     def __init__(self, in_channels, height, width, num_actions):
         super().__init__()
-        
-        self.core = MinAtar_CoreNet(in_channels = in_channels,
-                                    height      = height,
-                                    width       = width)
 
-        self.head = MLP(in_size   = self.core.in_size_FC, 
-                        out_size  = num_actions,
-                        net_struc = [[128, "relu"], "identity"])
-    
+        self.core = MinAtar_CoreNet(in_channels=in_channels,
+                                    height=height,
+                                    width=width)
+
+        self.head = MLP(in_size=self.core.in_size_FC,
+                        out_size=num_actions,
+                        net_struc=[[128, "relu"], "identity"])
+
     def forward(self, s):
         x = self.core(s)
         return self.head(x)
@@ -141,16 +148,17 @@ class MinAtar_DQN(nn.Module):
 
 class MinAtar_BootDQN(nn.Module):
     """Defines the BootDQN consisting of the common CNN part and K different heads."""
+
     def __init__(self, in_channels, height, width, num_actions, K):
         super().__init__()
-        
-        self.core = MinAtar_CoreNet(in_channels = in_channels,
-                                    height      = height,
-                                    width       = width)
 
-        self.heads = nn.ModuleList([MLP(in_size   = self.core.in_size_FC, 
-                                        out_size  = num_actions,
-                                        net_struc = [[128, "relu"], "identity"]) for _ in range(K)])
+        self.core = MinAtar_CoreNet(in_channels=in_channels,
+                                    height=height,
+                                    width=width)
+
+        self.heads = nn.ModuleList([MLP(in_size=self.core.in_size_FC,
+                                        out_size=num_actions,
+                                        net_struc=[[128, "relu"], "identity"]) for _ in range(K)])
 
     def forward(self, s, head=None):
         """Returns for a state s all Q(s,a) for each k. Args:
@@ -173,27 +181,27 @@ class MinAtar_BootDQN(nn.Module):
 # --------------------------- LSTM ---------------------------------
 class LSTM_Actor(nn.Module):
     """Defines recurrent deterministic actor."""
-    
+
     def __init__(self, action_dim, state_shape, use_past_actions) -> None:
         super(LSTM_Actor, self).__init__()
-        
+
         self.use_past_actions = use_past_actions
 
         # current feature extraction
         self.curr_fe_dense1 = nn.Linear(state_shape, 128)
         self.curr_fe_dense2 = nn.Linear(128, 128)
-        
+
         # memory
         if use_past_actions:
             self.mem_dense = nn.Linear(state_shape + action_dim, 128)
         else:
             self.mem_dense = nn.Linear(state_shape, 128)
-        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
-        
+        self.mem_LSTM = nn.LSTM(
+            input_size=128, hidden_size=128, num_layers=1, batch_first=True)
+
         # post combination
         self.post_comb_dense1 = nn.Linear(128 + 128, 128)
         self.post_comb_dense2 = nn.Linear(128, action_dim)
-
 
     def forward(self, s, s_hist, a_hist, hist_len) -> tuple:
         """s, s_hist, hist_len are torch tensors. Shapes:
@@ -201,84 +209,84 @@ class LSTM_Actor(nn.Module):
         s_hist:   torch.Size([batch_size, history_length, state_shape])
         a_hist:   torch.Size([batch_size, history_length, action_dim])
         hist_len: torch.Size(batch_size)
-        
+
         returns: output with shape torch.Size([batch_size, action_dim]), act_net_info (dict)
-        
+
         Note: 
         The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
         x = (batch_size, seq_length, state_shape)
-        
+
         The call <out, (hidden, cell) = LSTM(x)> results in: 
         out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
         hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         """
 
-        #------ current feature extraction ------
+        # ------ current feature extraction ------
         curr_fe = F.relu(self.curr_fe_dense1(s))
         curr_fe = F.relu(self.curr_fe_dense2(curr_fe))
 
-        #------ memory ------
+        # ------ memory ------
         # dense layer
         if self.use_past_actions:
             x_mem = F.relu(self.mem_dense(torch.cat([s_hist, a_hist], dim=2)))
         else:
             x_mem = F.relu(self.mem_dense(s_hist))
-        
+
         # LSTM
-        #self.mem_LSTM.flatten_parameters()
+        # self.mem_LSTM.flatten_parameters()
         extracted_mem, (_, _) = self.mem_LSTM(x_mem)
 
         # get selection index according to history lengths (no-history cases will be masked later)
         h_idx = copy.deepcopy(hist_len)
         h_idx[h_idx == 0] = 1
         h_idx -= 1
-        
+
         # select LSTM output, resulting shape is (batch_size, hidden_dim)
         hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
-        
+
         # mask no-history cases to yield zero extracted memory
         hidden_mem[hist_len == 0] = 0.0
 
-        #------ post combination ------
+        # ------ post combination ------
         # concate current feature extraction with generated memory
         x = torch.cat([curr_fe, hidden_mem], dim=1)
 
         # final dense layers
         x = F.relu(self.post_comb_dense1(x))
         x = torch.tanh(self.post_comb_dense2(x))
-        
+
         # create dict for logging
-        act_net_info = dict(Actor_CurFE = curr_fe.detach().mean().cpu().numpy(),
-                            Actor_ExtMemory = hidden_mem.detach().mean().cpu().numpy())
-        
+        act_net_info = dict(Actor_CurFE=curr_fe.detach().mean().cpu().numpy(),
+                            Actor_ExtMemory=hidden_mem.detach().mean().cpu().numpy())
+
         # return output
         return x, act_net_info
 
 
 class LSTM_Critic(nn.Module):
     """Defines recurrent critic network to compute Q-values."""
-    
+
     def __init__(self, action_dim, state_shape, use_past_actions) -> None:
         super(LSTM_Critic, self).__init__()
-        
+
         self.use_past_actions = use_past_actions
 
         # current feature extraction
         self.curr_fe_dense1 = nn.Linear(state_shape + action_dim, 128)
         self.curr_fe_dense2 = nn.Linear(128, 128)
-        
+
         # memory
         if use_past_actions:
             self.mem_dense = nn.Linear(state_shape + action_dim, 128)
         else:
             self.mem_dense = nn.Linear(state_shape, 128)
-        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
-        
+        self.mem_LSTM = nn.LSTM(
+            input_size=128, hidden_size=128, num_layers=1, batch_first=True)
+
         # post combination
         self.post_comb_dense1 = nn.Linear(128 + 128, 128)
         self.post_comb_dense2 = nn.Linear(128, 1)
-        
 
     def forward(self, s, a, s_hist, a_hist, hist_len, log_info=True) -> tuple:
         """s, s_hist, a_hist are torch tensors. Shapes:
@@ -288,34 +296,34 @@ class LSTM_Critic(nn.Module):
         a_hist:   torch.Size([batch_size, history_length, action_dim])
         hist_len: torch.Size(batch_size)
         log_info: Bool, whether to return logging dict
-        
+
         returns: output with shape torch.Size([batch_size, 1]), critic_net_info (dict) (if log_info)
-        
+
         Note: 
         The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
         x = (batch_size, seq_length, state_shape)
-        
+
         The call <out, (hidden, cell) = LSTM(x)> results in: 
         out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
         hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         """
 
-        #------ current feature extraction ------
+        # ------ current feature extraction ------
         # concatenate obs and act
         sa = torch.cat([s, a], dim=1)
         curr_fe = F.relu(self.curr_fe_dense1(sa))
         curr_fe = F.relu(self.curr_fe_dense2(curr_fe))
-        
-        #------ memory ------
+
+        # ------ memory ------
         # dense layer
         if self.use_past_actions:
             x_mem = F.relu(self.mem_dense(torch.cat([s_hist, a_hist], dim=2)))
         else:
             x_mem = F.relu(self.mem_dense(s_hist))
-        
+
         # LSTM
-        #self.mem_LSTM.flatten_parameters()
+        # self.mem_LSTM.flatten_parameters()
         extracted_mem, (_, _) = self.mem_LSTM(x_mem)
 
         # get selection index according to history lengths (no-history cases will be masked later)
@@ -328,19 +336,19 @@ class LSTM_Critic(nn.Module):
 
         # mask no-history cases to yield zero extracted memory
         hidden_mem[hist_len == 0] = 0.0
-        
-        #------ post combination ------
+
+        # ------ post combination ------
         # concatenate current feature extraction with generated memory
         x = torch.cat([curr_fe, hidden_mem], dim=1)
-        
+
         # final dense layers
         x = F.relu(self.post_comb_dense1(x))
         x = self.post_comb_dense2(x)
 
         # create dict for logging
         if log_info:
-            critic_net_info = dict(Critic_CurFE = curr_fe.detach().mean().cpu().numpy(),
-                                   Critic_ExtMemory = hidden_mem.detach().mean().cpu().numpy())
+            critic_net_info = dict(Critic_CurFE=curr_fe.detach().mean().cpu().numpy(),
+                                   Critic_ExtMemory=hidden_mem.detach().mean().cpu().numpy())
             return x, critic_net_info
         else:
             return x
@@ -350,20 +358,20 @@ class LSTM_Double_Critic(nn.Module):
     def __init__(self, action_dim, state_shape, use_past_actions) -> None:
         super(LSTM_Double_Critic, self).__init__()
 
-        self.LSTM_Q1 = LSTM_Critic(action_dim       = action_dim, 
-                                   state_shape      = state_shape,
-                                   use_past_actions = use_past_actions)
+        self.LSTM_Q1 = LSTM_Critic(action_dim=action_dim,
+                                   state_shape=state_shape,
+                                   use_past_actions=use_past_actions)
 
-        self.LSTM_Q2 = LSTM_Critic(action_dim       = action_dim, 
-                                   state_shape      = state_shape,
-                                   use_past_actions = use_past_actions)
+        self.LSTM_Q2 = LSTM_Critic(action_dim=action_dim,
+                                   state_shape=state_shape,
+                                   use_past_actions=use_past_actions)
 
     def forward(self, s, a, s_hist, a_hist, hist_len) -> tuple:
-        q1                  = self.LSTM_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)
-        q2, critic_net_info = self.LSTM_Q2(s, a, s_hist, a_hist, hist_len, log_info=True)
+        q1 = self.LSTM_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)
+        q2, critic_net_info = self.LSTM_Q2(
+            s, a, s_hist, a_hist, hist_len, log_info=True)
 
         return q1, q2, critic_net_info
-
 
     def single_forward(self, s, a, s_hist, a_hist, hist_len):
         q1 = self.LSTM_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)
@@ -371,10 +379,11 @@ class LSTM_Double_Critic(nn.Module):
         return q1
 
 
-#-------------------------- SAC: GaussianActor ----------------------------
+# -------------------------- SAC: GaussianActor ----------------------------
 
 class GaussianActor(nn.Module):
     """Defines stochastic actor based on a Gaussian distribution."""
+
     def __init__(self, action_dim, state_shape, log_std_min=-20, log_std_max=2):
         super(GaussianActor, self).__init__()
 
@@ -384,7 +393,7 @@ class GaussianActor(nn.Module):
         self.linear1 = nn.Linear(state_shape, 256)
         self.linear2 = nn.Linear(256, 256)
 
-        self.mu      = nn.Linear(256, action_dim)
+        self.mu = nn.Linear(256, action_dim)
         self.log_std = nn.Linear(256, action_dim)
 
     def forward(self, s, deterministic, with_logprob):
@@ -401,11 +410,11 @@ class GaussianActor(nn.Module):
         x = F.relu(self.linear2(x))
 
         # compute mean, log_std and std of Gaussian
-        mu      = self.mu(x)
+        mu = self.mu(x)
         log_std = self.log_std(x)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-        std     = torch.exp(log_std)
-        
+        std = torch.exp(log_std)
+
         # construct pre-squashed distribution
         pi_distribution = Normal(mu, std)
 
@@ -414,14 +423,15 @@ class GaussianActor(nn.Module):
             pi_action = mu
         else:
             pi_action = pi_distribution.rsample()
-        
+
         # compute logprob from Gaussian and then correct it for the Tanh squashing
         if with_logprob:
 
-            # this does not exactly match the expression given in Appendix C in the paper, but it is 
+            # this does not exactly match the expression given in Appendix C in the paper, but it is
             # equivalent and according to SpinningUp OpenAI numerically much more stable
             logp_pi = pi_distribution.log_prob(pi_action).sum(axis=1)
-            logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=1)
+            logp_pi -= (2*(np.log(2) - pi_action -
+                        F.softplus(-2*pi_action))).sum(axis=1)
 
             # logp_pi sums in both prior steps over all actions,
             # since these are assumed to be independent Gaussians and can thus be factorized into their margins
@@ -438,16 +448,17 @@ class GaussianActor(nn.Module):
         return pi_action, logp_pi
 
 
-#-------------------------- LSTM-SAC: GaussianActor ----------------------------
+# -------------------------- LSTM-SAC: GaussianActor ----------------------------
 
 class LSTM_GaussianActor(nn.Module):
     """Defines recurrent, stochastic actor based on a Gaussian distribution."""
+
     def __init__(self, action_dim, state_shape, use_past_actions, log_std_min=-20, log_std_max=2):
         super(LSTM_GaussianActor, self).__init__()
 
         self.use_past_actions = use_past_actions
-        self.log_std_min      = log_std_min
-        self.log_std_max      = log_std_max
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
 
         # current feature extraction
         self.curr_fe_dense1 = nn.Linear(state_shape, 128)
@@ -458,13 +469,14 @@ class LSTM_GaussianActor(nn.Module):
             self.mem_dense = nn.Linear(state_shape + action_dim, 128)
         else:
             self.mem_dense = nn.Linear(state_shape, 128)
-        self.mem_LSTM = nn.LSTM(input_size = 128, hidden_size = 128, num_layers = 1, batch_first = True)
-        
+        self.mem_LSTM = nn.LSTM(
+            input_size=128, hidden_size=128, num_layers=1, batch_first=True)
+
         # post combination
         self.post_comb_dense = nn.Linear(128 + 128, 128)
 
         # output mu and log_std
-        self.mu      = nn.Linear(128, action_dim)
+        self.mu = nn.Linear(128, action_dim)
         self.log_std = nn.Linear(128, action_dim)
 
     def forward(self, s, s_hist, a_hist, hist_len, deterministic, with_logprob):
@@ -483,40 +495,40 @@ class LSTM_GaussianActor(nn.Module):
         Note: 
         The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
         x = (batch_size, seq_length, state_shape)
-        
+
         The call <out, (hidden, cell) = LSTM(x)> results in: 
         out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
         hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
         """
 
-        #------ current feature extraction ------
+        # ------ current feature extraction ------
         curr_fe = F.relu(self.curr_fe_dense1(s))
         curr_fe = F.relu(self.curr_fe_dense2(curr_fe))
 
-        #------ memory ------
+        # ------ memory ------
         # dense layer
         if self.use_past_actions:
             x_mem = F.relu(self.mem_dense(torch.cat([s_hist, a_hist], dim=2)))
         else:
             x_mem = F.relu(self.mem_dense(s_hist))
-        
+
         # LSTM
-        #self.mem_LSTM.flatten_parameters()
+        # self.mem_LSTM.flatten_parameters()
         extracted_mem, (_, _) = self.mem_LSTM(x_mem)
 
         # get selection index according to history lengths (no-history cases will be masked later)
         h_idx = copy.deepcopy(hist_len)
         h_idx[h_idx == 0] = 1
         h_idx -= 1
-        
+
         # select LSTM output, resulting shape is (batch_size, hidden_dim)
         hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
-        
+
         # mask no-history cases to yield zero extracted memory
         hidden_mem[hist_len == 0] = 0.0
 
-        #------ post combination ------
+        # ------ post combination ------
         # concate current feature extraction with generated memory
         x = torch.cat([curr_fe, hidden_mem], dim=1)
 
@@ -524,12 +536,12 @@ class LSTM_GaussianActor(nn.Module):
         x = F.relu(self.post_comb_dense(x))
 
         # compute mean, log_std and std of Gaussian
-        mu      = self.mu(x)
+        mu = self.mu(x)
         log_std = self.log_std(x)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-        std     = torch.exp(log_std)
-        
-        #------ having mu and std, compute actions and log_probs -------
+        std = torch.exp(log_std)
+
+        # ------ having mu and std, compute actions and log_probs -------
         # construct pre-squashed distribution
         pi_distribution = Normal(mu, std)
 
@@ -538,14 +550,15 @@ class LSTM_GaussianActor(nn.Module):
             pi_action = mu
         else:
             pi_action = pi_distribution.rsample()
-        
+
         # compute logprob from Gaussian and then correct it for the Tanh squashing
         if with_logprob:
 
-            # this does not exactly match the expression given in Appendix C in the paper, but it is 
+            # this does not exactly match the expression given in Appendix C in the paper, but it is
             # equivalent and according to SpinningUp OpenAI numerically much more stable
             logp_pi = pi_distribution.log_prob(pi_action).sum(axis=1)
-            logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=1)
+            logp_pi -= (2*(np.log(2) - pi_action -
+                        F.softplus(-2*pi_action))).sum(axis=1)
 
             # logp_pi sums in both prior steps over all actions,
             # since these are assumed to be independent Gaussians and can thus be factorized into their margins
@@ -558,16 +571,16 @@ class LSTM_GaussianActor(nn.Module):
         # squash action to [-1, 1]
         pi_action = torch.tanh(pi_action)
 
-        #------ return ---------
+        # ------ return ---------
         # create dict for logging
-        act_net_info = dict(Actor_CurFE = curr_fe.detach().mean().cpu().numpy(),
-                            Actor_ExtMemory = hidden_mem.detach().mean().cpu().numpy())
-        
+        act_net_info = dict(Actor_CurFE=curr_fe.detach().mean().cpu().numpy(),
+                            Actor_ExtMemory=hidden_mem.detach().mean().cpu().numpy())
+
         # return squashed action, it's logprob and logging info
         return pi_action, logp_pi, act_net_info
 
 
-#--------------------- TQC -------------------------------
+# --------------------- TQC -------------------------------
 class TQC_Critics(nn.Module):
     def __init__(self, state_shape, action_dim, n_quantiles, n_critics):
         super().__init__()
@@ -578,15 +591,15 @@ class TQC_Critics(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(state_shape + action_dim, 512),
             nn.ReLU(),
-            nn.Linear(512,512),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512,512),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512,n_quantiles)
+            nn.Linear(512, n_quantiles)
         )
 
         self.nets = [self.net] * n_critics
-        
+
     def forward(self, state, action):
         """
         Args:
@@ -596,18 +609,18 @@ class TQC_Critics(nn.Module):
         Returns:
             torch.Size([batch_size, n_critics, n_quantiles])
         """
-        sa = torch.cat((state,action),dim = 1).unsqueeze(1)
+        sa = torch.cat((state, action), dim=1).unsqueeze(1)
 
-        quantiles = torch.cat(tuple(net(sa) for net in self.nets),dim=1)
+        quantiles = torch.cat(tuple(net(sa) for net in self.nets), dim=1)
         return quantiles
 
 
-#------------------------------- RecDQN for FossenEnv --------------------------------
+# ------------------------------- RecDQN for FossenEnv --------------------------------
 
 class RecDQN(nn.Module):
     """Defines an LSTM-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
-    
+
     def __init__(self, num_actions, N_TSs) -> None:
         super(RecDQN, self).__init__()
 
@@ -618,24 +631,24 @@ class RecDQN(nn.Module):
         self.dense1 = nn.Linear(7, 128)
 
         # features for other vessels
-        self.LSTM   = nn.LSTM(input_size = 6, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.LSTM = nn.LSTM(input_size=6, hidden_size=128,
+                            num_layers=1, batch_first=True)
         self.dense2 = nn.Linear(128, 128)
 
         # post combination
         self.post_comb_dense1 = nn.Linear(128 + 128, 128)
         self.post_comb_dense2 = nn.Linear(128, num_actions)
 
-
     def forward(self, s) -> tuple:
         """s is a torch tensor. Shape:
         s:       torch.Size([batch_size, 7 + 6 * N_TSs])
 
         returns: torch.Size([batch_size, num_actions])
-        
+
         Note 1: 
         The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
         x = (batch_size, seq_length, state_shape)
-        
+
         The call <out, (hidden, cell) = LSTM(x)> results in: 
         out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
         hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
@@ -650,15 +663,17 @@ class RecDQN(nn.Module):
         # -------------------------------- preprocessing ----------------------------------------
         # extract OS and TS states
         s_OS = s[:, :7]                         # torch.Size([batch_size, 7])
-        
+
         if self.N_TSs > 0:
 
             s_TS = s[:, 7:]
-            s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
+            # torch.Size([batch_size, N_TSs, 6])
+            s_TS = s_TS.view(-1, self.N_TSs, 6)
             # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 
             # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
-            N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+            N_TS_obs = torch.sum(torch.logical_not(
+                torch.isnan(s_TS))[:, :, 0], dim=1)
 
             # get selection index according to number of TSs (no-TS cases will be masked later)
             h_idx = copy.deepcopy(N_TS_obs)
@@ -672,7 +687,7 @@ class RecDQN(nn.Module):
         # --------------------------------- calculations -----------------------------------------
         # process OS
         x_OS = F.relu(self.dense1(s_OS))
-       
+
         if self.N_TSs > 0:
 
             # process TS
@@ -683,7 +698,7 @@ class RecDQN(nn.Module):
 
             # mask no-TS cases to yield zero extracted information
             x_TS[N_TS_obs == 0] = 0.0
-        
+
         else:
             x_TS = torch.zeros_like(x_OS)
 
@@ -698,3 +713,80 @@ class RecDQN(nn.Module):
         x = self.post_comb_dense2(x)
 
         return x
+
+
+# ----------------------- CNN for PathFollower -----------------------------------
+
+class ComboDQN(nn.Module):
+    """ComboDQN is hard-coded for the PathFollower Environment. 
+    Currently it takes three images of 120x120 Pixels (120x120x3) which will first be passed through
+    2 Conv2d layers before being concatenated with the environments' features in a dense layer.
+
+    """
+
+    def __init__(self, height: int, width: int, n_actions: int):
+        super().__init__()
+
+        # CNN ----------------------------
+
+        out_channels = 64
+
+        self.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=32,
+            kernel_size=8,
+            stride=4
+        )
+
+        height = self._output_size(height, kernel_size=8, stride=4)
+        width = self._output_size(width, kernel_size=8, stride=4)
+
+        self.conv2 = nn.Conv2d(
+            in_channels=32,
+            out_channels=out_channels,
+            kernel_size=4,
+            stride=2
+        )
+
+        height = self._output_size(height, kernel_size=4, stride=2)
+        width = self._output_size(width, kernel_size=4, stride=2)
+
+        # calculate input size for FC layer (which is size of a single feature map multiplied by number of out_channels)
+        self.in_size_FC = height * width * out_channels
+
+        # Dense layers ----------------------
+
+        self.featurefc = nn.Linear(7, fo := 128)
+        self.fc1 = nn.Linear(self.in_size_FC + fo, 256)
+        self.fc2 = nn.Linear(256, n_actions)
+
+    def _output_size(self, size, kernel_size=3, stride=1):
+        """Computes for given height or width (here named 'size') of ONE input channel, given
+        kernel (or filter) size and stride, the resulting size (again: height or width) of the feature map.
+        Note: This formula assumes padding = 0 and dilation = 1."""
+
+        return (size - (kernel_size - 1) - 1) // stride + 1
+
+    def forward(self, s: Tuple[np.ndarray, np.ndarray]):
+
+        print(s.shape)
+        image = torch.reshape(s[:, :-7], (-1, 3, 120, 120))
+        feature = s[:, -7:]
+
+        i = F.relu(self.conv1(image))
+        i = F.relu(self.conv2(i))
+
+        # reshape from torch.Size([batch_size, out_channels, out_height, out_width]) to
+        # torch.Size([batch_size, out_channels * out_height * out_width])
+        i = i.view(i.shape[0], -1)
+
+        # Pass the feature vector through its own dense layer
+        f = F.relu(self.featurefc(feature))
+
+        # Cat feature and CNN output
+        s = torch.cat([i, f], dim=1)
+
+        # Final dense layer
+        s = F.relu(self.fc1(s))
+
+        return self.fc2(s)

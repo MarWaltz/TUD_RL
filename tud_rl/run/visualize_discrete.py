@@ -6,7 +6,7 @@ import gym_pygame
 import numpy as np
 import torch
 
-from tud_rl.agents.discrete import agents as 
+import tud_rl.agents._ddispatch as agents
 
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
