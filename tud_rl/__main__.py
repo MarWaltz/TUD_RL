@@ -17,7 +17,6 @@ MODE = "train"
 CONFIG_FILE = "pathfollower.yaml"
 SEED = 123
 AGENT_NAME = "SCDQN_b"
-LEARNING_RATE = None
 
 
 # get config and name of agent
@@ -31,9 +30,6 @@ parser.add_argument(
 parser.add_argument(
     "-s", "--seed", type=int, default=SEED,
     help="Random number generator seed.")
-parser.add_argument(
-    "-l", "--lr", type=Optional[float], default=LEARNING_RATE,
-    help="Override learning rate.")
 parser.add_argument(
     "-a", "--agent_name", type=str, default=AGENT_NAME,
     help="Agent from config for training. Example: `DQN` or `DQN_b`.")
