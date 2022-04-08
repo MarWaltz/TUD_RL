@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from distutils.log import warn
 from typing import Any, Dict, List, Optional, Tuple, Union
+import numpy as np
 
 import yaml
 import json
@@ -101,6 +103,10 @@ class ConfigFile:
         return yaml.safe_load(file)
 
     def _read_json(self, file_path: str) -> Dict[str, Any]:
+        """Accept json configs for backwards compatibility"""
+
+        warn("The use of `.json` configuration file is "
+             "deprecated. Please define your file in the `.yaml` format.")
 
         with open(file_path) as json_file:
             file = json.load(json_file)
@@ -112,6 +118,13 @@ class ConfigFile:
             "upd_start_step", "upd_every", "batch_size"
         ]:
             file[key] = int(file[key])
+
+        # handle maximum episode steps
+        if file["env"]["max_episode_steps"] == -1:
+            file["env"]["max_episode_steps"] = np.inf
+        else:
+            file["env"]["max_episode_steps"] = int(
+                file["env"]["max_episode_steps"])
 
         return file
 

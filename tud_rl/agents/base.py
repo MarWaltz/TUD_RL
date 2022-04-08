@@ -44,7 +44,7 @@ class _Agent(ABC):
     """Abstract Base Class for any agent
     defining its strucure.
     """
-    # Agent mode can be ["train", "test"]
+    # Agent mode can be ["train", "viz"]
     mode: str
 
     # Agent name. Base name without extensions
