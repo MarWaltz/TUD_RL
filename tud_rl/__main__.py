@@ -60,13 +60,15 @@ base_agent = args.agent_name
 if args.agent_name[-1].islower():
     base_agent = args.agent_name[:-2]
 
+IS_DISCRETE = any(agent.startswith(base_agent) for agent in _DAGENTS)
+
 if args.mode == "train":
-    if any(agent.startswith(base_agent) for agent in _DAGENTS):
+    if IS_DISCRETE:
         discr.train(config, args.agent_name)
     else:
         cont.train(config, args.agent_name)
 elif args.mode == "viz":
-    if any(agent.startswith(base_agent) for agent in _DAGENTS):
+    if IS_DISCRETE:
         vizdiscr.test(config, args.agent_name)
     else:
         vizcont.test(config, args.agent_name)
