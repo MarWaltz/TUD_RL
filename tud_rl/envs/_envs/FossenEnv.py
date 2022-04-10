@@ -7,8 +7,8 @@ import matplotlib.patches as patches
 import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
-from tud_rl.envs.FossenCS2 import CyberShipII
-from tud_rl.envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
+from .FossenCS2 import CyberShipII
+from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                    angle_to_2pi, angle_to_pi, bng_abs, bng_rel,
                                    dcpa, dtr, head_inter, polar_from_xy,
                                    project_vector, rtd, tcpa, xy_from_polar)

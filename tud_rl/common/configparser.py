@@ -1,13 +1,13 @@
-from dataclasses import dataclass
-from distutils.log import warn
+from warnings import warn
 from typing import Any, Dict, List, Optional, Tuple, Union
+from tud_rl import logger
 import numpy as np
 
 import yaml
 import json
 
 
-@dataclass
+
 class ConfigFile:
     """Configuration class for storing the parsed 
     yaml config file.
@@ -70,7 +70,7 @@ class ConfigFile:
         state_type: str
         env_kwargs: Dict[str, Any]
         info: str
-
+    
     class Agent:
         pass
 
@@ -105,8 +105,10 @@ class ConfigFile:
     def _read_json(self, file_path: str) -> Dict[str, Any]:
         """Accept json configs for backwards compatibility"""
 
-        warn("The use of `.json` configuration file is "
-             "deprecated. Please define your file in the `.yaml` format.")
+        logger.warning(
+            "The use of `.json` configuration file is "
+            "deprecated. Please define your file in the `.yaml` format."
+        )
 
         with open(file_path) as json_file:
             file = json.load(json_file)
@@ -138,3 +140,20 @@ class ConfigFile:
             setattr(self, key, self.Agent)
             for key, val in d.items():
                 setattr(self.Agent, key, val)
+                
+    def overwrite(self, **kwargs) -> None:
+        
+        for key, val in kwargs.items():
+            if hasattr(self,key):
+                setattr(self,key,val)
+            else:
+                logger.warning(
+                    f"Overwrite: `{type(self).__name__}` has "
+                    f"no attribute `{key}`. "
+                    "Skipping..."
+                )
+        
+    def max_episode_handler(self) -> None:
+        if self.Env.max_episode_steps == -1:
+            self.Env.max_episode_steps = np.inf
+            logger.debug("Max episode steps set to `Inf`.")

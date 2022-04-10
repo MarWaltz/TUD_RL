@@ -1,4 +1,4 @@
-from tud_rl.envs.FossenEnv import *
+from .FossenEnv import *
 
 
 class FossenEnvScenarioOne(FossenEnv):

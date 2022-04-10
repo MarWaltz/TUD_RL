@@ -7,11 +7,10 @@ import torch.optim as optim
 
 import tud_rl.common.nets as nets
 
-from tud_rl.agents.continuous.DDPG import DDPGAgent
+from tud_rl.agents._continuous.LSTMDDPG import LSTMDDPGAgent
 from tud_rl.common.configparser import ConfigFile
 
-
-class TD3Agent(DDPGAgent):
+class LSTMTD3Agent(LSTMDDPGAgent):
     def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name, init_critic=False)
 
@@ -22,9 +21,9 @@ class TD3Agent(DDPGAgent):
 
         # init double critic
         if self.state_type == "feature":
-            self.critic = nets.Double_MLP(in_size=self.state_shape + self.num_actions,
-                                          out_size=1,
-                                          net_struc=self.net_struc_critic).to(self.device)
+            self.critic = nets.LSTM_Double_Critic(state_shape=self.state_shape,
+                                                  action_dim=self.num_actions,
+                                                  use_past_actions=self.use_past_actions).to(self.device)
 
         # Number of parameters for actor and critic
         self.n_params = self._count_params(
@@ -52,9 +51,11 @@ class TD3Agent(DDPGAgent):
             self.critic_optimizer = optim.RMSprop(self.critic.parameters(
             ), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
-    def _compute_target(self, r, s2, d):
+    def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
+
         with torch.no_grad():
-            target_a = self.target_actor(s2)
+            target_a, _ = self.target_actor(
+                s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
 
             # target policy smoothing
             eps = torch.randn_like(target_a) * self.tgt_noise
@@ -62,9 +63,9 @@ class TD3Agent(DDPGAgent):
             target_a += eps
             target_a = torch.clamp(target_a, -1, 1)
 
-            # next Q-estimate
-            Q_next1, Q_next2 = self.target_critic(
-                torch.cat([s2, target_a], dim=1))
+            # Q-value of next state-action pair
+            Q_next1, Q_next2, _ = self.target_critic(
+                s=s2, a=target_a, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
             Q_next = torch.min(Q_next1, Q_next2)
 
             # target
@@ -77,20 +78,20 @@ class TD3Agent(DDPGAgent):
         batch = self.replay_buffer.sample()
 
         # unpack batch
-        s, a, r, s2, d = batch
-        sa = torch.cat([s, a], dim=1)
+        s_hist, a_hist, hist_len, s2_hist, a2_hist, hist_len2, s, a, r, s2, d = batch
 
-        # -------- train critics --------
+        # -------- train critic --------
         # clear gradients
         self.critic_optimizer.zero_grad()
 
         # Q-estimates
-        Q1, Q2 = self.critic(sa)
+        Q1, Q2, critic_net_info = self.critic(
+            s=s, a=a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
 
-        # targets
-        y = self._compute_target(r, s2, d)
+        # calculate targets
+        y = self._compute_target(s2_hist, a2_hist, hist_len2, r, s2, d)
 
-        # loss
+        # calculate loss
         critic_loss = self._compute_loss(Q1, y) + self._compute_loss(Q2, y)
 
         # compute gradients
@@ -107,8 +108,8 @@ class TD3Agent(DDPGAgent):
         self.critic_optimizer.step()
 
         # log critic training
-        self.logger.store(
-            Critic_loss=critic_loss.detach().cpu().numpy().item())
+        self.logger.store(Critic_loss=critic_loss.detach(
+        ).cpu().numpy().item(), **critic_net_info)
         self.logger.store(Q_val=Q1.detach().mean().cpu().numpy().item())
 
         # -------- train actor --------
@@ -122,12 +123,12 @@ class TD3Agent(DDPGAgent):
             self.actor_optimizer.zero_grad()
 
             # get current actions via actor
-            curr_a = self.actor(s)
+            curr_a, act_net_info = self.actor(
+                s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
 
             # compute loss, which is negative Q-values from critic
-            actor_loss = - \
-                self.critic.single_forward(
-                    torch.cat([s, curr_a], dim=1)).mean()
+            actor_loss = -self.critic.single_forward(
+                s=s, a=curr_a, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len).mean()
 
             # compute gradients
             actor_loss.backward()
@@ -147,8 +148,8 @@ class TD3Agent(DDPGAgent):
                 param.requires_grad = True
 
             # log actor training
-            self.logger.store(
-                Actor_loss=actor_loss.detach().cpu().numpy().item())
+            self.logger.store(Actor_loss=actor_loss.detach(
+            ).cpu().numpy().item(), **act_net_info)
 
             # ------- Update target networks -------
             self.polyak_update()

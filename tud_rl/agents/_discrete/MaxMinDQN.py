@@ -1,5 +1,5 @@
 import torch
-from tud_rl.agents.discrete.EnsembleDQN import EnsembleDQNAgent
+from tud_rl.agents._discrete.EnsembleDQN import EnsembleDQNAgent
 
 
 class MaxMinDQNAgent(EnsembleDQNAgent):

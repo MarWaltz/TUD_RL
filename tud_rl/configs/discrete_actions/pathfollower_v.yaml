@@ -40,7 +40,7 @@ seed: 268
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 4
-dqn_weights: /home/niklaspaulig/Dropbox/TU Dresden/candidate_nets/SCDQN_b_PathFollower-v0_5000-k-pretrained_2022-04-05_91980/SCDQN_b_weights.pth
+dqn_weights: /home/neural/Dropbox/TU Dresden/TUD_RL/experiments/SCDQN_b_PathFollower-v0_oha_2022-04-08_16863/SCDQN_b_weights.pth
 input_norm: false
 input_norm_prior:
 gamma: 0.99
@@ -51,7 +51,7 @@ tgt_update_freq: 1000
 net_struc:
   - - 256
     - relu
-  - - 256
+  - - 128
     - relu
   - identity
 optimizer: Adam

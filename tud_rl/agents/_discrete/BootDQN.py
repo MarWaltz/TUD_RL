@@ -9,7 +9,7 @@ import torch.optim as optim
 import tud_rl.common.buffer as buffer
 import tud_rl.common.nets as nets
 
-from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents._discrete.DQN import DQNAgent
 from tud_rl.agents.base import _BootAgent
 from tud_rl.common.configparser import ConfigFile
 

@@ -1,7 +1,7 @@
 import scipy.stats
 import torch
 import torch.nn as nn
-from tud_rl.agents.discrete.BootDQN import BootDQNAgent
+from tud_rl.agents._discrete.BootDQN import BootDQNAgent
 from tud_rl.common.configparser import ConfigFile
 
 

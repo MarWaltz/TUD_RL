@@ -8,7 +8,7 @@ import torch.optim as optim
 
 import tud_rl.common.nets as nets
 
-from tud_rl.agents.continuous.SAC import SACAgent
+from tud_rl.agents._continuous.SAC import SACAgent
 from tud_rl.common.configparser import ConfigFile
 
 class TQCAgent(SACAgent):

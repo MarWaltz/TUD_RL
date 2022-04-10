@@ -1,3 +1,4 @@
+import copy
 from http.client import ImproperConnectionState
 import random
 import gym
@@ -101,7 +102,7 @@ class PathFollower(gym.Env):
         self.str_vel: np.ndarray = np.array([self.metrics[row][6]
                                              for row, _ in enumerate(self.metrics)])
         self.str_vel = self.str_vel.reshape((-1, self.GRIDPOINTS))
-        self.max_str_vel = np.max(self.str_vel)
+        #self.str_vel = sigmoid(self.str_vel)
         # self.str_vel = np.clip(self.str_vel,0,1)
 
         # Index list of the path to follow
@@ -111,12 +112,13 @@ class PathFollower(gym.Env):
         self.ROUGHNESS: int = 10
 
         # The path_index variable gets filled here.
-        self.path: Dict[str, List[float]] = self.get_river_path(
-            roughness=self.ROUGHNESS)
+        self.path: Dict[str, List[float]] = self.get_river_path()
+        self.red_path: Dict[str, List[float]] = self.smooth(copy.deepcopy(self.path),
+                                                            self.ROUGHNESS, alpha=0.08)
 
         # Plotting offsets for CNN image generation
-        self.lookahead = 100//self.ROUGHNESS
-        self.lookbehind = 100//self.ROUGHNESS
+        self.lookahead = 70
+        self.lookbehind = 70
 
         # Vessel set-up ------------------------------------------------
 
@@ -152,7 +154,7 @@ class PathFollower(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(43207 if CNN else 8,)
+            shape=(43207 if CNN else 49,)
         )
 
         # Set action space according to mode
@@ -177,11 +179,11 @@ class PathFollower(gym.Env):
         def start_y(y): return self.path["y"][y]
 
         self.DIR = random.choice([1, -1])
-        # self.DIR = 1
+        self.DIR = -1
 
         # Index of the current waypoint that is in use. Starts with its starting value
         # self.waypoint_idx = self.STARTIND
-        mid_path_index = len(self.path_index) / self.ROUGHNESS // 2
+        mid_path_index = len(self.path["idx"])//2
         if self.DIR == 1:
             self.waypoint_idx = random.randrange(
                 10,
@@ -189,22 +191,19 @@ class PathFollower(gym.Env):
         elif self.DIR == -1:
             self.waypoint_idx = random.randrange(
                 mid_path_index,
-                len(self.path_index) // self.ROUGHNESS - 10)
+                len(self.path["idx"]) - 100)
 
-        # Construct frames of the input space
-        # in order to build image vectors out of them
-        self.construct_frames()
+        # Get the index of waypoint behind agent
+        self.lwp_idx = self.get_lwp_idx(self.waypoint_idx)
 
         # Last waypoint and next waypoint
-        self.lwp = self.get_wp(self.waypoint_idx)
-        self.nwp = self.get_wp(self.waypoint_idx, 1)
+        self.lwp = self.get_wp(self.lwp_idx)
+        self.nwp = self.get_wp(self.lwp_idx, 1)
 
         # Agent position plus some random noise
         self.agpos = (
-            (start_x(self.waypoint_idx) +
-             start_x(self.waypoint_idx + 1)) / 2 + random.uniform(-50, 50),
-            (start_y(self.waypoint_idx) +
-             start_y(self.waypoint_idx + 1)) / 2 + random.uniform(-50, 50)
+            (start_x(self.waypoint_idx) + random.uniform(-10, 10)),
+            (start_y(self.waypoint_idx) + random.uniform(-10, 10))
         )
 
         # Agent position last timestep
@@ -220,6 +219,10 @@ class PathFollower(gym.Env):
                     -random_angle, random_angle)
 
         self.movement_heading = self.aghead
+        
+        # Construct frames of the input space
+        # in order to build image vectors out of them
+        self.construct_frames()
 
         # Create the vessel obj and place its center at the agent position
         if not TRAIN_ON_TAURUS:
@@ -291,7 +294,7 @@ class PathFollower(gym.Env):
             self.done = True
             u, v, r = 0, 0, 0
 
-        for val, name in zip([u, v, r, self.ivs, self.delta, action, self.timestep],
+        for val, name in zip([u, v, r, self.ivs[:-1], self.delta, action, self.timestep],
                              ["u", "v", "r", "ivs", "delta", "action", "timestep"]):
             self.history.append(val, name)
 
@@ -335,7 +338,7 @@ class PathFollower(gym.Env):
         else:
             self.timestep += 1
 
-        # print(round(reward,2))
+        #print(round(self.curr_str_dir,2))
         return self.state, reward, self.done, {}
 
     def map_action(self, action: int) -> None:
@@ -427,7 +430,7 @@ class PathFollower(gym.Env):
 
         return r_cog*r_dist*r_rot  # + coll
 
-    def get_river_path(self, roughness: int) -> dict:
+    def get_river_path(self) -> dict:
         """Generate the path for the vessel to follow.
         For now this is (approx) the deepest point of the fairway
         for the entire river part
@@ -448,7 +451,8 @@ class PathFollower(gym.Env):
         # Dictionary to hold the path
         path = {
             "x": np.empty(self.wd.shape[0]),
-            "y": np.empty(self.wd.shape[0])
+            "y": np.empty(self.wd.shape[0]),
+            "idx": np.arange(self.wd.shape[0])
         }
 
         # To use only the middle portion of the river
@@ -474,7 +478,7 @@ class PathFollower(gym.Env):
             path["y"][col] = self.ry[col][max_ind]
 
         # Exponential smoothing for coordinates
-        return self.smooth(path, roughness, alpha=0.08)
+        return path
 
     def build_fairway_border(self) -> None:
         """Build a border to port and starboard of the vessel
@@ -539,7 +543,7 @@ class PathFollower(gym.Env):
         Returns:
             dict: same dict but with smoothed coords
         """
-        x, y = path["x"], path["y"]
+        x, y, idx = path["x"], path["y"], path["idx"]
 
         alpha = alpha
         x = self.exponential_smoothing(x, alpha)
@@ -549,8 +553,9 @@ class PathFollower(gym.Env):
         if every_nth > 1:
             x = x[::every_nth]
             y = y[::every_nth]
+            idx = idx[::every_nth]
 
-        path["x"], path["y"] = x, y
+        path["x"], path["y"], path["idx"] = x, y, idx
 
         return path
 
@@ -577,16 +582,30 @@ class PathFollower(gym.Env):
             )
             return np.hstack([img, features])
 
-        return np.hstack(
-            [
-                u/3, v, r/0.01, delta,
-                math.tanh(self.T*self.cte),
-                self.course_error,
-                self.curr_wd - self.vessel["d"],
-                self.DIR,
-                # self.curr_str_vel
-            ]
-        )
+        if self.timestep < 10:
+            return np.hstack(
+                [
+                    u/3, v, r/0.01, delta,
+                    np.zeros(40),
+                    math.tanh(self.T*self.cte),
+                    self.course_error,
+                    self.curr_wd - self.vessel["d"],
+                    self.DIR,
+                    self.rel_current_attack_angle()
+                ]
+            )
+        else:
+            return np.hstack(
+                [
+                    u/3, v, r/0.01, delta,
+                    np.hstack(self.history.ivs),
+                    math.tanh(self.T*self.cte),
+                    self.course_error,
+                    self.curr_wd - self.vessel["d"],
+                    self.DIR,
+                    self.rel_current_attack_angle()
+                ]
+            )
 
     def reset_ivs(self) -> np.ndarray:
 
@@ -619,7 +638,7 @@ class PathFollower(gym.Env):
 
         path_heading = self.path_angle(self.lwp, self.nwp)
         next_heading = self.path_angle(
-            self.nwp, self.get_wp(self.waypoint_idx, 2))
+            self.nwp, self.get_wp(self.lwp_idx, 2))
 
         if path_heading - next_heading <= -math.pi:
             path_heading += 2*math.pi
@@ -775,15 +794,17 @@ class PathFollower(gym.Env):
         Returns:
             float: Desired vessel course in radians
         """
+        # Use 10 waypoints (200m) ahead as anchor
+        ahead = 1
 
-        dbw = self.dist(self.lwp, self.nwp)
+        dbw = self.dist(self.lwp, self.get_wp(self.lwp_idx, ahead))
         dist_to_last = self.dist(self.agpos, self.lwp)
 
         dist_on_wp = math.sqrt(dist_to_last**2 - self.cte**2)
 
         path_heading = self.path_angle(self.lwp, self.nwp)
         next_heading = self.path_angle(
-            self.nwp, self.get_wp(self.waypoint_idx, 2))
+            self.nwp, self.get_wp(self.lwp_idx, ahead + 1))
 
         if path_heading - next_heading <= -math.pi:
             path_heading += 2*math.pi
@@ -809,7 +830,7 @@ class PathFollower(gym.Env):
         # self.waypoint_idx = index of waylpoint astern the vessel
         # self.waypoint_idx + 1 = index of waypoint forward the vessel
         # self.waypoint_idx + 2 = index of waypoint to check
-        to_check = self.get_wp(self.waypoint_idx, 2)
+        to_check = self.get_wp(self.lwp_idx, 2)
 
         dist_to_last = self.dist(self.agpos, self.lwp)
         dist_to_check = self.dist(self.agpos, to_check)
@@ -831,17 +852,17 @@ class PathFollower(gym.Env):
         waypoint to be checked becomes the next waypoint.
         """
 
-        to_check = self.get_wp(self.waypoint_idx, 2)
+        to_check = self.get_wp(self.lwp_idx, 2)
         # Waypoint to check is closer than the old one
         # -> switch waypoints
         self.lwp = self.nwp
         self.nwp = to_check
         if self.DIR == 1:
-            self.waypoint_idx += 1
+            self.lwp_idx += 1
         elif self.DIR == -1:
-            self.waypoint_idx -= 1
+            self.lwp_idx -= 1
 
-    def get_wp(self, index: int, plus_n: int = 0) -> Tuple[float, float]:
+    def get_lwp_idx(self, index: int, plus_n: int = 0) -> Tuple[int]:
         """Get a waypoint based on its index
 
         Args:
@@ -852,12 +873,23 @@ class PathFollower(gym.Env):
         Returns:
             Tuple: x and y coordinates of the waypoint
         """
+        red_indices = self.red_path["idx"]
+        for idx, _ in enumerate(red_indices):
+            if red_indices[idx] > index:
+                if self.DIR == 1:
+                    return idx - 1
+                elif self.DIR == -1:
+                    return idx
+
+    def get_wp(self, index: int, plus_n: int = 0) -> Tuple[float, float]:
+
+        p = self.red_path["idx"]
         if self.DIR == 1:
-            x = self.path["x"][index+plus_n-1]
-            y = self.path["y"][index+plus_n-1]
+            x = self.path["x"][p[index + plus_n]]
+            y = self.path["y"][p[index + plus_n]]
         elif self.DIR == -1:
-            x = self.path["x"][index-plus_n]
-            y = self.path["y"][index-plus_n]
+            x = self.path["x"][p[index - plus_n]]
+            y = self.path["y"][p[index - plus_n]]
 
         return x, y
 
@@ -973,13 +1005,14 @@ class PathFollower(gym.Env):
             float: Mean water depth under vessel
         """
 
-        start_idx = int(self.waypoint_idx * self.ROUGHNESS)
-        width = 6
+        width = 20
+       
+        start_idx = self.path["idx"][self.red_path["idx"][self.lwp_idx]]
+        search_range = np.arange(start_idx-width, start_idx+width+1)
 
         # Shorten the distance function
         d = self.dist
 
-        search_range = np.arange(start_idx-width, start_idx+width+1)
 
         if TRAIN_ON_TAURUS:
             dist = [1000]  # [dist]
@@ -1049,12 +1082,16 @@ class PathFollower(gym.Env):
                 self.ax: plt.Axes = self.fig.add_subplot(1, 1, 1)
 
             self.ax.clear()
-            self.ax.contourf(self.rx_frame, self.ry_frame, self.wd_frame, cmap=cm.ocean)
-            self.ax.quiver(self.rx_frame[::2], self.ry_frame[::2],
-                           self.str_diry_frame[::2], self.str_dirx_frame[::2],
-                           scale=200, headwidth=2)
-            self.ax.plot(self.path_frame[0], self.path_frame[1],
-                         color="red", marker=None)
+            self.ax.contourf(self.rx_frame, self.ry_frame,
+                             self.wd_frame, cmap=cm.ocean)
+            self.ax.quiver(self.rx_frame, self.ry_frame,
+                           self.str_diry_frame, self.str_dirx_frame,
+                           scale=200, headwidth=1.5)
+            self.ax.plot(
+                self.exponential_smoothing(self.path_frame[0],alpha=0.08), 
+                self.exponential_smoothing(self.path_frame[1],alpha=0.08),
+                color="red", 
+                marker=None)
             # self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
             self.ax.plot(self.port_border["x"],
                          self.port_border["y"], color="maroon")
@@ -1085,7 +1122,7 @@ class PathFollower(gym.Env):
             cta = np.round(self.curr_str_dir*180/math.pi, 2)
             cta_patch = Patch(
                 color="white", label=f"Current Attack Angle: {cta}°")
-            
+
             handles.append(speed_count)
             handles.append(wd_below_keel)
             handles.append(cta_patch)
@@ -1242,15 +1279,14 @@ class PathFollower(gym.Env):
                 Any: Object of same type as `obj`
                      but cut according to la and lb
             """
-            r = self.ROUGHNESS
             if not isinstance(obj, dict):
-                wp = (self.waypoint_idx - 1) * r
+                wp = self.path["idx"][self.red_path["idx"][self.lwp_idx]]
                 if self.DIR == 1:
-                    return obj[wp-lb*r:wp+la*r]
+                    return obj[wp-lb:wp+la]
                 else:
-                    return obj[wp-la*r:wp+lb*r]
+                    return obj[wp-la:wp+lb]
             else:
-                wp = self.waypoint_idx - 1
+                wp = self.path["idx"][self.red_path["idx"][self.lwp_idx]]
                 if self.DIR == 1:
                     return (
                         obj["x"][wp-lb:wp+la],
@@ -1379,15 +1415,23 @@ def import_river(path: str) -> Tuple[Dict[str, list], Dict[str, list]]:
     return np.array(data["coords"]), np.array(data["metrics"])
 
 
-def inv_logit(x: float, coef: float = 2) -> float:
-    if x == 1:
-        return 1
-    elif x == 0:
-        return 0
-    return 1/(1+(x/(1-x))**(-coef))
+def sigmoid(x: float) -> float:
+    def inner(x):
+        return 1/(1+np.exp(-x))
+    vec = np.vectorize(inner)
+    return vec(x)
 
 
 class History:
+    
+    u: float
+    v: float
+    r: float
+    delta: float
+    ivs: np.ndarray
+    action: int
+    timestep: int
+    
     def __init__(self) -> None:
         pass
 
@@ -1408,58 +1452,6 @@ class History:
         else:
             raise RuntimeError(
                 "Can only append to 'list' and 'deque', but {} was found".format(type(item)))
-
-
-class ImageBuilder:
-    def __init__(self, wd: np.ndarray, str_vel: np.ndarray, path_index: np.ndarray) -> None:
-
-        self.wd, self.str_vel = wd/np.max(wd), str_vel/np.max(str_vel)
-        self.path_index = path_index
-
-        self.lookahead = 100
-        self.lookbehind = 30
-
-    def get_str_vel(self, curr_idx: int) -> np.ndarray:
-
-        lower = curr_idx - self.lookbehind
-        upper = curr_idx + self.lookahead
-
-        return self.str_vel[lower:upper]
-
-    def get_wd(self, curr_idx: int) -> np.ndarray:
-
-        lower = curr_idx - self.lookbehind
-        upper = curr_idx + self.lookahead
-
-        return self.wd[lower:upper]
-
-    def get_path(self, curr_idx: int) -> np.ndarray:
-
-        lower = curr_idx - self.lookbehind
-        upper = curr_idx + self.lookahead
-
-        # Use any of the two metrics
-        frame = np.zeros_like(self.wd[lower:upper])
-        path_frame = self.path_index[lower:upper]
-
-        # Fill all entries that lie on path with 1
-        for i in range(frame.shape[0]):
-            frame[i][path_frame[i]] = 1
-
-        return frame
-
-    def vizualize(self, frame: np.ndarray) -> None:
-
-        xx, yy = np.meshgrid(
-            np.arange(0, 520, 20),
-            [n*20+1 for n in range(frame.shape[0])]
-        )
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1, 1, 1)
-        ax.imshow(frame, cmap=cm.gray)
-        plt.show()
-
 
 fully_loaded_GMS = {
     "m":        3614.89,  # Displacement

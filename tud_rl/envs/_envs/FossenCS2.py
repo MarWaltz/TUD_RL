@@ -1,8 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
-from tud_rl.envs.FossenFnc import dtr, angle_to_2pi, polar_from_xy
-
+from .FossenFnc import dtr, angle_to_2pi, polar_from_xy
 
 class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 

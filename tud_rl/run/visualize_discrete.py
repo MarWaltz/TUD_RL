@@ -6,13 +6,10 @@ import gym_pygame
 import numpy as np
 import torch
 
-import tud_rl.agents._ddispatch as agents
+import tud_rl.agents.discrete as agents
 
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.envs.MountainCar import MountainCar
-from tud_rl.envs.FossenEnv import *
-from tud_rl.envs.PathFollower import PathFollower
 from tud_rl.wrappers import get_wrapper
 from tud_rl.configs.discrete_actions import __path__ as c_path
 

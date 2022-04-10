@@ -51,7 +51,7 @@ tgt_update_freq: 1000
 net_struc:
   - - 256
     - relu
-  - - 256
+  - - 128
     - relu
   - identity
 optimizer: Adam

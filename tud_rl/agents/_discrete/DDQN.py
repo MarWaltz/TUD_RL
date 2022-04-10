@@ -1,5 +1,5 @@
 import torch
-from tud_rl.agents.discrete.DQN import DQNAgent
+from tud_rl.agents._discrete.DQN import DQNAgent
 from tud_rl.common.configparser import ConfigFile
 
 

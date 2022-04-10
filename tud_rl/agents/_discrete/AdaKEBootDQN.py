@@ -3,7 +3,7 @@ import torch
 
 import tud_rl.common.buffer as buffer
 
-from tud_rl.agents.discrete.KEBootDQN import KEBootDQNAgent
+from tud_rl.agents._discrete.KEBootDQN import KEBootDQNAgent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.helper_fnc import get_MC_ret_from_rew
 from tud_rl.common.logging_func import *
