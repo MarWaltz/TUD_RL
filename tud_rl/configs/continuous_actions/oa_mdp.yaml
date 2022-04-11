@@ -1,0 +1,80 @@
+---
+env:
+  name: ObstacleAvoidance-v0
+  max_episode_steps: 500
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    POMDP_type: MDP
+    frame_stack: 1
+    n_vessels: 12
+    max_temporal_dist: 300
+  info: MDP
+agent:
+  DDPG: {}
+  TD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+  LSTMDDPG:
+    history_length: 2
+    use_past_actions: false
+  LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 2
+    use_past_actions: false
+  SAC:
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  LSTMSAC:
+    history_length: 2
+    use_past_actions: false
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  TQC:
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+    top_qs_to_drop: 10
+    n_qs: 25
+    n_critics: 5
+seed: 12
+timesteps: 15000000
+epoch_length: 5000
+eval_episodes: 10
+actor_weights:
+critic_weights:
+input_norm: false
+input_norm_prior:
+gamma: 0.99
+tau: 0.001
+net_struc_actor:
+- - 256
+  - relu
+- - 256
+  - relu
+- tanh
+net_struc_critic:
+- - 256
+  - relu
+- - 256
+  - relu
+- identity
+optimizer: Adam
+loss: MSELoss
+lr_actor: 0.0001
+lr_critic: 0.0001
+buffer_length: 100000
+grad_clip: false
+grad_rescale: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu
+

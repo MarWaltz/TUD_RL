@@ -1,0 +1,95 @@
+---
+env:
+  name: MyMountainCar-v0
+  max_episode_steps: -1
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    rewardStd: 1
+  info: ''
+agent:
+  DQN: {}
+  DDQN: {}
+  SCDQN_a:
+    sc_beta: 2
+  SCDQN_b:
+    sc_beta: 3
+  SCDQN_c:
+    sc_beta: 4
+  ACCDDQN_a:
+    AC_K: 2
+  ACCDDQN_b:
+    AC_K: 3
+  ACCDDQN_c:
+    AC_K: 4
+  BootDQN:
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_a:
+    kernel: test
+    kernel_param: 0.05
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_b:
+    kernel: test
+    kernel_param: 0.1
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_c:
+    kernel: test
+    kernel_param: 0.15
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_d:
+    kernel: test
+    kernel_param: 0.25
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_e:
+    kernel: gaussian_cdf
+    kernel_param: 1
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  EnsembleDQN:
+    N: 5
+    N_to_update: 1
+  MaxMinDQN:
+    N: 5
+    N_to_update: 1
+seed: 0
+timesteps: 5000000
+epoch_length: 10000
+eval_episodes: 20
+dqn_weights:
+input_norm: false
+input_norm_prior:
+gamma: 0.99
+eps_init: 1
+eps_final: 0.1
+eps_decay_steps: 1000
+tgt_update_freq: 200
+net_struc:
+- - 16
+  - relu
+- - 16
+  - relu
+- identity
+optimizer: Adam
+loss: MSELoss
+lr: 0.0001
+buffer_length: 10000
+grad_rescale: false
+grad_clip: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu
+

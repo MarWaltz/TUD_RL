@@ -1,0 +1,120 @@
+---
+env:
+  name: Freeway-MinAtar-v0
+  max_episode_steps: 2501
+  state_type: image
+  wrappers:
+  - MinAtar_wrapper
+  wrapper_kwargs:
+    MinAtar_wrapper: {}
+  env_kwargs: {}
+  info: ''
+agent:
+  DQN: {}
+  DDQN: {}
+  SCDQN_a:
+    sc_beta: 2
+  SCDQN_b:
+    sc_beta: 3
+  SCDQN_c:
+    sc_beta: 4
+  ACCDDQN_a:
+    AC_K: 2
+  ACCDDQN_b:
+    AC_K: 3
+  ACCDDQN_c:
+    AC_K: 4
+  BootDQN_a:
+    double: true
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  BootDQN_b:
+    double: false
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_a:
+    double:
+    kernel: test
+    kernel_param: 0.1
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_b:
+    double:
+    kernel: test
+    kernel_param: 0.2
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_c:
+    double:
+    kernel: test
+    kernel_param: 0.3
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_d:
+    double:
+    kernel: test
+    kernel_param: 0.4
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_e:
+    double:
+    kernel: gaussian_cdf
+    kernel_param: 1
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  AdaKEBootDQN_a:
+    double:
+    kernel: test
+    kernel_param: 0.25
+    kernel_batch_size: 32
+    kernel_lr: 0.0001
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  AdaKEBootDQN_b:
+    double:
+    kernel: test
+    kernel_param: 0.25
+    kernel_batch_size: 32
+    kernel_lr: 1.0e-05
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  EnsembleDQN:
+    N: 5
+    N_to_update: 1
+  MaxMinDQN:
+    N: 5
+    N_to_update: 1
+seed: 0
+timesteps: 5000000
+epoch_length: 10000
+eval_episodes: 10
+dqn_weights:
+input_norm: false
+input_norm_prior:
+gamma: 0.99
+eps_init: 1
+eps_final: 0.1
+eps_decay_steps: 100000
+tgt_update_freq: 1000
+net_struc:
+optimizer: Adam
+loss: MSELoss
+lr: 0.0001
+buffer_length: 100000
+grad_rescale: false
+grad_clip: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu
+

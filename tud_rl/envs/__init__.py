@@ -19,7 +19,7 @@ logger.info("--- Loading Environments: ---")
 for filename in _ENVS:
     module = import_module("tud_rl.envs._envs." + filename)
     for name, obj in inspect.getmembers(module):
-        if inspect.isclass(obj):
-            logger.info("Loading {} from {}.".format(name,obj))
+        if inspect.isclass(obj) and all(hasattr(obj, a) for a in ["reset", "step"]):
             cls_ = getattr(module, name)
+            logger.info("Loading {} from {}.".format(name, obj))
             setattr(__currentmodule__, name, cls_)
