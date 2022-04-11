@@ -1,5 +1,4 @@
 import copy
-from http.client import ImproperConnectionState
 import random
 import gym
 import csv
@@ -126,7 +125,7 @@ class PathFollower(gym.Env):
         self.delta = 0.0
 
         # Propeller revolutions [s⁻¹]
-        self.nps = 5.0
+        self.nps = 7.0
 
         # Overall vessel speed [m/s]
         self.speed = 0
@@ -219,7 +218,7 @@ class PathFollower(gym.Env):
                     -random_angle, random_angle)
 
         self.movement_heading = self.aghead
-        
+
         # Construct frames of the input space
         # in order to build image vectors out of them
         self.construct_frames()
@@ -338,7 +337,7 @@ class PathFollower(gym.Env):
         else:
             self.timestep += 1
 
-        #print(round(self.curr_str_dir,2))
+        # print(round(self.curr_str_dir,2))
         return self.state, reward, self.done, {}
 
     def map_action(self, action: int) -> None:
@@ -402,6 +401,7 @@ class PathFollower(gym.Env):
 
         k_rot = 100
         r_rot = math.exp(-k_rot * abs(self.history.r[-1]))
+        print(np.round(max(self.history.r), 4))
 
         # Hyperparameter controling the steepness
         # of the exponentiated cross track error
@@ -1006,13 +1006,12 @@ class PathFollower(gym.Env):
         """
 
         width = 20
-       
+
         start_idx = self.path["idx"][self.red_path["idx"][self.lwp_idx]]
         search_range = np.arange(start_idx-width, start_idx+width+1)
 
         # Shorten the distance function
         d = self.dist
-
 
         if TRAIN_ON_TAURUS:
             dist = [1000]  # [dist]
@@ -1088,9 +1087,9 @@ class PathFollower(gym.Env):
                            self.str_diry_frame, self.str_dirx_frame,
                            scale=200, headwidth=1.5)
             self.ax.plot(
-                self.exponential_smoothing(self.path_frame[0],alpha=0.08), 
-                self.exponential_smoothing(self.path_frame[1],alpha=0.08),
-                color="red", 
+                self.exponential_smoothing(self.path_frame[0], alpha=0.08),
+                self.exponential_smoothing(self.path_frame[1], alpha=0.08),
+                color="red",
                 marker=None)
             # self.ax.plot(*self.agpos, color="yellow", marker="o", lw=15)
             self.ax.plot(self.port_border["x"],
@@ -1423,7 +1422,7 @@ def sigmoid(x: float) -> float:
 
 
 class History:
-    
+
     u: float
     v: float
     r: float
@@ -1431,7 +1430,7 @@ class History:
     ivs: np.ndarray
     action: int
     timestep: int
-    
+
     def __init__(self) -> None:
         pass
 
@@ -1452,6 +1451,7 @@ class History:
         else:
             raise RuntimeError(
                 "Can only append to 'list' and 'deque', but {} was found".format(type(item)))
+
 
 fully_loaded_GMS = {
     "m":        3614.89,  # Displacement
