@@ -7,7 +7,6 @@ import yaml
 import json
 
 
-
 class ConfigFile:
     """Configuration class for storing the parsed 
     yaml config file.
@@ -43,6 +42,9 @@ class ConfigFile:
     img_height: Optional[int]
     img_width: Optional[int]
     dqn_weights: Optional[str]
+    ensemble_weight_folder: Optional[str]
+    accddqn_weight_1: Optional[str]
+    accddqn_weight_2: Optional[str]
     gamma: float
     eps_init: float
     eps_final: float
@@ -70,7 +72,7 @@ class ConfigFile:
         state_type: str
         env_kwargs: Dict[str, Any]
         info: str
-    
+
     class Agent:
         pass
 
@@ -140,19 +142,19 @@ class ConfigFile:
             setattr(self, key, self.Agent)
             for key, val in d.items():
                 setattr(self.Agent, key, val)
-                
+
     def overwrite(self, **kwargs) -> None:
-        
+
         for key, val in kwargs.items():
-            if hasattr(self,key):
-                setattr(self,key,val)
+            if hasattr(self, key):
+                setattr(self, key, val)
             else:
                 logger.warning(
                     f"Overwrite: `{type(self).__name__}` has "
                     f"no attribute `{key}`. "
                     "Skipping..."
                 )
-        
+
     def max_episode_handler(self) -> None:
         if self.Env.max_episode_steps == -1:
             self.Env.max_episode_steps = np.inf

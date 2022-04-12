@@ -236,11 +236,11 @@ def save_weights(agent: _Agent) -> None:
     # Save both nets of the ACCDDQN
     if "ACCDDQN" in agent.name:
         torch.save(agent.DQN_A.state_dict(),
-                   f"{agent.logger.output_dir}/{agent.name}_weights_A.pth")
+                   f"{agent.logger.output_dir}/{agent.name}_A_weights.pth")
         torch.save(agent.DQN_B.state_dict(),
-                   f"{agent.logger.output_dir}/{agent.name}_weights_B.pth")
+                   f"{agent.logger.output_dir}/{agent.name}_B_weights.pth")
 
-    if ["Ensemble", "MaxMin"] in agent.name:
+    if any(w in agent.name for w in ["Ensemble", "MaxMin"]):
         for idx, net in enumerate(agent.EnsembleDQN):
             torch.save(net.state_dict(),
                        f"{agent.logger.output_dir}/{agent.name}_weights_{idx}.pth")

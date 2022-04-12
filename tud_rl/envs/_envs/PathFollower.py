@@ -12,7 +12,6 @@ from gym import spaces
 
 from matplotlib.figure import Figure
 from matplotlib import cm, transforms
-from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle, Patch
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
@@ -59,7 +58,7 @@ class PathFollower(gym.Env):
         self.T = 0.01
 
         # Rudder increment/decrement per action [deg]
-        self.RUDDER_INCR: int = 5
+        self.RUDDER_INCR: int = 1
         self.MAX_RUDDER: int = 20
 
         # Minimum water under keel [m]
@@ -178,7 +177,7 @@ class PathFollower(gym.Env):
         def start_y(y): return self.path["y"][y]
 
         self.DIR = random.choice([1, -1])
-        self.DIR = -1
+        self.DIR = 1
 
         # Index of the current waypoint that is in use. Starts with its starting value
         # self.waypoint_idx = self.STARTIND

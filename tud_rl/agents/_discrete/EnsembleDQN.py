@@ -11,6 +11,7 @@ from tud_rl.agents._discrete.DQN import DQNAgent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import *
 
+
 class EnsembleDQNAgent(DQNAgent):
     def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name)
@@ -18,6 +19,8 @@ class EnsembleDQNAgent(DQNAgent):
         # attributes and hyperparameters
         self.N = getattr(c.Agent, agent_name)["N"]
         self.N_to_update = getattr(c.Agent, agent_name)["N_to_update"]
+        if hasattr(c, "ensemble_weight_folder"):
+            self.ensemble_weight_folder = c.ensemble_weight_folder
 
         # init EnsembleDQN
         del self.DQN
