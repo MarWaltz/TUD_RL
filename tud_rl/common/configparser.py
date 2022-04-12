@@ -96,6 +96,11 @@ class ConfigFile:
     def overwrite(self, **kwargs) -> None:
 
         for key, val in kwargs.items():
+
+            # overwrite config_dict for logging
+            self.config_dict[key] = val
+
+            # set attribute for easy access
             if hasattr(self, key):
                 setattr(self, key, val)
             else:

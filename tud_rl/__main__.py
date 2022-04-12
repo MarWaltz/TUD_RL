@@ -13,12 +13,11 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 # OVERRIDE parser values. This enables you to run the `tud_rl`
 # package from this file in an IDE without the command line
 TASK = "train"
-CONFIG_FILE = "asterix.yaml"
+CONFIG_FILE = "asterix.json"
 SEED = 123
-AGENT_NAME = "DQN"
+AGENT_NAME = "KEBootDQN_a"
 
-
-# Initialize parser
+# initialize parser
 parser = ArgumentParser()
 
 parser.add_argument(
@@ -43,15 +42,14 @@ agent_name = args.agent_name
 if args.agent_name[-1].islower():
     agent_name = args.agent_name[:-2]
 
-# Check if supplied agent name
-# matches any available agents.
+# check if supplied agent name matches any available agents
 validate_agent(agent_name)
 
-# Get the configuration file path depending on the chosen mode
+# get the configuration file path depending on the chosen mode
 base_path = discr_path[0] if is_discrete(agent_name) else cont_path[0]
 config_path = f"{base_path}/{args.config_file}"
 
-# Parse the config file
+# parse the config file
 config = ConfigFile(config_path)
 
 # potentially overwrite seed
