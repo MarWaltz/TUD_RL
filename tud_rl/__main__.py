@@ -15,7 +15,7 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 MODE = "train"
 CONFIG_FILE = "pathfollower.yaml"
 SEED = 123
-AGENT_NAME = "SCDlllQN_b"
+AGENT_NAME = "SCDQN_b"
 
 
 # Initialize parser
@@ -39,20 +39,20 @@ base_agent = args.agent_name
 if args.agent_name[-1].islower():
     base_agent = args.agent_name[:-2]
 
-# Check if supplied agent name 
+# Check if supplied agent name
 # matches any available agents.
 validate_agent(base_agent)
 
 # Get the configurarion file path depending on the chosen mode
-base_path = cont_path[0] if args.mode == "cont" else discr_path[0]
-config_path = base_path + "/" + args.config_file
+base_path = discr_path[0] if is_discrete(base_agent) else cont_path[0]
+config_path = f"{base_path}/{args.config_file}"
 
 # Parse the config file
 config = ConfigFile(config_path)
 
 # potentially overwrite seed
 if args.seed is not None:
-    config.overwrite(seed = args.seed)
+    config.overwrite(seed=args.seed)
 
 # handle maximum episode steps
 config.max_episode_handler()
