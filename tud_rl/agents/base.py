@@ -11,7 +11,7 @@ from tud_rl.common.nets import (
 )
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import EpochLogger
@@ -60,7 +60,17 @@ class _Agent(ABC):
     state_shape: Optional[Tuple]
     num_actions: Optional[int]
 
+    # Single net
     DQN: Optional[Net]
+
+    # Two nets
+    DQN_A: Optional[Net]
+    DQN_B: Optional[Net]
+
+    # List of nets
+    EnsembleDQN: List[Net]
+
+    # Actor and critic
     actor: Optional[Actor]
     critic: Optional[Critic]
 
