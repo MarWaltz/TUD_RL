@@ -12,11 +12,11 @@ from gym import spaces
 
 from matplotlib.figure import Figure
 from matplotlib import cm, transforms
+from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle, Patch
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-from mmgdynamics.calibrated_vessels import kvlcc2, seiunmaru
-from mmgdynamics.dynamics import calibrate
+from mmgdynamics.calibrated_vessels import kvlcc2, seiunmaru, GMS1
 
 from getpass import getuser
 from collections import deque
@@ -101,7 +101,7 @@ class PathFollower(gym.Env):
         self.str_vel: np.ndarray = np.array([self.metrics[row][6]
                                              for row, _ in enumerate(self.metrics)])
         self.str_vel = self.str_vel.reshape((-1, self.GRIDPOINTS))
-        #self.str_vel = sigmoid(self.str_vel)
+        self.str_vel /= np.max(self.str_vel)
         # self.str_vel = np.clip(self.str_vel,0,1)
 
         # Index list of the path to follow
@@ -125,7 +125,7 @@ class PathFollower(gym.Env):
         self.delta = 0.0
 
         # Propeller revolutions [s⁻¹]
-        self.nps = 7.0
+        self.nps = 5.0
 
         # Overall vessel speed [m/s]
         self.speed = 0
@@ -401,7 +401,6 @@ class PathFollower(gym.Env):
 
         k_rot = 100
         r_rot = math.exp(-k_rot * abs(self.history.r[-1]))
-        print(np.round(max(self.history.r), 4))
 
         # Hyperparameter controling the steepness
         # of the exponentiated cross track error
@@ -412,7 +411,7 @@ class PathFollower(gym.Env):
         k_head = 10
         r_ang = math.exp(-k_head * abs(self.course_error))
 
-        return r_cte + r_ang + border  # + r_rot
+        return r_cte + r_ang + r_rot + border
 
     def calculate_reward2(self) -> None:
 
@@ -1083,9 +1082,10 @@ class PathFollower(gym.Env):
             self.ax.clear()
             self.ax.contourf(self.rx_frame, self.ry_frame,
                              self.wd_frame, cmap=cm.ocean)
-            self.ax.quiver(self.rx_frame, self.ry_frame,
-                           self.str_diry_frame, self.str_dirx_frame,
-                           scale=200, headwidth=1.5)
+            self.ax.quiver(self.rx_frame[::2, ::2], self.ry_frame[::2, ::2],
+                           self.str_diry_frame[::2,
+                                               ::2], self.str_dirx_frame[::2, ::2],
+                           scale=200, headwidth=2)
             self.ax.plot(
                 self.exponential_smoothing(self.path_frame[0], alpha=0.08),
                 self.exponential_smoothing(self.path_frame[1], alpha=0.08),
@@ -1100,15 +1100,15 @@ class PathFollower(gym.Env):
             self.ax.arrow(
                 *self.draw_heading(self.aghead, len=100),
                 color="yellow", width=5,
-                label=f"Vessel Heading: {np.round(self.aghead*180/math.pi,2)}°")
+                label=f"Vessel Heading: {round(float(self.aghead)*180/math.pi,2)}°")
             self.ax.arrow(
                 *self.draw_heading(self.dc),
                 color="green", width=5,
-                label=f"Desired Heading: {np.round(self.dc*180/math.pi,2)}°")
+                label=f"Desired Heading: {round(float(self.dc)*180/math.pi,2)}°")
             self.ax.arrow(
                 *self.draw_heading(self.movement_heading),
                 color="orange", width=5,
-                label=f"Movement Heading: {np.round(self.movement_heading*180/math.pi,2)}°")
+                label=f"Movement Heading: {round(float(self.movement_heading)*180/math.pi,2)}°")
 
             self.ax.add_patch(self.vessel_rect)
 
@@ -1121,16 +1121,20 @@ class PathFollower(gym.Env):
             cta = np.round(self.curr_str_dir*180/math.pi, 2)
             cta_patch = Patch(
                 color="white", label=f"Current Attack Angle: {cta}°")
+            delta = round(float(self.delta*180/math.pi), 2)
+            delta_patch = Patch(
+                color="white", label=f"Rudder Angle: {delta}°")
 
             handles.append(speed_count)
             handles.append(wd_below_keel)
             handles.append(cta_patch)
+            handles.append(delta_patch)
             self.ax.legend(handles=handles)
             self.ax.set_facecolor("#363a47")
 
             zoom = 800
             self.ax.set_xlim(self.agpos[0] - zoom *
-                             1.5, self.agpos[0] + zoom*1.5)
+                             1.6, self.agpos[0] + zoom*1.6)
             self.ax.set_ylim(self.agpos[1] - zoom, self.agpos[1] + zoom)
 
             plt.pause(0.001)
@@ -1414,11 +1418,8 @@ def import_river(path: str) -> Tuple[Dict[str, list], Dict[str, list]]:
     return np.array(data["coords"]), np.array(data["metrics"])
 
 
-def sigmoid(x: float) -> float:
-    def inner(x):
-        return 1/(1+np.exp(-x))
-    vec = np.vectorize(inner)
-    return vec(x)
+def to01(x: float) -> float:
+    return np.arctan(x)/(math.pi/2)
 
 
 class History:
@@ -1453,18 +1454,18 @@ class History:
                 "Can only append to 'list' and 'deque', but {} was found".format(type(item)))
 
 
-fully_loaded_GMS = {
-    "m":        3614.89,  # Displacement
-    "d":        3.1891,  # Draft
+europaschiff = {
+    "m":        1012.2972,  # Displacement
+    "d":        1.531,  # Draft
     "A_R":      5.29,  # Rudder Area
-    "B":        11.45,  # Width
-    "Lpp":      110,  # Length
-    "C_b":      0.8,  # Block coefficient
+    "B":        9.5,  # Width
+    "Lpp":      80,  # Length
+    "C_b":      0.82,  # Block coefficient
     "t_P":      0.2,  # Thrust deduction factor
     "D_p":      1.751,  # Propeller diameter
     "eta":      0.960,  # Ratio of propeller diameter to rudder span
     "w_P0":     0.4,  # Wake fraction coefficient
-    "f_alpha":  2.45  # Rudder lift gradient coefficient
+    "f_alpha":  1.88  # Rudder lift gradient coefficient
 }
 
 GMS = {
@@ -1494,7 +1495,7 @@ if __name__ == "__main__":
     rangeq = 2000
     ac = [2, 2] + [0] * 1998
     for i in range(rangeq):
-        s2, r, d, _ = p.step(0)
+        s2, r, d, _ = p.step(ac[i])
         p.render()
         # p.plot_img(p.img())
         # p.img_from_state()
