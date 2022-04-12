@@ -14,9 +14,9 @@ def validate_agent(agent: str) -> None:
     """
     
     if agent not in _CAGENTS and agent not in _DAGENTS:
-        logger.error(f"`{agent}` did not match any  of the "
+        logger.error(f"`{agent}` did not match any of the "
                      "available agents.\nAvailable Agents:\n"
-            f"{_CAGENTS}\n{_DAGENTS}"
+                     f"{_CAGENTS}\n{_DAGENTS}"
         )
         raise AgentNotFoundError
 

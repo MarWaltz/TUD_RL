@@ -218,11 +218,24 @@ def train(c: ConfigFile, agent_name: str):
                 info=c.Env.info)
 
             # save weights
-            if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
-                torch.save(agent.DQN.state_dict(),
-                           f"{agent.logger.output_dir}/{agent.name}_weights.pth")
+            save_weights(agent)
 
             # save input normalizer values
             if c.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
+
+
+def save_weights(agent: _Agent) -> None:
+
+    # Save weights for agents that require a single net
+    if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
+        torch.save(agent.DQN.state_dict(),
+                   f"{agent.logger.output_dir}/{agent.name}_weights.pth")
+
+    # Save both nets of the ACCDDQN
+    if agent.name == "ACCDDQN":
+        torch.save(agent.DQN_A.state_dict(),
+                   f"{agent.logger.output_dir}/{agent.name}_weights_A.pth")
+        torch.save(agent.DQN_B.state_dict(),
+                   f"{agent.logger.output_dir}/{agent.name}_weights_B.pth")
