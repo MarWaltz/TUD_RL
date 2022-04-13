@@ -13,9 +13,9 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 # OVERRIDE parser values. This enables you to run the `tud_rl`
 # package from this file in an IDE without the command line
 TASK = "train"
-CONFIG_FILE = "FossenEnv.json"
+CONFIG_FILE = "invdoupen_rv.yaml"
 SEED = 123
-AGENT_NAME = "DDQN"
+AGENT_NAME = "DDPG"
 
 # initialize parser
 parser = ArgumentParser()

@@ -27,6 +27,11 @@ gym.register(
     entry_point=loc + "FossenEnvScenarioOne"
 )
 
+gym.register(
+    id="PathFollower-v0",
+    entry_point=loc + "PathFollower"
+)
+
 # Initialize logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
