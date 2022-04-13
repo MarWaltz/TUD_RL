@@ -13,9 +13,9 @@ class RecDQNAgent(DDQNAgent):
 
         # Note: Since the 'dqn_weights' in the config-file wouldn't fit the plain DQN,
         #       we need to artificially provide a 'None' entry for them and set the mode to 'train'.
-        c_cpy = copy.copy(c)
-        c_cpy.dqn_weights = None
-        c_cpy.mode = "train"
+        c_cpy = copy.deepcopy(c)
+        c_cpy.overwrite(dqn_weights=None)
+        c_cpy.overwrite(mode="train")
 
         # now we can instantiate the parent class and correct the overwritten information, rest as usual
         super().__init__(c_cpy, agent_name)

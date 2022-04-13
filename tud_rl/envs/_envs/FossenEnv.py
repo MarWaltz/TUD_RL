@@ -18,26 +18,38 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs=3, N_TSs_random=True, cnt_approach="tau", state_pad=np.nan):
+    def __init__(self, N_TSs_max=3, N_TSs_random=True, cnt_approach="tau", state_design="RecDQN"):
         super().__init__()
 
         # simulation settings
-        self.delta_t         = 0.5              # simulation time interval (in s)
-        self.N_max           = 200              # maximum N-coordinate (in m)
-        self.E_max           = 200              # maximum E-coordinate (in m)
+        self.delta_t      = 0.5                        # simulation time interval (in s)
+        self.N_max        = 200                        # maximum N-coordinate (in m)
+        self.E_max        = 200                        # maximum E-coordinate (in m)
         
-        self.N_TSs           = N_TSs            # number of other vessels
-        self.N_TSs_random    = N_TSs_random     # if true, samples a random number in [0, N_TSs] at start of each episode
-        self.N_TSs_max       = N_TSs
+        self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
+        self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
+                                                       # if false, always have N_TSs_max
 
-        self.sight           = self.N_max/2     # sight of the agent (in m)
-        self.TCPA_crit       = 120              # critical TCPA (in s), relevant for state and spawning of TSs
-        self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
-        self.state_pad       = state_pad        # value to pad the states with (np.nan for RecDQN, 0.0 else)
-        self.goal_reach_dist = self.N_max/5     # euclidean distance (in m) at which goal is considered as reached 
+        self.sight        = self.N_max/2               # sight of the agent (in m)
+        self.TCPA_crit    = 120                        # critical TCPA (in s), relevant for state and spawning of TSs
+        self.cnt_approach = cnt_approach               # whether to control actuator forces or rudder angle and rps directly
+
+        assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
+        self.state_design = state_design
+
+        self.goal_reach_dist = 10                         # euclidean distance (in m) at which goal is considered as reached
+        self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
+
+        self.num_obs_OS = 7                               # number of observations for the OS
+        self.num_obs_TS = 5                               # number of observations per TS
 
         # gym definitions
-        obs_size = 7 + self.N_TSs_max * 6
+        if state_design == "RecDQN":
+            obs_size = self.num_obs_OS + self.N_TSs_max * self.num_obs_TS
+
+        elif state_design == "maxRisk":
+            obs_size = self.num_obs_OS + self.num_obs_TS
+        
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -68,7 +80,6 @@ class FossenEnv(gym.Env):
         sit_init = np.random.choice([0, 1, 2, 3])
 
         # init goal
-        #self.goal = {"N" : np.random.uniform(self.N_max - 25, self.N_max), "E" : np.random.uniform(self.E_max - 25, self.E_max)}
         if sit_init == 0:
             self.goal = {"N" : 0.2 * self.N_max, "E" : 0.2 * self.E_max}
             N_init = 0.8 * self.N_max
@@ -113,6 +124,8 @@ class FossenEnv(gym.Env):
         # init other vessels
         if self.N_TSs_random:
             self.N_TSs = np.random.choice(self.N_TSs_max + 1)
+        else:
+            self.N_TSs = self.N_TSs_max
 
         self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
 
@@ -349,15 +362,12 @@ class FossenEnv(gym.Env):
             relative bearing
             ED_goal
         
-        Dynamic obstacle (for each, sorted by TCPA):
-            ED_TS
+        Dynamic obstacle:
+            ED_TS / Ship domain (= riskRatio)
             relative bearing
             heading intersection angle C_T
             speed (V)
             COLREG mode TS (sigma_TS)
-            Inside ship domain (bool)
-        
-        Note: Everything is normalized. If a TS is outside the ship domain, everything for this TS is set 0 or na, respectively.
         """
 
         # quick access for OS
@@ -381,17 +391,15 @@ class FossenEnv(gym.Env):
 
         for TS_idx, TS in enumerate(self.TSs):
 
-            N, E, headTS = TS.eta               # N, E, heading
-            #chiTS = TS._get_course()            # course angle (heading + sideslip)
-            #VTS   = TS._get_V()                 # aggregated velocity
+            N, E, headTS = TS.eta
 
             # consider TS if it is in sight
             ED_OS_TS = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True)
 
             if ED_OS_TS <= self.sight:
 
-                # euclidean distance
-                ED_TS = ED_OS_TS / self.E_max
+                # risk-ratio: euclidean distance / ship domain
+                riskRatio = ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS)
 
                 # relative bearing
                 bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0) / (2*np.pi)
@@ -405,27 +413,37 @@ class FossenEnv(gym.Env):
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
 
-                # inside ship domain
-                domain = self._get_ship_domain(OS=self.OS, TS=TS)
-                inside_domain = 1.0 if ED_OS_TS <= domain else 0.0
-
-                # TCPA
-                #TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS) / self.TCPA_crit
-
                 # store it
-                state_TSs.append([ED_TS, bng_rel_TS, C_TS, V_TS, sigma_TS, inside_domain])
+                state_TSs.append([riskRatio, bng_rel_TS, C_TS, V_TS, sigma_TS])
 
-        # create dummy state if no TS is in sight
+        # no TS is in sight
         if len(state_TSs) == 0:
-            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs_max, dtype=np.float32)
 
-        # otherwise sort according to descending ED
+            if self.state_design == "RecDQN":
+                state_TSs = np.array([np.nan] * self.num_obs_TS * self.N_TSs_max, dtype=np.float32)
+            
+            elif self.state_design == "maxRisk":
+                state_TSs = np.array([0.0] * self.num_obs_TS, dtype=np.float32)
+
+        # at least one TS in sight
         else:
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True))
-            state_TSs = state_TSs.flatten(order="C")
 
-            # pad nan or zeroes at the right side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (0, self.N_TSs_max * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
+            # sort according to descending riskRatio
+            state_TSs = sorted(state_TSs, key=lambda x: x[0], reverse=True)
+
+            if self.state_design == "RecDQN":
+
+                # keep everything, pad nans at the right side to guarantee state size is always identical
+                state_TSs = np.array(state_TSs).flatten(order="C")
+
+                desired_length = self.num_obs_TS * self.N_TSs_max
+                state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
+                    'constant', constant_values=np.nan).astype(np.float32)
+
+            elif self.state_design == "maxRisk":
+
+                # select only highest risk TS
+                state_TSs = np.array(state_TSs[-1])
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])
@@ -483,38 +501,40 @@ class FossenEnv(gym.Env):
 
         assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
 
-        # 1) leaving of simulation area
-        if TS._is_off_map():
-            
-            if respawn:
-                return self._get_TS(), True
-            
-            elif mirrow:
-                # quick access
-                psi = TS.eta[2]
+        # check whether spawning is still considered
+        if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) > self.stop_spawn_dist:
 
-                # right or left bound (E-axis)
-                if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
-                    TS.eta[2] = 2*np.pi - psi
+            # 1) leaving of simulation area
+            if TS._is_off_map():
                 
-                # upper and lower bound (N-axis)
-                else:
-                    TS.eta[2] = np.pi - psi
-            
-            elif clip:
-                TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
-                TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
+                if respawn:
+                    return self._get_TS(), True
+                
+                elif mirrow:
+                    # quick access
+                    psi = TS.eta[2]
 
-            return TS, False
-        
-        # 2) too far away from agent
-        else:
-            TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
-                           chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
-            
-            if TCPA_TS < -0.25*self.TCPA_crit or TCPA_TS > 1.5*self.TCPA_crit:
-                return self._get_TS(), True
+                    # right or left bound (E-axis)
+                    if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
+                        TS.eta[2] = 2*np.pi - psi
+                    
+                    # upper and lower bound (N-axis)
+                    else:
+                        TS.eta[2] = np.pi - psi
+                
+                elif clip:
+                    TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
+                    TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
 
+                return TS, False
+            
+            # 2) too far away from agent
+            else:
+                TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
+                            chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+                
+                if TCPA_TS < -0.25*self.TCPA_crit or TCPA_TS > 1.5*self.TCPA_crit:
+                    return self._get_TS(), True
         return TS, False
 
 
@@ -810,6 +830,9 @@ class FossenEnv(gym.Env):
                             r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
                             horizontalalignment='center', verticalalignment='center', color='blue')
                 circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+                ax.add_patch(circ)
+
+                circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=5*self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
                 ax.add_patch(circ)
 
                 # set other vessels

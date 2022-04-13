@@ -1,12 +1,12 @@
 {
    "env":
    {
-      "name"              : "FossenEnv-v0",
-      "max_episode_steps" : 1000,
+      "name"              : "FossenEnvSingleScene-v0",
+      "max_episode_steps" : 500,
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"N_TSs" : 1, "N_TSs_random" : false, "state_pad" : 0.0},
+      "env_kwargs"        : {"scene" : 0, "state_design" : "RecDQN"},
       "info"              : ""
    }
    ,

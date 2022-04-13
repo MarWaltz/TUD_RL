@@ -23,9 +23,14 @@ gym.register(
     entry_point=loc + "FossenEnv"
 )
 gym.register(
-    id="FossenEnvScenarioOne-v0",
-    entry_point=loc + "FossenEnvScenarioOne"
+    id="FossenEnvStarScene-v0",
+    entry_point=loc + "FossenEnvStarScene"
 )
+gym.register(
+    id="FossenEnvSingleScene-v0",
+    entry_point=loc + "FossenEnvSingleScene"
+)
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)

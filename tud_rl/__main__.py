@@ -14,7 +14,7 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 # package from this file in an IDE without the command line
 TASK = "train"
 CONFIG_FILE = "FossenEnvRecDQN.json"
-SEED = 1230
+SEED = 130
 AGENT_NAME = "RecDQN"
 DQN_WEIGHTS = None
 
@@ -22,23 +22,23 @@ DQN_WEIGHTS = None
 parser = ArgumentParser()
 
 parser.add_argument(
-    "-t", "--task", type=str, default=None, choices=["train", "viz"],
+    "-t", "--task", type=str, default=TASK, choices=["train", "viz"],
     help="Agent task. Use `train` for training and `viz` for visualization")
 
 parser.add_argument(
-    "-c", "--config_file", type=str, default=None,
+    "-c", "--config_file", type=str, default=CONFIG_FILE,
     help="Name of configuration file with file extension.")
 
 parser.add_argument(
-    "-s", "--seed", type=int, default=None,
+    "-s", "--seed", type=int, default=SEED,
     help="Random number generator seed.")
 
 parser.add_argument(
-    "-a", "--agent_name", type=str, default=None,
+    "-a", "--agent_name", type=str, default=AGENT_NAME,
     help="Agent from config for training. Example: `DQN` or `KEBootDQN_b`.")
 
 parser.add_argument(
-    "-w", "--dqn_weights", type=str, default=None,
+    "-w", "--dqn_weights", type=str, default=DQN_WEIGHTS,
     help="Weights for visualization. Example: `dqn_weights.pth`.")
 
 args = parser.parse_args()
@@ -58,8 +58,8 @@ config_path = f"{base_path}/{args.config_file}"
 config = ConfigFile(config_path)
 
 # potentially overwrite seed
-if SEED is not None:
-    config.overwrite(seed=SEED)
+if args.seed is not None:
+    config.overwrite(seed=args.seed)
 
 # consider weights
 if args.dqn_weights is not None:
