@@ -18,14 +18,19 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs=5, cnt_approach="tau", state_pad=np.nan):
+    def __init__(self, N_TSs=3, N_TSs_random=True, cnt_approach="tau", state_pad=np.nan):
         super().__init__()
 
         # simulation settings
         self.delta_t         = 0.5              # simulation time interval (in s)
         self.N_max           = 200              # maximum N-coordinate (in m)
         self.E_max           = 200              # maximum E-coordinate (in m)
+        
         self.N_TSs           = N_TSs            # number of other vessels
+        self.N_TSs_random    = N_TSs_random     # if true, samples a random number in [0, N_TSs] at start of each episode
+        if N_TSs_random:
+            self.N_TSs_max = N_TSs
+
         self.sight           = self.N_max/2     # sight of the agent (in m)
         self.TCPA_crit       = 120              # critical TCPA (in s), relevant for state and spawning of TSs
         self.cnt_approach    = cnt_approach     # whether to control actuator forces or rudder angle and rps directly
@@ -107,6 +112,9 @@ class FossenEnv(gym.Env):
         self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.tau_u)
 
         # init other vessels
+        if self.N_TSs_random:
+            self.N_TSs = np.random.choice(self.N_TSs_max + 1)
+
         self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
 
         # determine current COLREG situations
@@ -354,7 +362,7 @@ class FossenEnv(gym.Env):
         """
 
         # quick access for OS
-        N0, E0, head0 = self.OS.eta             # N, E, heading
+        N0, E0, head0 = self.OS.eta              # N, E, heading
         #chiOS = self.OS._get_course()           # course angle (heading + sideslip)
         #VOS = self.OS._get_V()                  # aggregated velocity
 
@@ -757,83 +765,88 @@ class FossenEnv(gym.Env):
                 self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
                 self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
                 self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
+
+                self.fig2 = plt.figure(figsize=(10,7))
+                self.fig2_ax = self.fig2.add_subplot(111)
+
                 plt.ion()
                 plt.show()
             
             # ------------------------------ ship movement --------------------------------
-            # clear prior axes, set limits and add labels and title
-            self.ax0.clear()
-            self.ax0.set_xlim(-5, self.E_max + 5)
-            self.ax0.set_ylim(-5, self.N_max + 5)
-            self.ax0.set_xlabel("East")
-            self.ax0.set_ylabel("North")
+            for ax in [self.ax0, self.fig2_ax]:
+                # clear prior axes, set limits and add labels and title
+                ax.clear()
+                ax.set_xlim(-5, self.E_max + 5)
+                ax.set_ylim(-5, self.N_max + 5)
+                ax.set_xlabel("East")
+                ax.set_ylabel("North")
 
-            # set OS
-            N0, E0, head0 = self.OS.eta          # N, E, heading
-            chiOS = self.OS._get_course()        # course angle (heading + sideslip)
-            VOS = self.OS._get_V()               # aggregated velocity
-            
-            self.ax0.text(-2, self.N_max - 12.5, self.__str__(), fontsize=8)
-            
-            rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
-                                  linewidth=1, edgecolor='red', facecolor='none')
-            self.ax0.add_patch(rect)
+                # set OS
+                N0, E0, head0 = self.OS.eta          # N, E, heading
+                chiOS = self.OS._get_course()        # course angle (heading + sideslip)
+                VOS = self.OS._get_V()               # aggregated velocity
+                
+                ax.text(-2, self.N_max - 12.5, self.__str__(), fontsize=8)
+                
+                rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
+                                    linewidth=1, edgecolor='black', facecolor='none')
+                ax.add_patch(rect)
 
-            # connect OS and goal for spawning insights
-            #self.ax0 = self._plot_jet(axis=self.ax0, E=E0, N=N0, l=ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]),\
-            #    angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
+                # connect OS and goal for spawning insights
+                #self.ax0 = self._plot_jet(axis=self.ax0, E=E0, N=N0, l=ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]),\
+                #    angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
 
-            # add jets according to COLREGS
-            for COLREG_deg in [5, 355]:
-                self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-                                          angle = head0 + dtr(COLREG_deg), color='red', alpha=0.3)
-
-            #for COLREG_deg in [67.5, 175, 185, 292.5]:
-            #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-            #                              angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
-
-            # set goal (stored as NE)
-            self.ax0.scatter(self.goal["E"], self.goal["N"], color="blue")
-            self.ax0.text(self.goal["E"], self.goal["N"] + 2,
-                          r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
-                          horizontalalignment='center', verticalalignment='center', color='blue')
-            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-            self.ax0.add_patch(circ)
-
-            # set other vessels
-            for TS in self.TSs:
-
-                N, E, headTS = TS.eta               # N, E, heading
-                chiTS = TS._get_course()            # course angle (heading + sideslip)
-                VTS = TS._get_V()                   # aggregated velocity
-
-                # determine color according to COLREG scenario
-                COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
-                col = COLREG_COLORS[COLREG]
-
-                # vessel
-                rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
-                                      linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
-                self.ax0.add_patch(rect)
-
-                # add two jets according to COLREGS
+                # add jets according to COLREGS
                 for COLREG_deg in [5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E, N=N, l = self.sight, 
-                                              angle = headTS + dtr(COLREG_deg), color=col, alpha=0.75)
+                    ax = self._plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
+                                        angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
 
-                # TCPA
-                TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                self.ax0.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
-                              horizontalalignment='center', verticalalignment='center', color=col)
+                #for COLREG_deg in [67.5, 175, 185, 292.5]:
+                #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
+                #                              angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
-                # ship domain around OS
-                domain = self._get_ship_domain(OS=self.OS, TS=TS)
-                circ = patches.Circle((E0, N0), radius=domain, edgecolor=col, facecolor='none', alpha=0.3)
-                self.ax0.add_patch(circ)
+                # set goal (stored as NE)
+                ax.scatter(self.goal["E"], self.goal["N"], color="blue")
+                ax.text(self.goal["E"], self.goal["N"] + 2,
+                            r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
+                            horizontalalignment='center', verticalalignment='center', color='blue')
+                circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+                ax.add_patch(circ)
 
-            # set legend for COLREGS
-            self.ax0.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
-                            loc='lower center', bbox_to_anchor=(0.75, 1.0), fancybox=False, shadow=False, ncol=5).get_frame().set_linewidth(0.0)
+                # set other vessels
+                for TS in self.TSs:
+
+                    N, E, headTS = TS.eta               # N, E, heading
+                    chiTS = TS._get_course()            # course angle (heading + sideslip)
+                    VTS = TS._get_V()                   # aggregated velocity
+
+                    # determine color according to COLREG scenario
+                    COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
+                    col = COLREG_COLORS[COLREG]
+
+                    # vessel
+                    rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
+                                        linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
+                    ax.add_patch(rect)
+
+                    # add two jets according to COLREGS
+                    for COLREG_deg in [5, 355]:
+                        ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
+                                           angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
+
+                    # TCPA
+                    TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+                    ax.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
+                                horizontalalignment='center', verticalalignment='center', color=col)
+
+                    # ship domain around OS
+                    domain = self._get_ship_domain(OS=self.OS, TS=TS)
+                    circ = patches.Circle((E0, N0), radius=domain, edgecolor=col, facecolor='none', alpha=0.3)
+                    ax.add_patch(circ)
+
+                # set legend for COLREGS
+                ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
+                                loc='lower center', bbox_to_anchor=(0.75, 1.0), fancybox=False, shadow=False, ncol=5).get_frame().set_linewidth(0.0)
 
 
             # ------------------------------ reward plot --------------------------------
@@ -875,20 +888,18 @@ class FossenEnv(gym.Env):
                 self.ax2.old_state = self.state_init
 
             self.ax2.set_xlim(0, self._max_episode_steps)
-            #self.ax2.set_ylim(-1, 1.1)
             self.ax2.set_xlabel("Timestep in episode")
             self.ax2.set_ylabel("State information")
 
             for i in range(7):
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
-                               label=self.state_names[i])          
+                               label=self.state_names[i])    
             if self.step_cnt == 0:
                 self.ax2.legend()
 
             self.ax2.old_time = self.step_cnt
             self.ax2.old_state = self.state
-
 
             # ------------------------------ action plot --------------------------------
             if self.step_cnt == 0:

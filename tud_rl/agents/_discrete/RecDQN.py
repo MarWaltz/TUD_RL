@@ -32,8 +32,7 @@ class RecDQNAgent(DDQNAgent):
 
         # init DQN
         if self.state_type == "feature":
-            self.DQN = nets.RecDQN(num_actions = self.num_actions,
-                                   N_TSs       = c.Env.env_kwargs["N_Ts"]).to(self.device)
+            self.DQN = nets.RecDQN(num_actions = self.num_actions).to(self.device)
 
         # number of parameters in net
         self.n_params = self._count_params(self.DQN)
