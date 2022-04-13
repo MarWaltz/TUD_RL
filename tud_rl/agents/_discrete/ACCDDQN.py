@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import tud_rl.common.nets as nets
-from tud_rl import logger
 from tud_rl.agents._discrete.DQN import DQNAgent
 from tud_rl.common.configparser import ConfigFile
 
@@ -15,10 +14,6 @@ class ACCDDQNAgent(DQNAgent):
 
         # attributes and hyperparameters
         self.AC_K = getattr(c.Agent, agent_name)["AC_K"]
-
-        if all(hasattr(c, weight) for weight in ["accddqn_weight_1", "accddqn_weight_2"]):
-            self.accddqn_weight_1 = c.accddqn_weight_1
-            self.accddqn_weight_2 = c.accddqn_weight_2
 
         # checks
         assert self.AC_K <= self.num_actions, "ACC-K cannot exceed number of actions."
@@ -41,13 +36,8 @@ class ACCDDQNAgent(DQNAgent):
         self.n_params = self._count_params(self.DQN_A)
 
         # prior weights
-        if self.accddqn_weight_1 is not None and self.accddqn_weight_2 is not None:
-            self.DQN_A.load_state_dict(torch.load(self.accddqn_weight_1, map_location=self.device))
-            self.DQN_B.load_state_dict(torch.load(self.accddqn_weight_2, map_location=self.device))
-
-        elif self.accddqn_weight_1 is None or self.accddqn_weight_2 is None:
-            logger.error("Weight loading failed. ACCDDQN Agent needs two nets to be loaded.")
-            raise Exception
+        if self.dqn_weights is not None:
+            raise NotImplementedError("Weight loading for AC_CDDQN is not implemented yet.")
 
         #  optimizer
         del self.DQN_optimizer

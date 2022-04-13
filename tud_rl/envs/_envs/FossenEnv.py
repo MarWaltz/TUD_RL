@@ -28,8 +28,7 @@ class FossenEnv(gym.Env):
         
         self.N_TSs           = N_TSs            # number of other vessels
         self.N_TSs_random    = N_TSs_random     # if true, samples a random number in [0, N_TSs] at start of each episode
-        if N_TSs_random:
-            self.N_TSs_max = N_TSs
+        self.N_TSs_max       = N_TSs
 
         self.sight           = self.N_max/2     # sight of the agent (in m)
         self.TCPA_crit       = 120              # critical TCPA (in s), relevant for state and spawning of TSs
@@ -38,7 +37,7 @@ class FossenEnv(gym.Env):
         self.goal_reach_dist = self.N_max/5     # euclidean distance (in m) at which goal is considered as reached 
 
         # gym definitions
-        obs_size = 7 + self.N_TSs * 6
+        obs_size = 7 + self.N_TSs_max * 6
         self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                              high = np.full(obs_size,  np.inf, dtype=np.float32))
         
@@ -418,7 +417,7 @@ class FossenEnv(gym.Env):
 
         # create dummy state if no TS is in sight
         if len(state_TSs) == 0:
-            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs, dtype=np.float32)
+            state_TSs = np.array([self.state_pad] * 6 * self.N_TSs_max, dtype=np.float32)
 
         # otherwise sort according to descending ED
         else:
@@ -426,7 +425,7 @@ class FossenEnv(gym.Env):
             state_TSs = state_TSs.flatten(order="C")
 
             # pad nan or zeroes at the right side to guarantee state size is always identical
-            state_TSs = np.pad(state_TSs, (0, self.N_TSs * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
+            state_TSs = np.pad(state_TSs, (0, self.N_TSs_max * 6 - len(state_TSs)), 'constant', constant_values=self.state_pad).astype(np.float32)
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])

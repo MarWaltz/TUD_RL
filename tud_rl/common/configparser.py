@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import numpy as np
 import yaml
@@ -15,13 +15,7 @@ class ConfigFile:
 
     """
     class Env:
-        name: str
-        wrappers: List[str]
-        wrapper_kwargs: Dict[str, Any]
-        max_episode_steps: int
-        state_type: str
-        env_kwargs: Dict[str, Any]
-        info: str
+        pass
 
     class Agent:
         pass
@@ -73,44 +67,41 @@ class ConfigFile:
         ]:
             file[key] = int(file[key])
 
-        # handle maximum episode steps
-        if file["env"]["max_episode_steps"] == -1:
-            file["env"]["max_episode_steps"] = np.inf
-        else:
-            file["env"]["max_episode_steps"] = int(
-                file["env"]["max_episode_steps"])
+        file["env"]["max_episode_steps"] = int(file["env"]["max_episode_steps"])
 
         return file
 
     def _set_subclass(self, key: str, d: Dict[str, Any]) -> None:
 
         if key == "env":
-            setattr(self, key, self.Env)
-            for key, val in d.items():
-                setattr(self.Env, key, val)
+            for key_sub, val in d.items():
+                setattr(self.Env, key_sub, val)
+
         elif key == "agent":
-            setattr(self, key, self.Agent)
-            for key, val in d.items():
-                setattr(self.Agent, key, val)
+            for key_sub, val in d.items():
+                setattr(self.Agent, key_sub, val)
 
     def overwrite(self, **kwargs) -> None:
 
         for key, val in kwargs.items():
 
-            # overwrite config_dict for logging
-            self.config_dict[key] = val
-
-            # set attribute for easy access
             if hasattr(self, key):
+
+                # overwrite config_dict for logging
+                self.config_dict[key] = val
+
+                # set attribute for easy access
                 setattr(self, key, val)
+
             else:
-                logger.warning(
+                logger.error(
                     f"Overwrite: `{type(self).__name__}` has "
                     f"no attribute `{key}`. "
                     "Skipping..."
                 )
+                raise AttributeError
 
     def max_episode_handler(self) -> None:
         if self.Env.max_episode_steps == -1:
             self.Env.max_episode_steps = np.inf
-            logger.debug("Max episode steps set to `Inf`.")
+            logger.info("Max episode steps set to `Inf`.")

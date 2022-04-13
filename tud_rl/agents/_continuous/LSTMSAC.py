@@ -1,6 +1,5 @@
 import copy
 import math
-import warnings
 
 import torch
 import torch.nn as nn
@@ -8,6 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tud_rl.common.buffer as buffer
 import tud_rl.common.nets as nets
+from tud_rl import logger
 from tud_rl.agents.base import BaseAgent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.normalizer import Action_Normalizer
@@ -42,7 +42,7 @@ class LSTMSACAgent(BaseAgent):
             raise Exception("Currently, image input is not supported for continuous action spaces.")
 
         if self.net_struc_actor is not None or self.net_struc_critic is not None:
-            warnings.warn("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            logger.info("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
         # dynamic or static temperature
         if self.temp_tuning:
