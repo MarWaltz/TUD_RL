@@ -21,7 +21,7 @@ class BootDQNAgent(DQNAgent):
         self.mask_p       = getattr(c.Agent, agent_name)["mask_p"]
         self.grad_rescale = getattr(c.Agent, agent_name)["grad_rescale"]
         
-        c.config_dict["grad_rescale"] = self.grad_rescale   # for correct logging
+        c.overwrite(grad_rescale=self.grad_rescale)      # for correct logging
 
         # checks
         assert self.state_type == "image", "Currently, BootDQN is only available with 'image' input."

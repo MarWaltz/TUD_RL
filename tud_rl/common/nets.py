@@ -608,17 +608,18 @@ class RecDQN(nn.Module):
     """Defines an LSTM-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
     
-    def __init__(self, num_actions, N_TSs) -> None:
+    def __init__(self, num_actions, num_obs_OS=7, num_obs_TS=6) -> None:
         super(RecDQN, self).__init__()
 
         self.num_actions = num_actions
-        self.N_TSs = N_TSs
+        self.num_obs_OS  = num_obs_OS
+        self.num_obs_TS  = num_obs_TS
 
         # own ship and goal related features
-        self.dense1 = nn.Linear(7, 128)
+        self.dense1 = nn.Linear(num_obs_OS, 128)
 
         # features for other vessels
-        self.LSTM   = nn.LSTM(input_size = 6, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.LSTM   = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
         self.dense2 = nn.Linear(128, 128)
 
         # post combination
@@ -628,7 +629,7 @@ class RecDQN(nn.Module):
 
     def forward(self, s) -> tuple:
         """s is a torch tensor. Shape:
-        s:       torch.Size([batch_size, 7 + 6 * N_TSs])
+        s:       torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
 
         returns: torch.Size([batch_size, num_actions])
         
@@ -649,12 +650,18 @@ class RecDQN(nn.Module):
 
         # -------------------------------- preprocessing ----------------------------------------
         # extract OS and TS states
-        s_OS = s[:, :7]                         # torch.Size([batch_size, 7])
-        
-        if self.N_TSs > 0:
+        s_OS = s[:, :self.num_obs_OS]                         # torch.Size([batch_size, num_obs_OS])
+        s_TS = s[:, self.num_obs_OS:]
 
-            s_TS = s[:, 7:]
-            s_TS = s_TS.view(-1, self.N_TSs, 6)     # torch.Size([batch_size, N_TSs, 6])
+        # check whether there are any relevant TS
+        TS_there = torch.any(torch.logical_not(torch.isnan(s_TS))).item()
+
+        # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selction or training
+        first_dim = s_TS.shape[0]
+
+        if TS_there:
+
+            s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
             # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 
             # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
@@ -673,7 +680,7 @@ class RecDQN(nn.Module):
         # process OS
         x_OS = F.relu(self.dense1(s_OS))
        
-        if self.N_TSs > 0:
+        if TS_there:
 
             # process TS
             x_TS, (_, _) = self.LSTM(s_TS)

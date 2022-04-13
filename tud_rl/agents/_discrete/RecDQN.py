@@ -1,9 +1,9 @@
 import copy
-import warnings
 
 import torch
 import torch.optim as optim
 import tud_rl.common.nets as nets
+from tud_rl import logger
 from tud_rl.agents._discrete.DDQN import DDQNAgent
 from tud_rl.common.configparser import ConfigFile
 
@@ -28,12 +28,11 @@ class RecDQNAgent(DDQNAgent):
         assert self.state_type == "feature", "RecDQN is currently based on features."
 
         if self.net_struc is not None:
-            warnings.warn("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            logger.info("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
         # init DQN
         if self.state_type == "feature":
-            self.DQN = nets.RecDQN(num_actions = self.num_actions,
-                                   N_TSs       = c.Env.env_kwargs["N_Ts"]).to(self.device)
+            self.DQN = nets.RecDQN(num_actions = self.num_actions).to(self.device)
 
         # number of parameters in net
         self.n_params = self._count_params(self.DQN)
