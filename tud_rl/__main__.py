@@ -10,35 +10,27 @@ from tud_rl.agents import validate_agent, is_discrete
 from tud_rl.configs.continuous_actions import __path__ as cont_path
 from tud_rl.configs.discrete_actions import __path__ as discr_path
 
-# OVERRIDE parser values. This enables you to run the `tud_rl`
-# package from this file in an IDE without the command line
-TASK = "train"
-CONFIG_FILE = "FossenEnvRecDQN.json"
-SEED = 130
-AGENT_NAME = "RecDQN"
-DQN_WEIGHTS = None
-
 # initialize parser
 parser = ArgumentParser()
 
 parser.add_argument(
-    "-t", "--task", type=str, default=TASK, choices=["train", "viz"],
+    "-t", "--task", type=str, default=None, choices=["train", "viz"],
     help="Agent task. Use `train` for training and `viz` for visualization")
 
 parser.add_argument(
-    "-c", "--config_file", type=str, default=CONFIG_FILE,
+    "-c", "--config_file", type=str, default=None,
     help="Name of configuration file with file extension.")
 
 parser.add_argument(
-    "-s", "--seed", type=int, default=SEED,
+    "-s", "--seed", type=int, default=None,
     help="Random number generator seed.")
 
 parser.add_argument(
-    "-a", "--agent_name", type=str, default=AGENT_NAME,
+    "-a", "--agent_name", type=str, default=None,
     help="Agent from config for training. Example: `DQN` or `KEBootDQN_b`.")
 
 parser.add_argument(
-    "-w", "--dqn_weights", type=str, default=DQN_WEIGHTS,
+    "-w", "--dqn_weights", type=str, default=None,
     help="Weights for visualization. Example: `dqn_weights.pth`.")
 
 args = parser.parse_args()
