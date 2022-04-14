@@ -3,3 +3,4 @@
 *.egg-info/
 **train_discrete_bias.py
 **visualize_scenario_one.py
+**PathFollower.py
