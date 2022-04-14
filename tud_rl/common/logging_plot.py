@@ -72,4 +72,4 @@ def plot_from_progress(dir, alg, env_str, info=None):
     
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")
-    plt.close()
+    plt.close("all")

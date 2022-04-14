@@ -608,7 +608,7 @@ class RecDQN(nn.Module):
     """Defines an LSTM-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
     
-    def __init__(self, num_actions, num_obs_OS=7, num_obs_TS=5) -> None:
+    def __init__(self, num_actions, num_obs_OS=7, num_obs_TS=6) -> None:
         super(RecDQN, self).__init__()
 
         self.num_actions = num_actions
@@ -654,7 +654,7 @@ class RecDQN(nn.Module):
         s_TS = s[:, self.num_obs_OS:]
 
         # check whether there are any relevant TS
-        TS_there = torch.any(torch.logical_not(torch.isnan(s_TS))).item()
+        TS_there = True if s_TS.shape[1] != 0 else False
 
         # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selction or training
         first_dim = s_TS.shape[0]

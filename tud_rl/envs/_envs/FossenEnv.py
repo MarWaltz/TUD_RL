@@ -30,9 +30,10 @@ class FossenEnv(gym.Env):
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
 
-        self.sight        = self.N_max/2               # sight of the agent (in m)
-        self.TCPA_crit    = 120                        # critical TCPA (in s), relevant for state and spawning of TSs
-        self.cnt_approach = cnt_approach               # whether to control actuator forces or rudder angle and rps directly
+        self.sight             = self.N_max/2          # sight of the agent (in m)
+        self.TCPA_crit         = 200                   # critical TCPA (in s), relevant for state and spawning of TSs
+        self.min_dist_spawn_TS = 20                    # minimum distance of a spawning vessel to other TSs (in m)
+        self.cnt_approach      = cnt_approach          # whether to control actuator forces or rudder angle and rps directly
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
@@ -41,7 +42,7 @@ class FossenEnv(gym.Env):
         self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
 
         self.num_obs_OS = 7                               # number of observations for the OS
-        self.num_obs_TS = 5                               # number of observations per TS
+        self.num_obs_TS = 6                               # number of observations per TS
 
         # gym definitions
         if state_design == "RecDQN":
@@ -127,7 +128,10 @@ class FossenEnv(gym.Env):
         else:
             self.N_TSs = self.N_TSs_max
 
-        self.TSs = [self._get_TS() for _ in range(self.N_TSs)]
+        # no list comprehension since we need access to previously spawned TS
+        self.TSs = []
+        for _ in range(self.N_TSs):
+            self.TSs.append(self._get_TS())
 
         # determine current COLREG situations
         self.TS_COLREGs = [0] * self.N_TSs
@@ -140,140 +144,52 @@ class FossenEnv(gym.Env):
         return self.state
 
 
-    def _get_TS(self, spawn_mode="line"):
+    def _get_TS(self):
         """Places a target ship by sampling a 
             1) COLREG situation,
             2) TCPA (in s, or setting to 60s),
-            3) DCPA (in m, or setting to 0m),
-            4) relative bearing (in rad), 
-            5) intersection angle (in rad),
-            6) and a forward thrust (tau-u in N).
+            3) relative bearing (in rad), 
+            4) intersection angle (in rad),
+            5) and a forward thrust (tau-u in N).
 
         Procedure is simplified if control approach is not 'tau'. 
 
-        Args:
-            spawn_mode (str) : Either 'line' or 'front'. For 'line', the TSs spawn on the hypothetical direct path between OS and goal.
-                               For 'front', the TSs spawn in front of the OS, depending on its current heading.
         Returns: 
             CyberShipII."""
-        
-        assert spawn_mode in ["line", "front"], "Unknown spawn mode for target ships."
 
-        # init a CSII
-        TS = CyberShipII(N_init       = np.random.uniform(self.N_max / 5, self.N_max), 
-                         E_init       = np.random.uniform(self.E_max / 5, self.E_max), 
-                         psi_init     = np.random.uniform(0, 2*np.pi),
-                         u_init       = 0.0,
-                         v_init       = 0.0,
-                         r_init       = 0.0,
-                         delta_t      = self.delta_t,
-                         N_max        = self.N_max,
-                         E_max        = self.E_max,
-                         cnt_approach = self.cnt_approach,
-                         tau_u        = np.random.uniform(0, 5))
+        while True:
 
-        # predict converged speed of sampled TS
-        # Note: if we don't do this, all further calculations are heavily biased
-        TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
+            # init a CSII
+            TS = CyberShipII(N_init       = np.random.uniform(self.N_max / 5, self.N_max), 
+                             E_init       = np.random.uniform(self.E_max / 5, self.E_max), 
+                             psi_init     = np.random.uniform(0, 2*np.pi),
+                             u_init       = 0.0,
+                             v_init       = 0.0,
+                             r_init       = 0.0,
+                             delta_t      = self.delta_t,
+                             N_max        = self.N_max,
+                             E_max        = self.E_max,
+                             cnt_approach = self.cnt_approach,
+                             tau_u        = np.random.uniform(1, 5))
 
-        if self.cnt_approach != "tau":
-            return TS
+            # predict converged speed of sampled TS
+            # Note: if we don't do this, all further calculations are heavily biased
+            TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
 
-        # quick access for OS
-        N0, E0, head0 = self.OS.eta
-        chiOS = self.OS._get_course()
-        VOS   = self.OS._get_V()
+            if self.cnt_approach != "tau":
+                return TS
 
-        # sample COLREG situation (null = 0, head-on = 1, starboard crossing = 2, portside crossing = 3, overtaking = 4)
-        COLREG_s = random.choice([1, 2, 3, 4])
+            # quick access for OS
+            N0, E0, _ = self.OS.eta
+            chiOS = self.OS._get_course()
+            VOS   = self.OS._get_V()
 
-        # stop in null case
-        if COLREG_s == 0:
-            return TS
+            # sample COLREG situation (head-on = 1, starboard crossing = 2, portside crossing = 3, overtaking = 4)
+            COLREG_s = random.choice([1, 2, 3, 4])
 
-        #--------------------------------------- front mode --------------------------------------
-        if spawn_mode == "front":
+            #--------------------------------------- line mode --------------------------------------
 
-            # set DCPA
-            DCPA_s = 0
-
-            # forecast position of OS if it keeps course (heading + sideslip) and speed (u and v combined)
-            E_OS_tcpa0 = E0 + VOS * np.sin(chiOS) * self.TCPA_crit
-            N_OS_tcpa0 = N0 + VOS * np.cos(chiOS) * self.TCPA_crit
-
-            # head-on, crossings
-            if COLREG_s in [1, 2, 3]:
-
-                # sample relative bearing and intersection angle
-                # head-on
-                if COLREG_s == 1:
-                    bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
-                    C_TS_s    = dtr(np.random.uniform(175, 185))
-
-                # starboard crossing
-                elif COLREG_s == 2:
-                    bng_rel_s = dtr(np.random.uniform(5, 112.5))
-                    C_TS_s    = dtr(np.random.uniform(185, 292.5))
-
-                # portside crossing
-                elif COLREG_s == 3:
-                    bng_rel_s = dtr(np.random.uniform(247.5, 355))
-                    C_TS_s    = dtr(np.random.uniform(67.5, 175))
-
-                # determine absolute bearing and TS heading
-                bng_abs_s = angle_to_2pi(bng_rel_s + head0)
-                head_TS_s = angle_to_2pi(C_TS_s + head0)
-
-                # calculate position of TS for TCPA = 0
-                E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
-                N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
-
-                # no further constraints on velocity
-                VTS = TS.nu[0]
-
-            # overtaking
-            elif COLREG_s == 4:
-
-                # sample intersection angle and determine heading of TS
-                C_TS_s    = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
-                head_TS_s = angle_to_2pi(C_TS_s + head0)
-
-                # sample relative bearing from OS perspective
-                bng_rel_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)) - head0 + head_TS_s)
-
-                # determine absolute bearing
-                bng_abs_s = angle_to_2pi(bng_rel_s + head0)
-
-                # calculate position of TS for TCPA = 0
-                E_TS_tcpa0 = E_OS_tcpa0 + DCPA_s * np.sin(bng_abs_s)
-                N_TS_tcpa0 = N_OS_tcpa0 + DCPA_s * np.cos(bng_abs_s)
-
-                # intersection angle under consideration of sideslip
-                C_T_side = head_inter(head_OS = self.OS._get_course(), head_TS = TS._get_course())
-
-                # velocity of OS in TS's direction should be larger than the one of TS
-                VOS = self.OS._get_V()
-                VTS = np.random.uniform(0, VOS * np.cos(C_T_side))
-                TS.nu[0] = VTS
-
-                # set tau_u of TS so that it will keep this velocity
-                TS.tau_u = TS._tau_u_from_u(VTS)
-                TS._set_tau()
-
-            # backtrace original position of TS
-            E_TS = E_TS_tcpa0 - VTS * np.sin(head_TS_s) * self.TCPA_crit
-            N_TS = N_TS_tcpa0 - VTS * np.cos(head_TS_s) * self.TCPA_crit
-
-            # set positional values
-            TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
-
-            return TS
-
-
-        #--------------------------------------- line mode --------------------------------------
-        elif spawn_mode == "line":
-
-        	# determine relative speed of OS towards goal, need absolute bearing first
+            # determine relative speed of OS towards goal, need absolute bearing first
             bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
             # project VOS vector on relative velocity direction
@@ -333,8 +249,15 @@ class FossenEnv(gym.Env):
 
             # set positional values
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+            
+            # check whether samples TS spawnes not too close to other TS to constitute realistic setups
+            if len(self.TSs) == 0:
+                break
 
-            return TS
+            if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs]) >= self.min_dist_spawn_TS:
+                break
+
+        return TS
 
 
     def _set_COLREGs(self):
@@ -364,6 +287,7 @@ class FossenEnv(gym.Env):
         
         Dynamic obstacle:
             ED_TS / Ship domain (= riskRatio)
+            ED_TS
             relative bearing
             heading intersection angle C_T
             speed (V)
@@ -401,6 +325,9 @@ class FossenEnv(gym.Env):
                 # risk-ratio: euclidean distance / ship domain
                 riskRatio = ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS)
 
+                # euclidean distance
+                ED_OS_TS_norm = ED_OS_TS / self.E_max
+
                 # relative bearing
                 bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0) / (2*np.pi)
 
@@ -414,7 +341,7 @@ class FossenEnv(gym.Env):
                 sigma_TS = self.TS_COLREGs[TS_idx]
 
                 # store it
-                state_TSs.append([riskRatio, bng_rel_TS, C_TS, V_TS, sigma_TS])
+                state_TSs.append([riskRatio, ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS])
 
         # no TS is in sight
         if len(state_TSs) == 0:
@@ -533,7 +460,7 @@ class FossenEnv(gym.Env):
                 TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
                             chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
                 
-                if TCPA_TS < -0.25*self.TCPA_crit or TCPA_TS > 1.5*self.TCPA_crit:
+                if TCPA_TS < -0.1*self.TCPA_crit or TCPA_TS > 1.25*self.TCPA_crit:
                     return self._get_TS(), True
         return TS, False
 
