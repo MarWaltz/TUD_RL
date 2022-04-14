@@ -59,15 +59,15 @@ class DQNAgent(BaseAgent):
 
         # number of parameters of net
         self.n_params = self._count_params(self.DQN)
-        
+
         # load prior weights if available
         if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights))
+            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
         # init target net and counter for target update
         self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
         self.tgt_up_cnt = 0
-        
+
         # freeze target nets with respect to optimizers to avoid unnecessary computations
         for p in self.target_DQN.parameters():
             p.requires_grad = False
@@ -78,11 +78,9 @@ class DQNAgent(BaseAgent):
         else:
             self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
-
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
-
 
     @torch.no_grad()
     def select_action(self, s):
@@ -98,12 +96,11 @@ class DQNAgent(BaseAgent):
         # random
         if np.random.binomial(1, curr_epsilon) == 1:
             a = np.random.randint(low=0, high=self.num_actions, size=1, dtype=int).item()
-            
+
         # greedy
         else:
             a = self._greedy_action(s)
         return a
-
 
     @torch.no_grad()
     def _greedy_action(self, s, with_Q=False):
@@ -127,14 +124,12 @@ class DQNAgent(BaseAgent):
             return a, q[0][a].item()
         return a
 
-
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
             Q_next = self.target_DQN(s2)
             Q_next = torch.max(Q_next, dim=1).values.reshape(self.batch_size, 1)
             y = r + self.gamma * Q_next * (1 - d)
         return y
-
 
     def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
@@ -143,28 +138,27 @@ class DQNAgent(BaseAgent):
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
 
-
     def train(self):
         # sample batch
         batch = self.replay_buffer.sample()
-        
+
         # unpack batch
         s, a, r, s2, d = batch
 
-        #-------- train DQN --------
+        # -------- train DQN --------
         # clear gradients
         self.DQN_optimizer.zero_grad()
-        
+
         # Q estimates
         Q = self.DQN(s)
         Q = torch.gather(input=Q, dim=1, index=a)
- 
+
         # targets
         y = self._compute_target(r, s2, d)
 
         # loss
         loss = self._compute_loss(Q=Q, y=y)
-        
+
         # compute gradients
         loss.backward()
 
@@ -174,17 +168,16 @@ class DQNAgent(BaseAgent):
                 p.grad *= 1 / math.sqrt(2)
         if self.grad_clip:
             nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
-        
+
         # perform optimizing step
         self.DQN_optimizer.step()
-        
+
         # log critic training
         self.logger.store(Loss=loss.detach().cpu().numpy().item())
         self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
 
-        #------- Update target networks -------
+        # ------- Update target networks -------
         self._target_update()
-    
 
     @torch.no_grad()
     def _target_update(self):

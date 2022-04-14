@@ -32,19 +32,19 @@ class RecDQNAgent(DDQNAgent):
 
         # init DQN
         if self.state_type == "feature":
-            self.DQN = nets.RecDQN(num_actions = self.num_actions).to(self.device)
+            self.DQN = nets.RecDQN(num_actions=self.num_actions).to(self.device)
 
         # number of parameters in net
         self.n_params = self._count_params(self.DQN)
-        
+
         # load prior weights if available
         if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights))
+            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
         # init target net and counter for target update
         self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
         self.tgt_up_cnt = 0
-        
+
         # freeze target nets with respect to optimizers to avoid unnecessary computations
         for p in self.target_DQN.parameters():
             p.requires_grad = False

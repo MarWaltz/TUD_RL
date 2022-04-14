@@ -20,12 +20,12 @@ class BootDQNAgent(DQNAgent):
         self.K            = getattr(c.Agent, agent_name)["K"]
         self.mask_p       = getattr(c.Agent, agent_name)["mask_p"]
         self.grad_rescale = getattr(c.Agent, agent_name)["grad_rescale"]
-        
+
         c.overwrite(grad_rescale=self.grad_rescale)      # for correct logging
 
         # checks
         assert self.state_type == "image", "Currently, BootDQN is only available with 'image' input."
-       
+
         # replay buffer with masks
         if self.mode == "train":
             self.replay_buffer = buffer.UniformReplayBuffer_BootDQN(state_type    = self.state_type, 
@@ -48,12 +48,12 @@ class BootDQNAgent(DQNAgent):
 
         # prior weights
         if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights))
+            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
         # target net and counter for target update
         self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
         self.tgt_up_cnt = 0
-        
+
         # freeze target nets with respect to optimizers to avoid unnecessary computations
         for p in self.target_DQN.parameters():
             p.requires_grad = False
@@ -63,14 +63,12 @@ class BootDQNAgent(DQNAgent):
             self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
         else:
             self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
-        
+
         # init active head
         self.reset_active_head()
 
-
     def reset_active_head(self):
         self.active_head = np.random.choice(self.K)
-
 
     @torch.no_grad()
     def select_action(self, s):
@@ -83,12 +81,11 @@ class BootDQNAgent(DQNAgent):
         # single vote
         if self.mode == "train":
             a = self._greedy_action(s, self.active_head)
-        
+
         # majority vote
         else:
             a = self._greedy_action(s)
         return a
-
 
     @torch.no_grad()
     def _greedy_action(self, s, active_head=None, with_Q=False):
@@ -119,7 +116,7 @@ class BootDQNAgent(DQNAgent):
             # choose majority vote
             actions = Counter(actions)
             a = actions.most_common(1)[0][0]
-   
+
         else:
             # forward
             q = self.DQN(s, active_head)
@@ -131,19 +128,18 @@ class BootDQNAgent(DQNAgent):
                 return a, q[0][a].item()
         return a
 
-
     def train(self):
-        """Samples from replay_buffer, updates critic and the target networks."""        
+        """Samples from replay_buffer, updates critic and the target networks."""
         # sample batch
         batch = self.replay_buffer.sample()
-        
+
         # unpack batch
         s, a, r, s2, d, m = batch
 
-        #-------- train BootDQN --------
+        # -------- train BootDQN --------
         # clear gradients
         self.DQN_optimizer.zero_grad()
-        
+
         # current and next Q-values
         Q_main = self.DQN(s)
         Q_s2_tgt = self.target_DQN(s2)
@@ -154,7 +150,7 @@ class BootDQNAgent(DQNAgent):
 
         # calculate loss for each head
         for k in range(self.K):
-            
+
             # gather actions
             Q = torch.gather(input=Q_main[k], dim=1, index=a)
 
@@ -177,7 +173,7 @@ class BootDQNAgent(DQNAgent):
 
             # append loss
             losses.append(torch.sum(loss_k) / torch.sum(m[:, k]))
-       
+
         # compute gradients
         loss = sum(losses)
         loss.backward()
@@ -188,13 +184,13 @@ class BootDQNAgent(DQNAgent):
                 p.grad *= 1/float(self.K)
         if self.grad_clip:
             nn.utils.clip_grad_norm_(self.DQN.parameters(), max_norm=10)
-        
+
         # perform optimizing step
         self.DQN_optimizer.step()
-        
+
         # log critic training
         self.logger.store(Loss=loss.detach().cpu().numpy().item())
         self.logger.store(Q_val=Q.detach().mean().cpu().numpy().item())
 
-        #------- Update target networks -------
+        # ------- Update target networks -------
         self._target_update()
