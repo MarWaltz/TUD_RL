@@ -1,11 +1,11 @@
 from .FossenEnv import *
 
 
-class FossenEnvScenarioOne(FossenEnv):
+class FossenEnvStarScene(FossenEnv):
     """This environment contains four agents, each steering a CyberShip II. They spawn in a N-E-S-W positions and should all turn right."""
 
     def __init__(self, N_TSs=3, cnt_approach="tau", state_pad=np.nan):
-        super().__init__(N_TSs=N_TSs, cnt_approach=cnt_approach, state_pad=state_pad)
+        super().__init__(N_TSs=N_TSs, N_TSs_random=False, cnt_approach=cnt_approach, state_pad=state_pad)
 
     def reset(self):
         """Resets environment to initial state."""
