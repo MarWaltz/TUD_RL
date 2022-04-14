@@ -65,10 +65,10 @@ class DDPGAgent(BaseAgent):
 
         # load prior weights if available
         if self.actor_weights is not None and self.critic_weights is not None:
-            self.actor.load_state_dict(torch.load(self.actor_weights))            
+            self.actor.load_state_dict(torch.load(self.actor_weights, map_location=self.device))            
             
             if init_critic:
-                self.critic.load_state_dict(torch.load(self.critic_weights))
+                self.critic.load_state_dict(torch.load(self.critic_weights, map_location=self.device))
 
         # init target nets
         self.target_actor  = copy.deepcopy(self.actor).to(self.device)
