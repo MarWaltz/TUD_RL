@@ -18,7 +18,7 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=True, cnt_approach="tau", state_design="RecDQN"):
+    def __init__(self, N_TSs_max=3, N_TSs_random=False, cnt_approach="tau", state_design="RecDQN"):
         super().__init__()
 
         # simulation settings
@@ -50,9 +50,9 @@ class FossenEnv(gym.Env):
 
         elif state_design == "maxRisk":
             obs_size = self.num_obs_OS + self.num_obs_TS
-        
-        self.observation_space  = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
-                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
+
+        self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
+                                            high = np.full(obs_size,  np.inf, dtype=np.float32))
         
         if cnt_approach in ["tau", "rps_angle"]:
             self.action_space = spaces.Discrete(3)
@@ -584,8 +584,8 @@ class FossenEnv(gym.Env):
         chiOS = OS._get_course()
         chiTS = TS._get_course()
 
-        # check whether TS is too far away
-        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.sight:
+        # check whether TS is outside ship domain
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self._get_ship_domain(OS=OS, TS=TS):
             return 0
 
         # relative bearing from OS to TS
