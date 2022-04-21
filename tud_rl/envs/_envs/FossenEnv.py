@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from .FossenCS2 import CyberShipII
 from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
-                        angle_to_pi, bng_abs, bng_rel, dcpa, dtr, head_inter,
+                        angle_to_pi, bng_abs, bng_rel, dtr, head_inter,
                         polar_from_xy, project_vector, rtd, tcpa,
                         xy_from_polar)
 
@@ -31,7 +31,7 @@ class FossenEnv(gym.Env):
                                                        # if false, always have N_TSs_max
 
         self.sight             = self.N_max/2          # sight of the agent (in m)
-        self.TCPA_crit         = 200                   # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 120                   # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 20                    # minimum distance of a spawning vessel to other TSs (in m)
         self.cnt_approach      = cnt_approach          # whether to control actuator forces or rudder angle and rps directly
 
@@ -170,7 +170,7 @@ class FossenEnv(gym.Env):
                              N_max        = self.N_max,
                              E_max        = self.E_max,
                              cnt_approach = self.cnt_approach,
-                             tau_u        = np.random.uniform(1, 5))
+                             tau_u        = np.random.uniform(0, 5))
 
             # predict converged speed of sampled TS
             # Note: if we don't do this, all further calculations are heavily biased
@@ -184,8 +184,9 @@ class FossenEnv(gym.Env):
             chiOS = self.OS._get_course()
             VOS   = self.OS._get_V()
 
-            # sample COLREG situation (head-on = 1, starboard crossing = 2, portside crossing = 3, overtaking = 4)
-            COLREG_s = random.choice([1, 2, 3, 4])
+            # sample COLREG situation 
+            # head-on = 1, starb. cross. (small) = 2, starb. cross (large) = 3,  ports. cross. = 4, overtaking = 5
+            COLREG_s = random.choice([1, 2, 3, 4, 5])
 
             #--------------------------------------- line mode --------------------------------------
 
@@ -210,26 +211,30 @@ class FossenEnv(gym.Env):
             if COLREG_s == 1:
                 C_TS_s = dtr(np.random.uniform(175, 185))
 
-            # starboard crossing
+            # starboard crossing (small)
             elif COLREG_s == 2:
-                C_TS_s = dtr(np.random.uniform(185, 292.5))
+                C_TS_s = dtr(np.random.uniform(185, 210))
+
+            # starboard crossing (large)
+            elif COLREG_s == 3:
+                C_TS_s = dtr(np.random.uniform(210, 292.5))
 
             # portside crossing
-            elif COLREG_s == 3:
+            elif COLREG_s == 4:
                 C_TS_s = dtr(np.random.uniform(67.5, 175))
 
             # overtaking
-            elif COLREG_s == 4:
+            elif COLREG_s == 5:
                 C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
             # determine TS heading (treating absolute bearing towards goal as heading of OS)
             head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
             # no speed constraints except in overtaking
-            if COLREG_s in [1, 2, 3]:
+            if COLREG_s in [1, 2, 3, 4]:
                 VTS = TS.nu[0]
 
-            elif COLREG_s == 4:
+            elif COLREG_s == 5:
 
                 # project VOS vector on TS direction
                 VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
@@ -286,12 +291,12 @@ class FossenEnv(gym.Env):
             ED_goal
         
         Dynamic obstacle:
-            ED_TS / Ship domain (= riskRatio)
             ED_TS
             relative bearing
             heading intersection angle C_T
             speed (V)
             COLREG mode TS (sigma_TS)
+            Inside_domain bool (not ED_TS / Ship domain (= riskRatio))
         """
 
         # quick access for OS
@@ -323,7 +328,7 @@ class FossenEnv(gym.Env):
             if ED_OS_TS <= self.sight:
 
                 # risk-ratio: euclidean distance / ship domain
-                riskRatio = ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS)
+                #riskRatio = ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS)
 
                 # euclidean distance
                 ED_OS_TS_norm = ED_OS_TS / self.E_max
@@ -340,8 +345,11 @@ class FossenEnv(gym.Env):
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
 
+                # inside domain
+                inside_domain = 1.0 if ED_OS_TS <= self._get_ship_domain(OS=self.OS, TS=TS) else 0.0
+
                 # store it
-                state_TSs.append([riskRatio, ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS])
+                state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS, inside_domain])
 
         # no TS is in sight
         if len(state_TSs) == 0:
@@ -355,7 +363,7 @@ class FossenEnv(gym.Env):
         # at least one TS in sight
         else:
 
-            # sort according to descending riskRatio
+            # sort according to descending riskRatio (or ED)
             state_TSs = sorted(state_TSs, key=lambda x: x[0], reverse=True)
 
             if self.state_design == "RecDQN":
@@ -429,7 +437,7 @@ class FossenEnv(gym.Env):
         assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
 
         # check whether spawning is still considered
-        if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) > self.stop_spawn_dist:
+        if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
 
             # 1) leaving of simulation area
             if TS._is_off_map():
@@ -487,7 +495,7 @@ class FossenEnv(gym.Env):
         for TS_idx, TS in enumerate(self.TSs):
 
             # compute ship domain and ED
-            domain = self._get_ship_domain(OS=self.OS, TS=TS)
+            #domain = self._get_ship_domain(OS=self.OS, TS=TS)
             ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
             # Collision: basic Gaussian reward
@@ -496,12 +504,17 @@ class FossenEnv(gym.Env):
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
 
-                # only evaluate if TS in ship domain
-                if ED_TS <= domain:
+                # evaluate TS if in sight and has positive TCPA (alternative: only evaluate if TS in ship domain)
+                if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
+                     chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
 
-                    # should steer to the right (r >= 0) in Head-on and starboard crossing situations
+                    # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 10.0
+                        r_COLREG -= 3.0
+
+                    # steer to the left (r <= 0) in starboard crossing (large) situation
+                    elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
+                        r_COLREG -= 3.0
 
                     # assess when COLREG situation changes
                     #if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
@@ -511,7 +524,7 @@ class FossenEnv(gym.Env):
                     #            r_COLREG -= 10
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = -3 * abs(self.OS.nu[2])**2
+        r_comf = -10 * abs(self.OS.nu[2])**2
 
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
@@ -562,7 +575,8 @@ class FossenEnv(gym.Env):
 
 
     def _get_COLREG_situation(self, OS, TS):
-        """Determines the COLREG situation from the perspective of the OS. Follows Xu et al. (2020, Ocean Engineering).
+        """Determines the COLREG situation from the perspective of the OS. 
+        Follows Xu et al. (2020, Ocean Engineering; 2022, Neurocomputing).
 
         Args:
             OS (CyberShip):    own vessel with attributes eta, nu
@@ -571,9 +585,10 @@ class FossenEnv(gym.Env):
         Returns:
             0  -  no conflict situation
             1  -  head-on
-            2  -  starboard crossing
-            3  -  portside crossing
-            4  -  overtaking
+            2  -  starboard crossing (small)
+            3  -  starboard crossing (large)
+            4  -  portside crossing
+            5  -  overtaking
         """
 
         # quick access
@@ -584,8 +599,8 @@ class FossenEnv(gym.Env):
         chiOS = OS._get_course()
         chiTS = TS._get_course()
 
-        # check whether TS is outside ship domain
-        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self._get_ship_domain(OS=OS, TS=TS):
+        # check whether TS is out of sight
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.sight:
             return 0
 
         # relative bearing from OS to TS
@@ -610,17 +625,21 @@ class FossenEnv(gym.Env):
         if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
             return 1
         
-        # COLREG 2: Starboard crossing
-        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
+        # COLREG 2: Starboard crossing (small angle)
+        if 5 <= rtd(bng_OS) <= 45 and 185 <= rtd(C_T) <= 210:
             return 2
 
-        # COLREG 3: Portside crossing
-        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
+        # COLREG 3: Starboard crossing (large angle)
+        if 45 < rtd(bng_OS) <= 112.5 and 210 < rtd(C_T) <= 292.5:
             return 3
 
-        # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
+        # COLREG 4: Portside crossing
+        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
             return 4
+
+        # COLREG 5: Overtaking
+        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
+            return 5
 
         # COLREG 0: nothing
         return 0
@@ -738,18 +757,10 @@ class FossenEnv(gym.Env):
                                     linewidth=1, edgecolor='black', facecolor='none')
                 ax.add_patch(rect)
 
-                # connect OS and goal for spawning insights
-                #self.ax0 = self._plot_jet(axis=self.ax0, E=E0, N=N0, l=ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]),\
-                #    angle=bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"]))
-
                 # add jets according to COLREGS
                 for COLREG_deg in [5, 355]:
                     ax = self._plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
                                         angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
-
-                #for COLREG_deg in [67.5, 175, 185, 292.5]:
-                #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-                #                              angle = head0 + dtr(COLREG_deg), color='gray', alpha=0.3)
 
                 # set goal (stored as NE)
                 ax.scatter(self.goal["E"], self.goal["N"], color="blue")
@@ -794,8 +805,8 @@ class FossenEnv(gym.Env):
                     ax.add_patch(circ)
 
                 # set legend for COLREGS
-                ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
-                                loc='lower center', bbox_to_anchor=(0.75, 1.0), fancybox=False, shadow=False, ncol=5).get_frame().set_linewidth(0.0)
+                ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(6)], fontsize=8,
+                                loc='lower center', bbox_to_anchor=(0.6, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
 
 
             # ------------------------------ reward plot --------------------------------

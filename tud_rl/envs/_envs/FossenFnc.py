@@ -2,9 +2,13 @@ from math import sqrt
 import matplotlib.pyplot as plt
 import numpy as np
 
-COLREG_NAMES  = {0 : "Null", 1 : "Head-on", 2 : "Starb. cross.", 3 : "Ports. cross.", 4 : "Overtaking"}
-COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(5)]
-
+COLREG_NAMES  = {0 : "Null", 
+                 1 : "Head-on", 
+                 2 : "Starb. cross. (small)", 
+                 3 : "Starb. cross. (large)",
+                 4 : "Ports. cross.", 
+                 5 : "Overtaking"}
+COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(6)]
 
 
 class StaticObstacle:
