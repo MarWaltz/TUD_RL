@@ -317,6 +317,7 @@ class FossenEnv(gym.Env):
 
         #--------------------------- dynamic obstacle related -------------------------
         state_TSs = []
+        risk_ratios = []
 
         for TS_idx, TS in enumerate(self.TSs):
 
@@ -327,9 +328,10 @@ class FossenEnv(gym.Env):
 
             if ED_OS_TS <= self.sight:
 
-                # risk-ratio: euclidean distance / ship domain
-                #riskRatio = ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS)
+                # store risk-ratio: euclidean distance / ship domain
+                risk_ratios.append(ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS))
 
+                #----------------------------- state -----------------------------------
                 # euclidean distance
                 ED_OS_TS_norm = ED_OS_TS / self.E_max
 
@@ -363,8 +365,11 @@ class FossenEnv(gym.Env):
         # at least one TS in sight
         else:
 
-            # sort according to descending riskRatio (or ED)
-            state_TSs = sorted(state_TSs, key=lambda x: x[0], reverse=True)
+            # sort according to descending riskRatios (or ED)
+            order = np.argsort(risk_ratios)[::-1]
+            state_TSs = [state_TSs[idx] for idx in order]
+
+            #state_TSs = sorted(state_TSs, key=lambda x: x[0], reverse=True)
 
             if self.state_design == "RecDQN":
 
@@ -481,11 +486,12 @@ class FossenEnv(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
-        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist = - OS_goal_ED / self.E_max
+        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        #r_dist = - OS_goal_ED / self.E_max
+        r_dist = 0.0
 
         # 2. Heading reward
-        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+        r_head = -3*np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------

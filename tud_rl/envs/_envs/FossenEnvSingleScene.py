@@ -5,7 +5,7 @@ from .FossenFnc import dtr
 class FossenEnvSingleScene(FossenEnv):
     """This environment contains four agents, each steering a CyberShip II. They spawn in a N-E-S-W positions and should all turn right."""
 
-    def __init__(self, scene):
+    def __init__(self, scene, state_design):
         
         if scene == 0:
             N_TSs = 0
@@ -16,8 +16,9 @@ class FossenEnvSingleScene(FossenEnv):
         elif scene in [5]:
             N_TSs = 2
 
-        super().__init__(N_TSs=N_TSs, N_TSs_random=False, cnt_approach="tau", state_pad=np.nan)
+        super().__init__(N_TSs_max=N_TSs, N_TSs_random=False, cnt_approach="tau", state_design=state_design)
         self.scene = scene
+        self.N_TSs = N_TSs
 
     def reset(self):
         """Resets environment to initial state."""
@@ -123,7 +124,7 @@ class FossenEnvSingleScene(FossenEnv):
             self.TSs = [TS1, TS2]
 
         # determine current COLREG situations
-        self.TS_COLREGs = [0] * self.N_TSs
+        self.TS_COLREGs = [0] * self.N_TSs_max
         self._set_COLREGs()
 
         # init state

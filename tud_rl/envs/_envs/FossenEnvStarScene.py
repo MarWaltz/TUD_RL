@@ -4,8 +4,8 @@ from .FossenEnv import *
 class FossenEnvStarScene(FossenEnv):
     """This environment contains four agents, each steering a CyberShip II. They spawn in a N-E-S-W positions and should all turn right."""
 
-    def __init__(self, N_TSs=3, cnt_approach="tau", state_pad=np.nan):
-        super().__init__(N_TSs=N_TSs, N_TSs_random=False, cnt_approach=cnt_approach, state_pad=state_pad)
+    def __init__(self, N_TSs_max=3, cnt_approach="tau", state_design="RecDQN"):
+        super().__init__(N_TSs_max=N_TSs_max, N_TSs_random=False, cnt_approach=cnt_approach, state_design=state_design)
 
     def reset(self):
         """Resets environment to initial state."""
@@ -21,7 +21,7 @@ class FossenEnvStarScene(FossenEnv):
 
         # init four agents
         self.agents = []
-        for i in range(self.N_TSs + 1):
+        for i in range(self.N_TSs_max + 1):
             
             if i == 0:
                 head   = np.pi
