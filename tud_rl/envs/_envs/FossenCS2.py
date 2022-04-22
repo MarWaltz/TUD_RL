@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
-from .FossenFnc import dtr, angle_to_2pi, polar_from_xy
+from tud_rl.envs._envs.FossenFnc import dtr, angle_to_2pi, polar_from_xy
 
 
 class CyberShipII:

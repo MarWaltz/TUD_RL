@@ -18,7 +18,7 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=False, cnt_approach="tau", state_design="RecDQN"):
+    def __init__(self, N_TSs_max=3, N_TSs_random=True, cnt_approach="tau", state_design="RecDQN"):
         super().__init__()
 
         # simulation settings
@@ -61,7 +61,7 @@ class FossenEnv(gym.Env):
             self.action_space = spaces.Discrete(9)
 
         # custom inits
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 500
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
@@ -82,28 +82,28 @@ class FossenEnv(gym.Env):
 
         # init goal
         if sit_init == 0:
-            self.goal = {"N" : 0.2 * self.N_max, "E" : 0.2 * self.E_max}
-            N_init = 0.8 * self.N_max
-            E_init = 0.8 * self.E_max
-            head   = np.random.uniform(np.pi, 3/2 * np.pi)
+            self.goal = {"N" : 0.9 * self.N_max, "E" : 0.5 * self.E_max}
+            N_init = 0.1 * self.N_max
+            E_init = 0.5 * self.E_max
+            head   = angle_to_2pi(dtr(np.random.uniform(-10, 10)))
         
         elif sit_init == 1:
-            self.goal = {"N" : 0.8 * self.N_max, "E" : 0.2 * self.E_max}
-            N_init = 0.2 * self.N_max
-            E_init = 0.8 * self.E_max
-            head   = np.random.uniform(3/2 * np.pi, 2 * np.pi)
+            self.goal = {"N" : 0.5 * self.N_max, "E" : 0.9 * self.E_max}
+            N_init = 0.5 * self.N_max
+            E_init = 0.1 * self.E_max
+            head   = dtr(np.random.uniform(35, 55))
 
         elif sit_init == 2:
-            self.goal = {"N" : 0.8 * self.N_max, "E" : 0.8 * self.E_max}
-            N_init = 0.2 * self.N_max
-            E_init = 0.2 * self.E_max
-            head   = np.random.uniform(0, np.pi / 2)
+            self.goal = {"N" : 0.1 * self.N_max, "E" : 0.5 * self.E_max}
+            N_init = 0.9 * self.N_max
+            E_init = 0.5 * self.E_max
+            head   = dtr(np.random.uniform(170, 190))
 
         elif sit_init == 3:
-            self.goal = {"N" : 0.2 * self.N_max, "E" : 0.8 * self.E_max}
-            N_init = 0.8 * self.N_max
-            E_init = 0.2 * self.E_max
-            head   = np.random.uniform(np.pi / 2, np.pi)
+            self.goal = {"N" : 0.5 * self.N_max, "E" : 0.1 * self.E_max}
+            N_init = 0.5 * self.N_max
+            E_init = 0.9 * self.E_max
+            head   = dtr(np.random.uniform(260, 280))
 
         # init agent (OS for 'Own Ship')
         self.OS = CyberShipII(N_init       = N_init, 
@@ -486,9 +486,9 @@ class FossenEnv(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
-        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        #r_dist = - OS_goal_ED / self.E_max
-        r_dist = 0.0
+        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        r_dist = - OS_goal_ED / self.E_max
+        #r_dist = 0.0
 
         # 2. Heading reward
         r_head = -3*np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi

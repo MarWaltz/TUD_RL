@@ -1,12 +1,12 @@
 {
    "env":
    {
-      "name"              : "FossenEnvSingleScene-v0",
+      "name"              : "Imazu-v0",
       "max_episode_steps" : 500,
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"scene" : 0, "state_design" : "RecDQN"},
+      "env_kwargs"        : {"situation" : 1, "state_design" : "RecDQN"},
       "info"              : ""
    }
    ,
