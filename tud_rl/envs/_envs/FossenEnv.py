@@ -18,7 +18,7 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=True, cnt_approach="tau", state_design="RecDQN"):
+    def __init__(self, N_TSs_max=3, N_TSs_random=False, cnt_approach="tau", state_design="RecDQN"):
         super().__init__()
 
         # simulation settings
