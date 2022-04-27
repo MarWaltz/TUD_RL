@@ -305,13 +305,12 @@ class FossenEnv(gym.Env):
         #VOS = self.OS._get_V()                  # aggregated velocity
 
         #-------------------------------- OS related ---------------------------------
-        state_OS = np.concatenate([self.OS.nu, np.array([head0 / (2*np.pi), self.OS.tau_cnt_r / self.OS.tau_cnt_r_max])])
+        state_OS = np.concatenate([self.OS.nu, np.array([angle_to_pi(head0) / (np.pi), self.OS.tau_cnt_r / self.OS.tau_cnt_r_max])])
 
 
         #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-
-        state_goal = np.array([bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0) / (2*np.pi), 
+        state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (np.pi), 
                                OS_goal_ED / self.E_max])
 
 
@@ -336,7 +335,7 @@ class FossenEnv(gym.Env):
                 ED_OS_TS_norm = ED_OS_TS / self.E_max
 
                 # relative bearing
-                bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0) / (2*np.pi)
+                bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (np.pi)
 
                 # heading intersection angle
                 C_TS = head_inter(head_OS=head0, head_TS=headTS) / (2*np.pi)
