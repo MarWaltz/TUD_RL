@@ -1,6 +1,6 @@
 # RL Dresden Algorithm Suite
 
-This Suite implements several model-free off-policy deep reinforcement learning algorithms for discrete and continuous action spaces in PyTorch.
+This suite implements several model-free off-policy deep reinforcement learning algorithms for discrete and continuous action spaces in PyTorch.
 
 ## Algorithms
 
