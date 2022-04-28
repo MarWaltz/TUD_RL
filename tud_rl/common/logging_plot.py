@@ -1,6 +1,7 @@
 import csv
 
-#matplotlib.use("agg")
+import matplotlib
+matplotlib.use("agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 from tud_rl.common.helper_fnc import exponential_smoothing
@@ -63,13 +64,10 @@ def plot_from_progress(dir, alg, env_str, info=None):
     # fourth axis
     ax[1,1].set_xlabel("Timestep")
     
-    if all(ele in df.columns for ele in ["Avg_bias", "Std_bias", "Max_bias", "Min_bias"]):
+    if "Avg_bias" in df.columns:
         ax[1,1].plot(df["Timestep"], df["Avg_bias"], label="Avg. bias")
-        ax[1,1].plot(df["Timestep"], df["Std_bias"], label="Std. bias")
-        ax[1,1].plot(df["Timestep"], df["Max_bias"], label="Max. bias")
-        ax[1,1].plot(df["Timestep"], df["Min_bias"], label="Min. bias")
         ax[1,1].legend()
     
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")
-    plt.close("all")
+    plt.close()
