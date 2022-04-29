@@ -1,7 +1,7 @@
 import csv
 
-import matplotlib
-matplotlib.use("agg")
+#import matplotlib
+#matplotlib.use("agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 from tud_rl.common.helper_fnc import exponential_smoothing

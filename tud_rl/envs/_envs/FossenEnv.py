@@ -18,7 +18,7 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=False, cnt_approach="tau", state_design="RecDQN"):
+    def __init__(self, N_TSs_max=3, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=False):
         super().__init__()
 
         # simulation settings
@@ -29,8 +29,15 @@ class FossenEnv(gym.Env):
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
+        self.N_TSs_increasing = N_TSs_increasing       # if true, have schedule for number TSs
+                                                       # if false, always have N_TSs_max
+
+        assert sum([N_TSs_random, N_TSs_increasing]) <= 1, "Either random number of TS or schedule, not both."
+        if self.N_TSs_increasing:
+            self.outer_step_cnt = 0
 
         self.sight             = self.N_max/2          # sight of the agent (in m)
+        self.coll_dist         = 6.275                 # collision distance (in m, five times ship length)
         self.TCPA_crit         = 120                   # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 20                    # minimum distance of a spawning vessel to other TSs (in m)
         self.cnt_approach      = cnt_approach          # whether to control actuator forces or rudder angle and rps directly
@@ -43,6 +50,8 @@ class FossenEnv(gym.Env):
 
         self.num_obs_OS = 7                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
+
+        self.plot_traj = plot_traj       # whether to plot trajectory after termination
 
         # gym definitions
         if state_design == "RecDQN":
@@ -125,6 +134,17 @@ class FossenEnv(gym.Env):
         # init other vessels
         if self.N_TSs_random:
             self.N_TSs = np.random.choice(self.N_TSs_max + 1)
+
+        elif self.N_TSs_increasing:
+
+            if self.outer_step_cnt <= 1e6:
+                self.N_TSs = 0
+            elif self.outer_step_cnt <= 2e6:
+                self.N_TSs = 1
+            elif self.outer_step_cnt <= 3e6:
+                self.N_TSs = 2
+            else:
+                self.N_TSs = 3
         else:
             self.N_TSs = self.N_TSs_max
 
@@ -140,6 +160,20 @@ class FossenEnv(gym.Env):
         # init state
         self._set_state()
         self.state_init = self.state
+
+        # trajectory storing
+        if self.plot_traj:
+            self.OS_traj_N = [self.OS.eta[0]]
+            self.OS_traj_E = [self.OS.eta[1]]
+
+            self.TS_traj_N = [[] for _ in range(self.N_TSs)]
+            self.TS_traj_E = [[] for _ in range(self.N_TSs)]
+            self.TS_ptr = [i for i in range(self.N_TSs)]
+
+            for TS_idx, TS in enumerate(self.TSs):
+                ptr = self.TS_ptr[TS_idx]                
+                self.TS_traj_N[ptr].append(TS.eta[0])
+                self.TS_traj_E[ptr].append(TS.eta[1])
 
         return self.state
 
@@ -408,6 +442,29 @@ class FossenEnv(gym.Env):
         if self.N_TSs > 0:
             self.TSs, self.respawn_flags = list(zip(*[self._handle_respawn(TS, respawn=True) for TS in self.TSs]))
 
+        # trajectory plotting
+        if self.plot_traj:
+
+            # agent update
+            self.OS_traj_N.append(self.OS.eta[0])
+            self.OS_traj_E.append(self.OS.eta[1])
+
+            # check TS respawning
+            for TS_idx, flag in enumerate(self.respawn_flags):
+                if flag:
+                    # add new trajectory slot
+                    self.TS_traj_N.append([])
+                    self.TS_traj_E.append([])
+
+                    # update pointer
+                    self.TS_ptr[TS_idx] = max(self.TS_ptr) + 1
+
+            # TS update
+            for TS_idx, TS in enumerate(self.TSs):
+                ptr = self.TS_ptr[TS_idx]
+                self.TS_traj_N[ptr].append(TS.eta[0])
+                self.TS_traj_E[ptr].append(TS.eta[1])
+
         # update COLREG scenarios
         self._set_COLREGs()
 
@@ -419,7 +476,10 @@ class FossenEnv(gym.Env):
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.delta_t
-        
+
+        if self.N_TSs_increasing:
+            self.outer_step_cnt += 1
+       
         return self.state, self.r, d, {}
 
 
@@ -503,8 +563,11 @@ class FossenEnv(gym.Env):
             #domain = self._get_ship_domain(OS=self.OS, TS=TS)
             ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
-            # Collision: basic Gaussian reward
-            r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
+            # Collision: event penalty or basic Gaussian reward
+            if ED_TS <= self.coll_dist:
+                r_coll -= 100
+            else:
+                r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -543,16 +606,37 @@ class FossenEnv(gym.Env):
     def _done(self):
         """Returns boolean flag whether episode is over."""
 
+        d = False
+
         # goal reached
         OS_goal_ED = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
         if OS_goal_ED <= self.goal_reach_dist:
-            return True
+            d = True
 
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
-            return True
+            d = True
+        
+        # plot trajectory
+        if self.plot_traj and d:
 
-        return False
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+            
+            ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
+
+            for idx in range(len(self.TS_traj_E)):
+                ax.plot(self.TS_traj_E[idx], self.TS_traj_N[idx])
+
+            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+            ax.add_patch(circ)
+
+            ax.set_xlim(0, self.E_max)
+            ax.set_ylim(0, self.N_max)
+            ax.scatter(self.goal["E"], self.goal["N"])
+            plt.show()
+
+        return d
 
 
     def _get_ship_domain(self, OS, TS):
@@ -724,185 +808,187 @@ class FossenEnv(gym.Env):
     def render(self):
         """Renders the current environment."""
 
-        # plot every nth timestep
-        if self.step_cnt % 2 == 0: 
+        # plot every nth timestep (except we only want trajectory)
+        if not self.plot_traj:
 
-            # check whether figure has been initialized
-            if len(plt.get_fignums()) == 0:
-                self.fig = plt.figure(figsize=(10, 7))
-                self.gs  = self.fig.add_gridspec(2, 2)
-                self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
-                self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
-                self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
-                self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
+            if self.step_cnt % 2 == 0: 
 
-                self.fig2 = plt.figure(figsize=(10,7))
-                self.fig2_ax = self.fig2.add_subplot(111)
+                # check whether figure has been initialized
+                if len(plt.get_fignums()) == 0:
+                    self.fig = plt.figure(figsize=(10, 7))
+                    self.gs  = self.fig.add_gridspec(2, 2)
+                    self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
+                    self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
+                    self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
+                    self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
 
-                plt.ion()
-                plt.show()
-            
-            # ------------------------------ ship movement --------------------------------
-            for ax in [self.ax0, self.fig2_ax]:
-                # clear prior axes, set limits and add labels and title
-                ax.clear()
-                ax.set_xlim(-5, self.E_max + 5)
-                ax.set_ylim(-5, self.N_max + 5)
-                ax.set_xlabel("East")
-                ax.set_ylabel("North")
+                    self.fig2 = plt.figure(figsize=(10,7))
+                    self.fig2_ax = self.fig2.add_subplot(111)
 
-                # set OS
-                N0, E0, head0 = self.OS.eta          # N, E, heading
-                chiOS = self.OS._get_course()        # course angle (heading + sideslip)
-                VOS = self.OS._get_V()               # aggregated velocity
+                    plt.ion()
+                    plt.show()
                 
-                ax.text(-2, self.N_max - 12.5, self.__str__(), fontsize=8)
-                
-                rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
-                                    linewidth=1, edgecolor='black', facecolor='none')
-                ax.add_patch(rect)
+                # ------------------------------ ship movement --------------------------------
+                for ax in [self.ax0, self.fig2_ax]:
+                    # clear prior axes, set limits and add labels and title
+                    ax.clear()
+                    ax.set_xlim(-5, self.E_max + 5)
+                    ax.set_ylim(-5, self.N_max + 5)
+                    ax.set_xlabel("East")
+                    ax.set_ylabel("North")
 
-                # add jets according to COLREGS
-                for COLREG_deg in [5, 355]:
-                    ax = self._plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
-                                        angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
-
-                # set goal (stored as NE)
-                ax.scatter(self.goal["E"], self.goal["N"], color="blue")
-                ax.text(self.goal["E"], self.goal["N"] + 2,
-                            r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
-                            horizontalalignment='center', verticalalignment='center', color='blue')
-                circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-                ax.add_patch(circ)
-
-                circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=5*self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-                ax.add_patch(circ)
-
-                # set other vessels
-                for TS in self.TSs:
-
-                    N, E, headTS = TS.eta               # N, E, heading
-                    chiTS = TS._get_course()            # course angle (heading + sideslip)
-                    VTS = TS._get_V()                   # aggregated velocity
-
-                    # determine color according to COLREG scenario
-                    COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
-                    col = COLREG_COLORS[COLREG]
-
-                    # vessel
-                    rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
-                                        linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
+                    # set OS
+                    N0, E0, head0 = self.OS.eta          # N, E, heading
+                    chiOS = self.OS._get_course()        # course angle (heading + sideslip)
+                    VOS = self.OS._get_V()               # aggregated velocity
+                    
+                    ax.text(-2, self.N_max - 12.5, self.__str__(), fontsize=8)
+                    
+                    rect = self._get_rect(E = E0, N = N0, width = self.OS.width, length = self.OS.length, heading = head0,
+                                        linewidth=1, edgecolor='black', facecolor='none')
                     ax.add_patch(rect)
 
-                    # add two jets according to COLREGS
+                    # add jets according to COLREGS
                     for COLREG_deg in [5, 355]:
-                        ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
-                                           angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
+                        ax = self._plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
+                                            angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
 
-                    # TCPA
-                    TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                    ax.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
-                                horizontalalignment='center', verticalalignment='center', color=col)
-
-                    # ship domain around OS
-                    domain = self._get_ship_domain(OS=self.OS, TS=TS)
-                    circ = patches.Circle((E0, N0), radius=domain, edgecolor=col, facecolor='none', alpha=0.3)
+                    # set goal (stored as NE)
+                    ax.scatter(self.goal["E"], self.goal["N"], color="blue")
+                    ax.text(self.goal["E"], self.goal["N"] + 2,
+                                r"$\psi_g$" + f": {np.round(rtd(bng_rel(N0=N0, E0=E0, N1=self.goal['N'], E1=self.goal['E'], head0=head0)),3)}°",
+                                horizontalalignment='center', verticalalignment='center', color='blue')
+                    circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
                     ax.add_patch(circ)
 
-                # set legend for COLREGS
-                ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(6)], fontsize=8,
-                                loc='lower center', bbox_to_anchor=(0.6, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
+                    circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=5*self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+                    ax.add_patch(circ)
+
+                    # set other vessels
+                    for TS in self.TSs:
+
+                        N, E, headTS = TS.eta               # N, E, heading
+                        chiTS = TS._get_course()            # course angle (heading + sideslip)
+                        VTS = TS._get_V()                   # aggregated velocity
+
+                        # determine color according to COLREG scenario
+                        COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
+                        col = COLREG_COLORS[COLREG]
+
+                        # vessel
+                        rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
+                                            linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
+                        ax.add_patch(rect)
+
+                        # add two jets according to COLREGS
+                        for COLREG_deg in [5, 355]:
+                            ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
+                                            angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
+
+                        # TCPA
+                        TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+                        ax.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
+                                    horizontalalignment='center', verticalalignment='center', color=col)
+
+                        # ship domain around OS
+                        domain = self._get_ship_domain(OS=self.OS, TS=TS)
+                        circ = patches.Circle((E0, N0), radius=domain, edgecolor=col, facecolor='none', alpha=0.3)
+                        ax.add_patch(circ)
+
+                    # set legend for COLREGS
+                    ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(6)], fontsize=8,
+                                    loc='lower center', bbox_to_anchor=(0.6, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
 
 
-            # ------------------------------ reward plot --------------------------------
-            if self.step_cnt == 0:
-                self.ax1.clear()
-                self.ax1.old_time = 0
-                self.ax1.old_r_head = 0
-                self.ax1.old_r_dist = 0
-                self.ax1.old_r_coll = 0
-                self.ax1.old_r_COLREG = 0
-                self.ax1.old_r_comf = 0
+                # ------------------------------ reward plot --------------------------------
+                if self.step_cnt == 0:
+                    self.ax1.clear()
+                    self.ax1.old_time = 0
+                    self.ax1.old_r_head = 0
+                    self.ax1.old_r_dist = 0
+                    self.ax1.old_r_coll = 0
+                    self.ax1.old_r_COLREG = 0
+                    self.ax1.old_r_comf = 0
 
-            self.ax1.set_xlim(0, self._max_episode_steps)
-            #self.ax1.set_ylim(-1.25, 0.1)
-            self.ax1.set_xlabel("Timestep in episode")
-            self.ax1.set_ylabel("Reward")
+                self.ax1.set_xlim(0, self._max_episode_steps)
+                #self.ax1.set_ylim(-1.25, 0.1)
+                self.ax1.set_xlabel("Timestep in episode")
+                self.ax1.set_ylabel("Reward")
 
-            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
-            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
-            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
-            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
-            self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
-            
-            if self.step_cnt == 0:
-                self.ax1.legend()
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
+                
+                if self.step_cnt == 0:
+                    self.ax1.legend()
 
-            self.ax1.old_time = self.step_cnt
-            self.ax1.old_r_head = self.r_head
-            self.ax1.old_r_dist = self.r_dist
-            self.ax1.old_r_coll = self.r_coll
-            self.ax1.old_r_COLREG = self.r_COLREG
-            self.ax1.old_r_comf = self.r_comf
+                self.ax1.old_time = self.step_cnt
+                self.ax1.old_r_head = self.r_head
+                self.ax1.old_r_dist = self.r_dist
+                self.ax1.old_r_coll = self.r_coll
+                self.ax1.old_r_COLREG = self.r_COLREG
+                self.ax1.old_r_comf = self.r_comf
 
 
-            # ------------------------------ state plot --------------------------------
-            if self.step_cnt == 0:
-                self.ax2.clear()
-                self.ax2.old_time = 0
-                self.ax2.old_state = self.state_init
+                # ------------------------------ state plot --------------------------------
+                if self.step_cnt == 0:
+                    self.ax2.clear()
+                    self.ax2.old_time = 0
+                    self.ax2.old_state = self.state_init
 
-            self.ax2.set_xlim(0, self._max_episode_steps)
-            self.ax2.set_xlabel("Timestep in episode")
-            self.ax2.set_ylabel("State information")
+                self.ax2.set_xlim(0, self._max_episode_steps)
+                self.ax2.set_xlabel("Timestep in episode")
+                self.ax2.set_ylabel("State information")
 
-            for i in range(7):
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
-                               color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
-                               label=self.state_names[i])    
-            if self.step_cnt == 0:
-                self.ax2.legend()
+                for i in range(7):
+                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
+                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
+                                label=self.state_names[i])    
+                if self.step_cnt == 0:
+                    self.ax2.legend()
 
-            self.ax2.old_time = self.step_cnt
-            self.ax2.old_state = self.state
+                self.ax2.old_time = self.step_cnt
+                self.ax2.old_state = self.state
 
-            # ------------------------------ action plot --------------------------------
-            if self.step_cnt == 0:
-                self.ax3.clear()
-                self.ax3_twin = self.ax3.twinx()
-                #self.ax3_twin.clear()
-                self.ax3.old_time = 0
-                self.ax3.old_action = 0
-                self.ax3.old_rud_angle = 0
-                self.ax3.old_tau_cnt_r = 0
+                # ------------------------------ action plot --------------------------------
+                if self.step_cnt == 0:
+                    self.ax3.clear()
+                    self.ax3_twin = self.ax3.twinx()
+                    #self.ax3_twin.clear()
+                    self.ax3.old_time = 0
+                    self.ax3.old_action = 0
+                    self.ax3.old_rud_angle = 0
+                    self.ax3.old_tau_cnt_r = 0
 
-            self.ax3.set_xlim(0, self._max_episode_steps)
-            self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
-            self.ax3.set_yticks(range(self.action_space.n))
-            self.ax3.set_yticklabels(range(self.action_space.n))
-            self.ax3.set_xlabel("Timestep in episode")
-            self.ax3.set_ylabel("Action (discrete)")
+                self.ax3.set_xlim(0, self._max_episode_steps)
+                self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
+                self.ax3.set_yticks(range(self.action_space.n))
+                self.ax3.set_yticklabels(range(self.action_space.n))
+                self.ax3.set_xlabel("Timestep in episode")
+                self.ax3.set_ylabel("Action (discrete)")
 
-            self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
+                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
 
-            # add rudder angle plot
-            if self.cnt_approach == "rps_angle":
-                self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [rtd(self.ax3.old_rud_angle), rtd(self.OS.rud_angle)], color="blue")
-                self.ax3_twin.set_ylim(-rtd(self.OS.rud_angle_max) - 5, rtd(self.OS.rud_angle_max) + 5)
-                self.ax3_twin.set_yticks(range(-int(rtd(self.OS.rud_angle_max)), int(rtd(self.OS.rud_angle_max)) + 5, 5))
-                self.ax3_twin.set_yticklabels(range(-int(rtd(self.OS.rud_angle_max)), int(rtd(self.OS.rud_angle_max)) + 5, 5))
-                self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
-                self.ax3.old_rud_angle = self.OS.rud_angle
+                # add rudder angle plot
+                if self.cnt_approach == "rps_angle":
+                    self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [rtd(self.ax3.old_rud_angle), rtd(self.OS.rud_angle)], color="blue")
+                    self.ax3_twin.set_ylim(-rtd(self.OS.rud_angle_max) - 5, rtd(self.OS.rud_angle_max) + 5)
+                    self.ax3_twin.set_yticks(range(-int(rtd(self.OS.rud_angle_max)), int(rtd(self.OS.rud_angle_max)) + 5, 5))
+                    self.ax3_twin.set_yticklabels(range(-int(rtd(self.OS.rud_angle_max)), int(rtd(self.OS.rud_angle_max)) + 5, 5))
+                    self.ax3_twin.set_ylabel("Rudder angle (in °, blue)")
+                    self.ax3.old_rud_angle = self.OS.rud_angle
 
-            elif self.cnt_approach == "tau":
-                self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_tau_cnt_r, self.OS.tau_cnt_r], color="blue")
-                self.ax3_twin.set_ylim(-self.OS.tau_cnt_r_max - 0.1, self.OS.tau_cnt_r_max + 0.1)
-                self.ax3_twin.set_yticks(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
-                self.ax3_twin.set_yticklabels(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
-                self.ax3_twin.set_ylabel(r"$\tau_r$ (in Nm, blue)")
-                self.ax3.old_tau_cnt_r = self.OS.tau_cnt_r
+                elif self.cnt_approach == "tau":
+                    self.ax3_twin.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_tau_cnt_r, self.OS.tau_cnt_r], color="blue")
+                    self.ax3_twin.set_ylim(-self.OS.tau_cnt_r_max - 0.1, self.OS.tau_cnt_r_max + 0.1)
+                    self.ax3_twin.set_yticks(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
+                    self.ax3_twin.set_yticklabels(np.linspace(-100 * self.OS.tau_cnt_r_max, 100 * self.OS.tau_cnt_r_max, 9)/100)
+                    self.ax3_twin.set_ylabel(r"$\tau_r$ (in Nm, blue)")
+                    self.ax3.old_tau_cnt_r = self.OS.tau_cnt_r
 
-            self.ax3.old_time = self.step_cnt
-            self.ax3.old_action = self.OS.action
+                self.ax3.old_time = self.step_cnt
+                self.ax3.old_action = self.OS.action
 
-            plt.pause(0.001)
+                plt.pause(0.001)

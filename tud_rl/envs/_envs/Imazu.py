@@ -16,7 +16,7 @@ class Imazu(FossenEnv):
         elif situation in range(13, 23):
             N_TSs = 3
 
-        super().__init__(N_TSs_max=N_TSs, N_TSs_random=False, cnt_approach="tau", state_design=state_design)
+        super().__init__(N_TSs_max=N_TSs, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design=state_design)
 
         self.situation = situation
         self.N_TSs = N_TSs
@@ -70,9 +70,14 @@ class Imazu(FossenEnv):
                           N_max        = self.N_max,
                           E_max        = self.E_max,
                           cnt_approach = self.cnt_approach,
-                          tau_u        = 3.0 if self.situation != 3 else 1.0)
+                          tau_u        = 3.0)
 
         if self.situation in range(5):
+
+            # lower speed for overtaking situations
+            if self.situation == 3:
+                TS1.tau_u = 1.0
+                TS1._set_tau()
 
             # predict converged speed of TS
             TS1.nu[0] = TS1._u_from_tau_u(TS1.tau_u)
@@ -103,6 +108,11 @@ class Imazu(FossenEnv):
 
             # set TS2
             TS2 = copy.deepcopy(TS1)
+
+            # lower speed for overtaking situations
+            if self.situation == 7:
+                TS1.tau_u = 1.0
+                TS1._set_tau()
 
             # predict converged speed of TS
             TS1.nu[0] = TS1._u_from_tau_u(TS1.tau_u)
@@ -154,7 +164,87 @@ class Imazu(FossenEnv):
             self.TSs = [TS1, TS2]
         
         elif self.situation in range(13, 23):
-            raise NotImplementedError()
+
+            # set TS2, TS3
+            TS2 = copy.deepcopy(TS1)
+            TS3 = copy.deepcopy(TS1)
+
+            # lower speed for overtaking situations
+            if self.situation in [15, 17, 20, 22]:
+                TS1.tau_u = 1.0
+                TS1._set_tau()
+
+            # predict converged speed of TS
+            TS1.nu[0] = TS1._u_from_tau_u(TS1.tau_u)
+            TS2.nu[0] = TS2._u_from_tau_u(TS2.tau_u)
+            TS3.nu[0] = TS3._u_from_tau_u(TS3.tau_u)
+
+            # heading according to situation
+            if self.situation == 13:
+                headTS1 = dtr(180)
+                headTS2 = dtr(10)
+                headTS3 = dtr(45)
+            
+            elif self.situation == 14:
+                headTS1 = angle_to_2pi(dtr(-10))
+                headTS2 = angle_to_2pi(dtr(-45))
+                headTS3 = angle_to_2pi(dtr(-90))
+
+            elif self.situation == 15:
+                headTS1 = 0.0
+                headTS2 = angle_to_2pi(dtr(-45))
+                headTS3 = angle_to_2pi(dtr(-90))
+            
+            elif self.situation == 16:
+                headTS1 = dtr(45)
+                headTS2 = dtr(90)
+                headTS3 = angle_to_2pi(dtr(-90))
+
+            elif self.situation == 17:
+                headTS1 = 0.0
+                headTS2 = dtr(10)
+                headTS3 = angle_to_2pi(dtr(-45))
+
+            elif self.situation == 18:
+                headTS1 = angle_to_2pi(dtr(-135))
+                headTS2 = angle_to_2pi(dtr(-15))
+                headTS3 = angle_to_2pi(dtr(-30))
+
+            elif self.situation == 19:
+                headTS1 = dtr(15)
+                headTS2 = angle_to_2pi(dtr(-15))
+                headTS3 = angle_to_2pi(dtr(-135))
+
+            elif self.situation == 20:
+                headTS1 = 0.0
+                headTS2 = angle_to_2pi(dtr(-15))
+                headTS3 = angle_to_2pi(dtr(-90))
+
+            elif self.situation == 21:
+                headTS1 = angle_to_2pi(dtr(-15))
+                headTS2 = dtr(15)
+                headTS3 = angle_to_2pi(dtr(-90))
+
+            elif self.situation == 22:
+                headTS1 = 0.0
+                headTS2 = angle_to_2pi(dtr(-45))
+                headTS3 = angle_to_2pi(dtr(-90))
+
+            # backtrace to motion
+            TS1.eta[2] = headTS1
+            TS1.eta[0] = 100 - TS1._get_V() * np.cos(TS1.eta[2]) * TCPA
+            TS1.eta[1] = 100 - TS1._get_V() * np.sin(TS1.eta[2]) * TCPA
+
+            TS2.eta[2] = headTS2
+            TS2.eta[0] = 100 - TS2._get_V() * np.cos(TS2.eta[2]) * TCPA
+            TS2.eta[1] = 100 - TS2._get_V() * np.sin(TS2.eta[2]) * TCPA
+
+            TS3.eta[2] = headTS3
+            TS3.eta[0] = 100 - TS3._get_V() * np.cos(TS3.eta[2]) * TCPA
+            TS3.eta[1] = 100 - TS3._get_V() * np.sin(TS3.eta[2]) * TCPA
+
+            # setup
+            self.TSs = [TS1, TS2, TS3]
 
         # determine current COLREG situations
         self.TS_COLREGs = [0] * self.N_TSs_max
