@@ -605,7 +605,7 @@ class TQC_Critics(nn.Module):
 #------------------------------- RecDQN for FossenEnv --------------------------------
 
 class RecDQN(nn.Module):
-    """Defines an LSTM-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
+    """Defines a Recursive-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
     
     def __init__(self, num_actions, num_obs_OS=7, num_obs_TS=6) -> None:
@@ -615,42 +615,22 @@ class RecDQN(nn.Module):
         self.num_obs_OS  = num_obs_OS
         self.num_obs_TS  = num_obs_TS
 
-        # own ship and goal related features
-        self.dense1 = nn.Linear(num_obs_OS, 128)
-
         # features for other vessels
-        self.LSTM   = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
-        self.dense2 = nn.Linear(128, 128)
+        self.LSTM_inner = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
 
         # post combination
-        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
+        self.post_comb_dense1 = nn.Linear(num_obs_OS + 128, 128)
         self.post_comb_dense2 = nn.Linear(128, num_actions)
 
+    def _inner_rec(self, s):
+        """Computes the inner recurrence for temporal information about target ships.
+        s: torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
 
-    def forward(self, s) -> tuple:
-        """s is a torch tensor. Shape:
-        s:       torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
-
-        returns: torch.Size([batch_size, num_actions])
-        
-        Note 1: 
-        The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
-        x = (batch_size, seq_length, state_shape)
-        
-        The call <out, (hidden, cell) = LSTM(x)> results in: 
-        out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
-        hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
-        cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
-
-        Note 2:
-        The state contains two components; one is related to the OS and goal, one is related to other vessels.
-        If another vessel is too far away, its state components will be set to nan. Since we do not want to put these through the LSTM,
-        we need to first identify the true length and only then select the hidden state accordingly.
+        returns: torch.Size([batch_size, num_obs_OS + 128])
         """
-
-        # -------------------------------- preprocessing ----------------------------------------
+        
         # extract OS and TS states
-        s_OS = s[:, :self.num_obs_OS]                         # torch.Size([batch_size, num_obs_OS])
+        s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
         s_TS = s[:, self.num_obs_OS:]
 
         # check whether there are any relevant TS
@@ -677,13 +657,10 @@ class RecDQN(nn.Module):
             s_TS[torch.isnan(s_TS)] = 0.0
 
         # --------------------------------- calculations -----------------------------------------
-        # process OS
-        x_OS = F.relu(self.dense1(s_OS))
-       
         if TS_there:
 
             # process TS
-            x_TS, (_, _) = self.LSTM(s_TS)
+            x_TS, (_, _) = self.LSTM_inner(s_TS)
 
             # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
             x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
@@ -692,16 +669,117 @@ class RecDQN(nn.Module):
             x_TS[N_TS_obs == 0] = 0.0
         
         else:
-            x_TS = torch.zeros_like(x_OS)
+            x_TS = torch.zeros(first_dim, 128)
+        
+        return torch.cat([s_OS, x_TS], dim=1)
 
-        # second dense layer
-        x_TS = F.relu(self.dense2(x_TS))
 
-        # concatenate both state parts
-        x = torch.cat([x_OS, x_TS], dim=1)
+    def forward(self, s) -> tuple:
+        """s is a torch tensor. Shape:
+        s:       torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+
+        returns: torch.Size([batch_size, num_actions])
+        
+        Note 1: 
+        The one-layer LSTM is defined with batch_first=True, hence it expects input in form of:
+        x = (batch_size, seq_length, state_shape)
+        
+        The call <out, (hidden, cell) = LSTM(x)> results in: 
+        out:    Output (= hidden state) of LSTM for each time step with shape (batch_size, seq_length, hidden_size).
+        hidden: The hidden state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+        cell:   The cell state of the last time step in each sequence with shape (1, batch_size, hidden_size).
+
+        Note 2:
+        The state contains two components; one is related to the OS and goal, one is related to other vessels.
+        If another vessel is too far away, its state components will be set to nan. Since we do not want to put these through the LSTM,
+        we need to first identify the true length and only then select the hidden state accordingly.
+        """
+
+        # inner recurrence
+        x = self._inner_rec(s)
 
         # final dense layers
         x = F.relu(self.post_comb_dense1(x))
         x = self.post_comb_dense2(x)
+
+        return x
+
+
+#------------------------------- LSTM-RecDQN for FossenEnv --------------------------------
+
+class LSTMRecDQN(RecDQN):
+    """Defines an LSTM-Recursive-DQN particularly designed for the FossenEnv. There are two recursive parts:
+    one for different vessels inside one observation, one for sequential observations."""
+    
+    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=7, num_obs_TS=6) -> None:
+        super(LSTMRecDQN, self).__init__(num_actions=num_actions, num_obs_OS=num_obs_OS, num_obs_TS=num_obs_TS)
+
+        if use_past_actions:
+            raise NotImplementedError("Using past actions for LSTMRecDQN is not available yet.")
+
+        # just make it clean, we don't use the following
+        del self.post_comb_dense1
+        del self.post_comb_dense2
+
+        # Recursion 1: features for other vessels
+        self.LSTM_inner = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
+
+        # Recursion 2: sequential observations (=MEM)
+        self.LSTM_outer = nn.LSTM(input_size = num_obs_OS + 128, hidden_size = 128, num_layers = 1, batch_first = True)
+
+        # CFE
+        self.denseCFE = nn.Linear(num_obs_OS + 128, 128)
+
+        # PI
+        self.PI_dense1 = nn.Linear(128 + 128, 128)
+        self.PI_dense2 = nn.Linear(128, num_actions)
+
+    def forward(self, s, s_hist, a_hist, hist_len) -> tuple:
+        """s, s_hist are torch tensors. Using a_hist is not implemented yet.
+
+        Args:
+            s:        torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+            s_hist:   torch.Size([batch_size, history_length, num_obs_OS + num_obs_TS * N_TSs])
+            hist_len: torch.Size(batch_size)
+            log_info: Bool, whether to return logging dict
+        
+        Returns: 
+            torch.Size([batch_size, num_actions]), critic_net_info (dict) (if log_info)"""
+        
+        #--------------------- CFE -------------------------
+        # inner recurrence
+        x_CFE = self._inner_rec(s)
+
+        # dense
+        x_CFE = F.relu(self.denseCFE(x_CFE))
+
+        #--------------------- MEM -------------------------
+        #--- inner recurrence ---
+        batch_size, history_length, _ = s_hist.shape
+        x_hist = torch.zeros((batch_size, history_length, 128 + self.num_obs_OS))
+        
+        for t in range(history_length):
+            x_hist[:, t, :] = self._inner_rec(s_hist[:, t, :])
+
+        #--- outer recurrence ---
+        extracted_mem, (_, _) = self.LSTM_outer(x_hist)
+
+        # get selection index according to history lengths (no-history cases will be masked later)
+        h_idx = copy.deepcopy(hist_len)
+        h_idx[h_idx == 0] = 1
+        h_idx -= 1
+
+        # select LSTM output, resulting shape is (batch_size, hidden_dim)
+        hidden_mem = extracted_mem[torch.arange(extracted_mem.size(0)), h_idx]
+
+        # mask no-history cases to yield zero extracted memory
+        hidden_mem[hist_len == 0] = 0.0
+
+        # ------------------- PI ----------------------
+        x = torch.cat([x_CFE, hidden_mem], dim=1)
+
+        # final dense layers
+        x = F.relu(self.PI_dense1(x))
+        x = self.PI_dense2(x)
 
         return x

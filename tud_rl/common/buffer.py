@@ -113,21 +113,22 @@ class UniformReplayBuffer_BootDQN(UniformReplayBuffer):
 
 
 class UniformReplayBuffer_LSTM(UniformReplayBuffer):
-    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim, history_length):
+    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, history_length, action_dim=None):
         super().__init__(state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim)
         
-        self.action_dim = action_dim
+        self.action_dim     = action_dim
+        self.disc_actions   = disc_actions
         self.history_length = history_length
 
     def sample(self) -> tuple:
         """Returns tuple of past experiences with elements:
 
         s_hist:    torch.Size([batch_size, history_length, state_shape])
-        a_hist:    torch.Size([batch_size, history_length, action_dim])
+        a_hist:    torch.Size([batch_size, history_length, action_dim or 1])
         hist_len:  torch.Size(batch_size)
 
         s2_hist:   torch.Size([batch_size, history_length, state_shape])
-        a2_hist:   torch.Size([batch_size, history_length, action_dim])
+        a2_hist:   torch.Size([batch_size, history_length, action_dim or 1])
         hist_len2: torch.Size(batch_size)
 
         s:         torch.Size([batch_size, state_shape])
@@ -153,8 +154,13 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
         # ---------- hist generation  --------
 
         # create empty histories
-        s_hist   = np.zeros((self.batch_size, self.history_length, self.state_shape), dtype=np.float32)
-        a_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+        s_hist = np.zeros((self.batch_size, self.history_length, self.state_shape), dtype=np.float32)
+        
+        if self.disc_actions:
+            a_hist = np.zeros((self.batch_size, self.history_length, 1), dtype=np.int64)
+        else:
+            a_hist = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+        
         hist_len = np.ones(self.batch_size, dtype=np.int64) * self.history_length
 
         # fill histories
@@ -173,8 +179,8 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
                     hist_len[i]  = j - 1
 
                     # set prior entries to zero when done appeared
-                    s_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
-                    a_hist[i, : (self.history_length - j + 1) ,:]  = 0.0
+                    s_hist[i, : (self.history_length - j + 1) ,:] = 0.0
+                    a_hist[i, : (self.history_length - j + 1) ,:] = 0
 
                     # move non-zero experiences to the beginning
                     s_hist[i] = np.roll(s_hist[i], shift = -(self.history_length - j + 1), axis=0)
@@ -185,7 +191,12 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
 
         # create empty histories
         s2_hist   = np.zeros((self.batch_size, self.history_length, self.state_shape), dtype=np.float32)
-        a2_hist   = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+
+        if self.disc_actions:
+            a2_hist = np.zeros((self.batch_size, self.history_length, 1), dtype=np.int64)
+        else:
+            a2_hist = np.zeros((self.batch_size, self.history_length, self.action_dim), dtype=np.float32)
+
         hist_len2 = np.ones(self.batch_size, dtype=np.int64) * self.history_length
 
         # fill histories
@@ -205,7 +216,7 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
 
                     # set prior entries to zero when done appeared
                     s2_hist[i, : (self.history_length - j) ,:] = 0.0
-                    a2_hist[i, : (self.history_length - j) ,:]  = 0.0
+                    a2_hist[i, : (self.history_length - j) ,:] = 0
 
                     # move non-zero experiences to the beginning
                     s2_hist[i] = np.roll(s2_hist[i], shift= -(self.history_length - j), axis=0)

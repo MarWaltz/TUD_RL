@@ -24,6 +24,12 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
 
     for _ in range(c.eval_episodes):
 
+        # LSTM: init history
+        if "LSTM" in agent.name:
+            s_hist = np.zeros((agent.history_length, agent.state_shape))
+            a_hist = np.zeros((agent.history_length, 1), dtype=np.int64)
+            hist_len = 0
+
         # get initial state
         s = test_env.reset()
         if c.input_norm:
@@ -38,7 +44,10 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
             eval_epi_steps += 1
 
             # select action
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
 
             # perform step
             s2, r, d, _ = test_env.step(a)
@@ -46,6 +55,19 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
             # potentially normalize s2
             if c.input_norm:
                 s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
+
+            # LSTM: update history
+            if "LSTM" in agent.name:
+                if hist_len == agent.history_length:
+                    s_hist = np.roll(s_hist, shift=-1, axis=0)
+                    s_hist[agent.history_length - 1, :] = s
+
+                    a_hist = np.roll(a_hist, shift=-1, axis=0)
+                    a_hist[agent.history_length - 1, :] = a
+                else:
+                    s_hist[hist_len] = s
+                    a_hist[hist_len] = a
+                    hist_len += 1
 
             # s becomes s2
             s = s2
@@ -120,6 +142,12 @@ def train(c: ConfigFile, agent_name: str):
     agent.logger.save_config({"agent_name": agent.name, **c.config_dict})
     agent.print_params(agent.n_params, case=0)
 
+    # LSTM: init history
+    if "LSTM" in agent.name:
+        s_hist = np.zeros((agent.history_length, agent.state_shape))
+        a_hist = np.zeros((agent.history_length, 1), dtype=np.int64)
+        hist_len = 0
+
     # get initial state and normalize it
     s = env.reset()
     if c.input_norm:
@@ -138,7 +166,10 @@ def train(c: ConfigFile, agent_name: str):
         if total_steps < c.act_start_step:
             a = np.random.randint(low=0, high=agent.num_actions, size=1, dtype=int).item()
         else:
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
 
         # perform step
         s2, r, d, _ = env.step(a)
@@ -156,6 +187,19 @@ def train(c: ConfigFile, agent_name: str):
         # memorize
         agent.memorize(s, a, r, s2, d)
 
+        # LSTM: update history
+        if "LSTM" in agent.name:
+            if hist_len == agent.history_length:
+                s_hist = np.roll(s_hist, shift=-1, axis=0)
+                s_hist[agent.history_length - 1, :] = s
+
+                a_hist = np.roll(a_hist, shift=-1, axis=0)
+                a_hist[agent.history_length - 1, :] = a
+            else:
+                s_hist[hist_len] = s
+                a_hist[hist_len] = a
+                hist_len += 1
+
         # train
         if (total_steps >= c.upd_start_step) and (total_steps % c.upd_every == 0):
             for _ in range(c.upd_every):
@@ -170,6 +214,12 @@ def train(c: ConfigFile, agent_name: str):
             # reset active head for BootDQN
             if "Boot" in agent_name:
                 agent.reset_active_head()
+
+            # LSTM: reset history
+            if "LSTM" in agent.name:
+                s_hist = np.zeros((agent.history_length, agent.state_shape))
+                a_hist = np.zeros((agent.history_length, 1), dtype=np.int64)
+                hist_len = 0
 
             # reset to initial state and normalize it
             s = env.reset()
