@@ -101,12 +101,15 @@ class LSTMRecDQNAgent(BaseAgent):
     @torch.no_grad()
     def _greedy_action(self, s, s_hist, a_hist, hist_len, with_Q=False):
         """Selects a greedy action.
-        s:        np.array with shape (state_shape,)
-        s_hist:   np.array with shape (history_length, state_shape)
-        a_hist:   np.array with shape (history_length, 1)
-        hist_len: int
+
+        Args:
+            s:        np.array with shape (state_shape,)
+            s_hist:   np.array with shape (history_length, state_shape)
+            a_hist:   np.array with shape (history_length, 1)
+            hist_len: int
         
-        returns: np.array with shape (action_dim,)
+        Returns: 
+            int
         """
 
         # reshape arguments and convert to tensors
