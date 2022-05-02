@@ -18,6 +18,12 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
 
     for _ in range(c.eval_episodes):
 
+        # LSTM: init history
+        if "LSTM" in agent.name:
+            s_hist = np.zeros((agent.history_length, agent.state_shape))
+            a_hist = np.zeros((agent.history_length, 1), dtype=np.int64)
+            hist_len = 0
+
         # get initial state
         s = env.reset()
 
@@ -37,7 +43,10 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
             env.render()
 
             # select action
-            a = agent.select_action(s)
+            if "LSTM" in agent.name:
+                a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
+            else:
+                a = agent.select_action(s)
 
             # perform step
             s2, r, d, _ = env.step(a)
@@ -45,6 +54,19 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
             # potentially normalize s2
             if c.input_norm:
                 s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
+
+            # LSTM: update history
+            if "LSTM" in agent.name:
+                if hist_len == agent.history_length:
+                    s_hist = np.roll(s_hist, shift=-1, axis=0)
+                    s_hist[agent.history_length - 1, :] = s
+
+                    a_hist = np.roll(a_hist, shift=-1, axis=0)
+                    a_hist[agent.history_length - 1, :] = a
+                else:
+                    s_hist[hist_len] = s
+                    a_hist[hist_len] = a
+                    hist_len += 1
 
             # s becomes s2
             s = s2
