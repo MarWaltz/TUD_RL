@@ -615,18 +615,22 @@ class RecDQN(nn.Module):
         self.num_obs_OS  = num_obs_OS
         self.num_obs_TS  = num_obs_TS
 
+        # own ship and goal related features
+        self.denseOS_inner = nn.Linear(num_obs_OS, 128)
+        
         # features for other vessels
-        self.LSTM_inner = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.LSTM_inner    = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.denseTS_inner = nn.Linear(128, 128)
 
         # post combination
-        self.post_comb_dense1 = nn.Linear(num_obs_OS + 128, 128)
+        self.post_comb_dense1 = nn.Linear(128 + 128, 128)
         self.post_comb_dense2 = nn.Linear(128, num_actions)
 
     def _inner_rec(self, s):
         """Computes the inner recurrence for temporal information about target ships.
         s: torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
 
-        returns: torch.Size([batch_size, num_obs_OS + 128])
+        returns: torch.Size([batch_size, 128 + 128])
         """
         
         # extract OS and TS states
@@ -657,6 +661,9 @@ class RecDQN(nn.Module):
             s_TS[torch.isnan(s_TS)] = 0.0
 
         # --------------------------------- calculations -----------------------------------------
+        # process OS
+        x_OS = F.relu(self.denseOS_inner(s_OS))
+
         if TS_there:
 
             # process TS
@@ -670,8 +677,11 @@ class RecDQN(nn.Module):
         
         else:
             x_TS = torch.zeros(first_dim, 128)
+
+        # dense TS
+        x_TS = F.relu(self.denseTS_inner(x_TS))
         
-        return torch.cat([s_OS, x_TS], dim=1)
+        return torch.cat([x_OS, x_TS], dim=1)
 
 
     def forward(self, s) -> tuple:
@@ -721,14 +731,11 @@ class LSTMRecDQN(RecDQN):
         del self.post_comb_dense1
         del self.post_comb_dense2
 
-        # Recursion 1: features for other vessels
-        self.LSTM_inner = nn.LSTM(input_size = num_obs_TS, hidden_size = 128, num_layers = 1, batch_first = True)
-
         # Recursion 2: sequential observations (=MEM)
-        self.LSTM_outer = nn.LSTM(input_size = num_obs_OS + 128, hidden_size = 128, num_layers = 1, batch_first = True)
+        self.LSTM_outer = nn.LSTM(input_size = 128 + 128, hidden_size = 128, num_layers = 1, batch_first = True)
 
         # CFE
-        self.denseCFE = nn.Linear(num_obs_OS + 128, 128)
+        self.denseCFE = nn.Linear(128 + 128, 128)
 
         # PI
         self.PI_dense1 = nn.Linear(128 + 128, 128)
@@ -756,7 +763,7 @@ class LSTMRecDQN(RecDQN):
         #--------------------- MEM -------------------------
         #--- inner recurrence ---
         batch_size, history_length, _ = s_hist.shape
-        x_hist = torch.zeros((batch_size, history_length, 128 + self.num_obs_OS))
+        x_hist = torch.zeros((batch_size, history_length, 128 + 128))
         
         for t in range(history_length):
             x_hist[:, t, :] = self._inner_rec(s_hist[:, t, :])
