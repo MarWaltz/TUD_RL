@@ -20,5 +20,5 @@ for filename in _ENVS:
     for name, obj in inspect.getmembers(module):
         if inspect.isclass(obj) and all(hasattr(obj, a) for a in ["reset", "step"]):
             cls_ = getattr(module, name)
-            logger.info("Loading {} from {}.".format(name, obj))
+            logger.info(f"Loading {name} from {module.__name__}.")
             setattr(__currentmodule__, name, cls_)
