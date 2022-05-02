@@ -6,7 +6,7 @@
       "state_type"        : "feature",
       "wrappers"          : [],
       "wrapper_kwargs"    : {},
-      "env_kwargs"        : {"N_TSs_max" : 2, "state_design" : "RecDQN"},
+      "env_kwargs"        : {"N_TSs_max" : 0, "state_design" : "RecDQN"},
       "info"              : ""
    }
    ,
