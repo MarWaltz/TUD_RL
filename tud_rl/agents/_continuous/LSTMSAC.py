@@ -42,7 +42,7 @@ class LSTMSACAgent(BaseAgent):
             raise Exception("Currently, image input is not supported for continuous action spaces.")
 
         if self.net_struc_actor is not None or self.net_struc_critic is not None:
-            logger.warn("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            logger.warning("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
         # dynamic or static temperature
         if self.temp_tuning:

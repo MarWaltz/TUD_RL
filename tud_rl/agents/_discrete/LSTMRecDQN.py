@@ -34,7 +34,7 @@ class LSTMRecDQNAgent(BaseAgent):
         assert self.state_type == "feature", "LSTMRecDQN is currently based on features."
 
         if self.net_struc is not None:
-            logger.warn("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            logger.warning("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
         # linear epsilon schedule
         self.exploration = LinearDecayEpsilonGreedy(eps_init        = self.eps_init, 
