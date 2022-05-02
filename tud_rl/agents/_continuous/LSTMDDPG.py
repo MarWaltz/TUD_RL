@@ -38,7 +38,7 @@ class LSTMDDPGAgent(BaseAgent):
             raise Exception("Currently, image input is not supported for continuous action spaces.")
 
         if self.net_struc_actor is not None or self.net_struc_critic is not None:
-            logger.info("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
+            logger.warn("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
         # noise
         self.noise = Gaussian_Noise(action_dim = self.num_actions)
