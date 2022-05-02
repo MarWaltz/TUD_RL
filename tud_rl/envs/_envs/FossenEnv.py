@@ -372,7 +372,7 @@ class FossenEnv(gym.Env):
                 bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (np.pi)
 
                 # heading intersection angle
-                C_TS = head_inter(head_OS=head0, head_TS=headTS) / (2*np.pi)
+                C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (np.pi)
 
                 # speed
                 V_TS = TS._get_V()
@@ -450,28 +450,24 @@ class FossenEnv(gym.Env):
             self.OS_traj_E.append(self.OS.eta[1])
 
             # check TS respawning
-            for TS_idx, flag in enumerate(self.respawn_flags):
-                if flag:
-                    # add new trajectory slot
-                    self.TS_traj_N.append([])
-                    self.TS_traj_E.append([])
+            if self.N_TSs > 0:
+                for TS_idx, flag in enumerate(self.respawn_flags):
+                    if flag:
+                        # add new trajectory slot
+                        self.TS_traj_N.append([])
+                        self.TS_traj_E.append([])
 
-                    # update pointer
-                    self.TS_ptr[TS_idx] = max(self.TS_ptr) + 1
+                        # update pointer
+                        self.TS_ptr[TS_idx] = max(self.TS_ptr) + 1
 
-            # TS update
-            for TS_idx, TS in enumerate(self.TSs):
-                ptr = self.TS_ptr[TS_idx]
-                self.TS_traj_N[ptr].append(TS.eta[0])
-                self.TS_traj_E[ptr].append(TS.eta[1])
+                # TS update
+                for TS_idx, TS in enumerate(self.TSs):
+                    ptr = self.TS_ptr[TS_idx]
+                    self.TS_traj_N[ptr].append(TS.eta[0])
+                    self.TS_traj_E[ptr].append(TS.eta[1])
 
         # update COLREG scenarios
         self._set_COLREGs()
-
-        # compute state, reward, done        
-        self._set_state()
-        self._calculate_reward()
-        d = self._done()
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -479,6 +475,11 @@ class FossenEnv(gym.Env):
 
         if self.N_TSs_increasing:
             self.outer_step_cnt += 1
+
+        # compute state, reward, done        
+        self._set_state()
+        self._calculate_reward()
+        d = self._done()
        
         return self.state, self.r, d, {}
 
@@ -565,9 +566,9 @@ class FossenEnv(gym.Env):
 
             # Collision: event penalty or basic Gaussian reward
             if ED_TS <= self.coll_dist:
-                r_coll -= 100
-            else:
-                r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
+                r_coll -= 10
+            #else:
+            #    r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
