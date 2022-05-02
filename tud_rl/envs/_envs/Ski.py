@@ -168,8 +168,8 @@ class Ski(gym.Env):
         """Returns boolean flag whether episode is over."""
         return True if self.agent_x >= self.obst_x else False
     
-    def render(self, agent_name=None):
-        """Renders the current environment."""
+    def render(self, agent_name=None, mode=None):
+        """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
 
         # plot every nth timestep
         if self.current_timestep % 2 == 0: 

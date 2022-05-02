@@ -806,8 +806,8 @@ class FossenEnv(gym.Env):
         return axis
 
 
-    def render(self):
-        """Renders the current environment."""
+    def render(self, mode=None):
+        """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
 
         # plot every nth timestep (except we only want trajectory)
         if not self.plot_traj:

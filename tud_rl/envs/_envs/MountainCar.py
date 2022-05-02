@@ -57,5 +57,6 @@ class MountainCar(gym.Env):
     def seed(self, seed):
         pass
 
-    def render(self):
+    def render(self, mode=None):
+        """Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
         pass

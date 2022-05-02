@@ -156,8 +156,8 @@ class FossenEnvStarScene(FossenEnv):
         return False
 
 
-    def render(self):
-        """Renders the current environment."""
+    def render(self, mode=None):
+        """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
 
         # plot every nth timestep
         if self.step_cnt % 1 == 0: 
