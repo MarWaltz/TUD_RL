@@ -23,8 +23,8 @@ class FossenEnv(gym.Env):
 
         # simulation settings
         self.delta_t      = 0.5                        # simulation time interval (in s)
-        self.N_max        = 200                        # maximum N-coordinate (in m)
-        self.E_max        = 200                        # maximum E-coordinate (in m)
+        self.N_max        = 300                        # maximum N-coordinate (in m)
+        self.E_max        = 300                        # maximum E-coordinate (in m)
         
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -36,9 +36,9 @@ class FossenEnv(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = self.N_max/2          # sight of the agent (in m)
+        self.sight             = 100                   # sight of the agent (in m)
         self.coll_dist         = 6.275                 # collision distance (in m, five times ship length)
-        self.TCPA_crit         = 120                   # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 180                   # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 20                    # minimum distance of a spawning vessel to other TSs (in m)
         self.cnt_approach      = cnt_approach          # whether to control actuator forces or rudder angle and rps directly
 
@@ -70,7 +70,7 @@ class FossenEnv(gym.Env):
             self.action_space = spaces.Discrete(9)
 
         # custom inits
-        self._max_episode_steps = 500
+        self._max_episode_steps = 750
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
@@ -289,13 +289,17 @@ class FossenEnv(gym.Env):
             # set positional values
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
             
-            # check whether samples TS spawnes not too close to other TS to constitute realistic setups
-            if len(self.TSs) == 0:
-                break
+            # TS should spawn outside the sight of the agent
+            if ED(N0=N0, E0=E0, N1=N_TS, E1=E_TS, sqrt=True) > self.sight:
 
-            if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs]) >= self.min_dist_spawn_TS:
-                break
+                # no TS yet there
+                if len(self.TSs) == 0:
+                    break
 
+                # TS shouldn't spawn too close to other TS
+                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
+                    >= self.min_dist_spawn_TS:
+                    break
         return TS
 
 
@@ -538,7 +542,7 @@ class FossenEnv(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
+    def _calculate_reward(self, w_dist=0., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -546,13 +550,12 @@ class FossenEnv(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
-        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist = - OS_goal_ED / self.E_max
-        #r_dist = 0.0
+        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        #r_dist = - OS_goal_ED / self.E_max
+        r_dist = 0.0
 
         # 2. Heading reward
-        r_head = -3*np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
-
+        r_head = 1 - np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -560,15 +563,12 @@ class FossenEnv(gym.Env):
 
         for TS_idx, TS in enumerate(self.TSs):
 
-            # compute ship domain and ED
-            #domain = self._get_ship_domain(OS=self.OS, TS=TS)
-            ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+            # get ED
+            ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
-            # Collision: event penalty or basic Gaussian reward
+            # Collision: event penalty
             if ED_TS <= self.coll_dist:
                 r_coll -= 10
-            #else:
-            #    r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -579,21 +579,14 @@ class FossenEnv(gym.Env):
 
                     # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 3.0
+                        r_COLREG -= 1.0
 
                     # steer to the left (r <= 0) in starboard crossing (large) situation
                     elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
-                        r_COLREG -= 3.0
-
-                    # assess when COLREG situation changes
-                    #if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
-                    
-                        # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
-                    #    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
-                    #            r_COLREG -= 10
+                        r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = -10 * abs(self.OS.nu[2])**2
+        r_comf = 1-np.sqrt(abs(self.OS.nu[2])/0.3)
 
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
@@ -601,17 +594,25 @@ class FossenEnv(gym.Env):
         self.r_coll   = r_coll
         self.r_COLREG = r_COLREG
         self.r_comf   = r_comf
-        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf
+
+        w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
+        self.r = (w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf) / w_sum
 
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
 
         d = False
+        N0 = self.OS.eta[0]
+        E0 = self.OS.eta[1]
 
         # goal reached
-        OS_goal_ED = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
+        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
         if OS_goal_ED <= self.goal_reach_dist:
+            d = True
+
+        # collision
+        if any([ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1]) <= self.coll_dist for TS in self.TSs]):
             d = True
 
         # artificial done signal

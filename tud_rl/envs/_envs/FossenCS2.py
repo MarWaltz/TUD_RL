@@ -70,8 +70,8 @@ class CyberShipII:
             # system is underactuated in v-direction, u-force will be constant, r-tau compoment controlled
             self.tau_u         = tau_u         # initialization in Nm
             self.tau_cnt_r     = 0.0           # initialization in Nm
-            self.tau_cnt_r_inc = 0.25          # increment in Nm
-            self.tau_cnt_r_max = 1.0           # maximum (absolute value) in Nm           
+            self.tau_cnt_r_inc = 0.05          # increment in Nm
+            self.tau_cnt_r_max = 0.5           # maximum (absolute value) in Nm           
 
 
         # ---------------------- Approach 2: Control rps and angle (following Skjetne et al. (2004)) ----------------------
