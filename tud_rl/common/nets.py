@@ -608,7 +608,7 @@ class RecDQN(nn.Module):
     """Defines a Recursive-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
     
-    def __init__(self, num_actions, num_obs_OS=9, num_obs_TS=6) -> None:
+    def __init__(self, num_actions, num_obs_OS=8, num_obs_TS=6) -> None:
         super(RecDQN, self).__init__()
 
         self.num_actions = num_actions
@@ -721,7 +721,7 @@ class LSTMRecDQN(RecDQN):
     """Defines an LSTM-Recursive-DQN particularly designed for the FossenEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=9, num_obs_TS=6) -> None:
+    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=8, num_obs_TS=6) -> None:
         super(LSTMRecDQN, self).__init__(num_actions=num_actions, num_obs_OS=num_obs_OS, num_obs_TS=num_obs_TS)
 
         if use_past_actions:

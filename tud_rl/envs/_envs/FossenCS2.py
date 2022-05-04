@@ -140,7 +140,6 @@ class CyberShipII:
         self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)        # N (in m),   E (in m),   psi (in rad)   in NE-system
         self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)          # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
 
-        self.eta_dot = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         self.nu_dot  = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         self._set_tau()
 
@@ -265,7 +264,7 @@ class CyberShipII:
         return np.concatenate([eta_dot, nu_dot])
 
 
-    def _upd_dynamics(self, euler=False):
+    def _upd_dynamics(self, euler=True):
         """Updates positions and velocities for next simulation step.
         Args:
             euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
@@ -292,8 +291,7 @@ class CyberShipII:
         else:
             
             # store current values for change rate computation
-            self.eta_old = self.eta
-            self.nu_old  = self.nu
+            self.nu_old = self.nu
 
             # solve ODE
             sol = solve_ivp(fun    = self._ship_dynamic, 
@@ -309,11 +307,7 @@ class CyberShipII:
             # transform heading to [0, 2pi)
             self.eta[2] = angle_to_2pi(self.eta[2])
 
-            # get dots
-            self.delta_eta    = self.eta - self.eta_old
-            self.delta_eta[2] = angle_to_pi(self.delta_eta[2])
-            self.eta_dot      = self.delta_eta / self.delta_t
-            
+            # get nu_dot           
             self.nu_dot  = (self.nu - self.nu_old) / self.delta_t
 
 
@@ -334,13 +328,11 @@ class CyberShipII:
             2 - decrease rudder angle by 5 degree per second
         
         Control Approach 3:
-            Action 'a' is an integer taking values in [0, 1, 2, 3, 4]. They correspond to:
+            Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
 
-            0 - set f2 = 0.00 [N] 
-            1 - set f2 = 0.75 [N] 
-            2 - set f2 = 1.50 [N] 
-            3 - set f2 = 2.25 [N] 
-            4 - set f2 = 3.00 [N] 
+            0 - keep f2 as is
+            1 - increase f2 
+            2 - decrease f2
         """
         # store action for rendering
         self.action = a
@@ -383,13 +375,16 @@ class CyberShipII:
 
             # set f2
             if a == 0:
-                self.f2 = 0.75
+                pass
             
             elif a == 1:
-                self.f2 = 1.5
+                self.f2 += 0.5
             
             elif a == 2:
-                self.f2 = 2.25
+                self.f2 -= 0.5
+            
+            # clip it
+            self.f2 = np.clip(self.f2, 0.5, 2.5)
 
             # set f3
             self.f3 = self.f23_sum - self.f2

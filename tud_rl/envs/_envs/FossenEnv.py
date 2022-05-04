@@ -18,7 +18,7 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=False):
+    def __init__(self, N_TSs_max=3, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=True):
         super().__init__()
 
         # simulation settings
@@ -48,7 +48,7 @@ class FossenEnv(gym.Env):
         self.goal_reach_dist = 10                         # euclidean distance (in m) at which goal is considered as reached
         self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
 
-        self.num_obs_OS = 9                               # number of observations for the OS
+        self.num_obs_OS = 8                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
 
         self.plot_traj = plot_traj       # whether to plot trajectory after termination
@@ -358,7 +358,7 @@ class FossenEnv(gym.Env):
         OS:
             u, v, r
             heading
-            r_dot, heading_dot
+            r_dot
             tau_r
 
         Goal:
@@ -384,12 +384,11 @@ class FossenEnv(gym.Env):
             f_info = self.OS.tau_cnt_r / self.OS.tau_cnt_r_max
 
         elif self.cnt_approach == "f123":
-            f_info = self.OS.tau[2] / self.OS.f23_sum
+            f_info = self.OS.tau[2] / 0.2
 
         cmp1 = self.OS.nu
         cmp2 = np.array([angle_to_pi(head0) / (np.pi),      # heading
                          self.OS.nu_dot[2],                 # r_dot
-                         self.OS.eta_dot[2],                # heading_dot
                          f_info])                           # tau component
         state_OS = np.concatenate([cmp1, cmp2])
 
@@ -586,7 +585,7 @@ class FossenEnv(gym.Env):
                     return self._get_TS(), True
         return TS, False
 
-    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
+    def _calculate_reward_old(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -651,61 +650,62 @@ class FossenEnv(gym.Env):
         self.r_comf   = r_comf
         self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf
 
-    #def _calculate_reward(self, w_dist=1., w_head=5., w_coll=1., w_COLREG=1., w_comf=1.):
-    #    """Returns reward of the current state."""
+    def _calculate_reward(self, w_dist=1., w_head=3., w_coll=1., w_COLREG=1., w_comf=1.):
+        """Returns reward of the current state."""
 
-    #    N0, E0, head0 = self.OS.eta
+        N0, E0, head0 = self.OS.eta
 
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
-    #    OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-    #    r_dist = -OS_goal_ED / self.OS_goal_init
+        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        #r_dist = -OS_goal_ED / self.OS_goal_init
+        r_dist = 0.0
 
         # 2. Heading reward
-    #    r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
-    #    r_coll = 0
-    #    r_COLREG = 0
+        r_coll = 0
+        r_COLREG = 0
 
-     #   for TS_idx, TS in enumerate(self.TSs):
+        for TS_idx, TS in enumerate(self.TSs):
 
             # get ED
-      #      ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+            ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
             # Collision: event penalty
-       #     if ED_TS <= self.coll_dist:
- #               r_coll -= 10
-#
+            if ED_TS <= self.coll_dist:
+                r_coll -= 10
+
             # COLREG: if vessel just spawned, don't assess COLREG reward
-  #          if not self.respawn_flags[TS_idx]:
+            if not self.respawn_flags[TS_idx]:
 
                 # evaluate TS if in sight and has positive TCPA (alternative: only evaluate if TS in ship domain)
-   #             if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
-    #                 chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
+                if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
+                     chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
 
                     # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
-     #               if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-      #                  r_COLREG -= 1.0
+                    if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
+                        r_COLREG -= 1.0
 
                     # steer to the left (r <= 0) in starboard crossing (large) situation
-       #             elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
-        #                r_COLREG -= 1.0
+                    elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
+                        r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        #r_comf = -np.sqrt(abs(self.OS.nu[2])/0.3)
+        r_comf = -(self.OS.nu[2]/0.3)**2
 
         # -------------------------------------- Overall reward --------------------------------------------
         #w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
 
-       # self.r_dist   = r_dist * w_dist #/ w_sum
-       # self.r_head   = r_head * w_head #/ w_sum
-       # self.r_coll   = r_coll * w_coll #/ w_sum
-       # self.r_COLREG = r_COLREG * w_COLREG #/ w_sum
-       # self.r_comf   = r_comf * w_comf #/ w_sum
+        self.r_dist   = r_dist * w_dist #/ w_sum
+        self.r_head   = r_head * w_head #/ w_sum
+        self.r_coll   = r_coll * w_coll #/ w_sum
+        self.r_COLREG = r_COLREG * w_COLREG #/ w_sum
+        self.r_comf   = r_comf * w_comf #/ w_sum
 
-#        self.r = r_dist + r_head + r_coll + r_COLREG + r_comf
+        self.r = r_dist + r_head + r_coll + r_COLREG + r_comf
 
 
     def _done(self):
