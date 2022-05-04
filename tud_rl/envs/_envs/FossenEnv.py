@@ -48,7 +48,7 @@ class FossenEnv(gym.Env):
         self.goal_reach_dist = 10                         # euclidean distance (in m) at which goal is considered as reached
         self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
 
-        self.num_obs_OS = 7                               # number of observations for the OS
+        self.num_obs_OS = 9                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
 
         self.plot_traj = plot_traj       # whether to plot trajectory after termination
@@ -74,7 +74,7 @@ class FossenEnv(gym.Env):
         self.r_coll   = 0
         self.r_COLREG = 0
         self.r_comf   = 0
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\dot{r}$", r"$\dot{\Psi}$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
     def reset(self):
@@ -358,6 +358,7 @@ class FossenEnv(gym.Env):
         OS:
             u, v, r
             heading
+            r_dot, heading_dot
             tau_r
 
         Goal:
@@ -385,7 +386,12 @@ class FossenEnv(gym.Env):
         elif self.cnt_approach == "f123":
             f_info = self.OS.tau[2] / self.OS.f23_sum
 
-        state_OS = np.concatenate([self.OS.nu, np.array([angle_to_pi(head0) / (np.pi), f_info])])
+        cmp1 = self.OS.nu
+        cmp2 = np.array([angle_to_pi(head0) / (np.pi),      # heading
+                         self.OS.nu_dot[2],                 # r_dot
+                         self.OS.eta_dot[2],                # heading_dot
+                         f_info])                           # tau component
+        state_OS = np.concatenate([cmp1, cmp2])
 
 
         #------------------------------ goal related ---------------------------------
@@ -1047,7 +1053,7 @@ class FossenEnv(gym.Env):
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("State information")
 
-                for i in range(7):
+                for i in range(9):
                     self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                 color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
                                 label=self.state_names[i])    

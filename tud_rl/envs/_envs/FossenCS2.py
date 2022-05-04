@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
-from tud_rl.envs._envs.FossenFnc import dtr, angle_to_2pi, polar_from_xy
+from tud_rl.envs._envs.FossenFnc import (angle_to_2pi, angle_to_pi, dtr,
+                                         polar_from_xy)
 
 
 class CyberShipII:
@@ -138,6 +139,9 @@ class CyberShipII:
         #------------------------- Motion Initialization -----------------------------------
         self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)        # N (in m),   E (in m),   psi (in rad)   in NE-system
         self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)          # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+
+        self.eta_dot = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        self.nu_dot  = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         self._set_tau()
 
 
@@ -271,18 +275,25 @@ class CyberShipII:
 
             # calculate nu_dot by solving Fossen's equation
             M_nu_dot = self.tau - np.dot(self._C_of_nu(self.nu) + self._D_of_nu(self.nu), self.nu)
-            nu_dot = np.dot(self.M_inv, M_nu_dot)
+            self.nu_dot = np.dot(self.M_inv, M_nu_dot)
 
             # get new velocity (BODY-system)
-            self.nu += nu_dot * self.delta_t
+            self.nu += self.nu_dot * self.delta_t
 
             # calculate eta_dot via rotation
-            eta_dot = np.dot(self._T_of_psi(self.eta[2]), self.nu)
+            self.eta_dot = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
             # get new positions (NE-system)
-            self.eta += eta_dot * self.delta_t
-           
+            self.eta += self.eta_dot * self.delta_t
+
+            # transform heading to [0, 2pi)
+            self.eta[2] = angle_to_2pi(self.eta[2])
+
         else:
+            
+            # store current values for change rate computation
+            self.eta_old = self.eta
+            self.nu_old  = self.nu
 
             # solve ODE
             sol = solve_ivp(fun    = self._ship_dynamic, 
@@ -295,8 +306,15 @@ class CyberShipII:
             self.eta = sol.y[0:3, 0]
             self.nu  = sol.y[3:, 0]
 
-        # transform heading to [0, 2pi)
-        self.eta[2] = angle_to_2pi(self.eta[2])
+            # transform heading to [0, 2pi)
+            self.eta[2] = angle_to_2pi(self.eta[2])
+
+            # get dots
+            self.delta_eta    = self.eta - self.eta_old
+            self.delta_eta[2] = angle_to_pi(self.delta_eta[2])
+            self.eta_dot      = self.delta_eta / self.delta_t
+            
+            self.nu_dot  = (self.nu - self.nu_old) / self.delta_t
 
 
     def _control(self, a):
