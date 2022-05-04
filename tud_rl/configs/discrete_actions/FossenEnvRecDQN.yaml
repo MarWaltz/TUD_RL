@@ -1,7 +1,7 @@
 ---
 env:
   name: FossenEnv-v0
-  max_episode_steps: 500
+  max_episode_steps: 750
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -9,6 +9,7 @@ env:
     N_TSs_max: 0
     cnt_approach: tau
     state_design: RecDQN
+    plot_traj: False
   info: ''
 agent:
   DQN: {}
