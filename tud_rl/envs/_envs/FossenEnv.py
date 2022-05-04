@@ -67,14 +67,14 @@ class FossenEnv(gym.Env):
             self.action_space = spaces.Discrete(3)
 
         # custom inits
-        self._max_episode_steps = 500
+        self._max_episode_steps = 750
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
         self.r_coll   = 0
         self.r_COLREG = 0
         self.r_comf   = 0
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\dot{r}$", r"$\dot{\Psi}$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
+        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\dot{r}$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
 
 
     def reset(self):
@@ -145,7 +145,7 @@ class FossenEnv(gym.Env):
             self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.f23_sum)
 
         # initial distance to goal
-        self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
+        self.OS_goal_old = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
 
         # init other vessels
         if self.N_TSs_random:
@@ -585,85 +585,17 @@ class FossenEnv(gym.Env):
                     return self._get_TS(), True
         return TS, False
 
-    def _calculate_reward_old(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
+
+    def _calculate_reward(self, w_dist=1., w_coll=1., w_COLREG=1., w_comf=1.):
         """Returns reward of the current state."""
 
-        N0, E0, head0 = self.OS.eta
+        N0, E0, _ = self.OS.eta
 
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
-
-        # 1. Distance reward
-        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist = - OS_goal_ED / self.E_max
-        #r_dist = 0.0
-
-        # 2. Heading reward
-        r_head = -3*np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
-
-
-        # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
-        r_coll = 0
-        r_COLREG = 0
-
-        for TS_idx, TS in enumerate(self.TSs):
-
-            # compute ship domain and ED
-            #domain = self._get_ship_domain(OS=self.OS, TS=TS)
-            ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
-
-            # Collision: event penalty or basic Gaussian reward
-            if ED_TS <= self.coll_dist:
-                r_coll -= 10
-            #else:
-            #    r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
-
-            # COLREG: if vessel just spawned, don't assess COLREG reward
-            if not self.respawn_flags[TS_idx]:
-
-                # evaluate TS if in sight and has positive TCPA (alternative: only evaluate if TS in ship domain)
-                if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
-                     chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
-
-                    # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
-                    if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 3.0
-
-                    # steer to the left (r <= 0) in starboard crossing (large) situation
-                    elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
-                        r_COLREG -= 3.0
-
-                    # assess when COLREG situation changes
-                    #if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
-                    
-                        # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
-                    #    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
-                    #            r_COLREG -= 10
-
-        # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = -10 * abs(self.OS.nu[2])**2
-
-        # -------------------------------------- Overall reward --------------------------------------------
-        self.r_dist   = r_dist
-        self.r_head   = r_head
-        self.r_coll   = r_coll
-        self.r_COLREG = r_COLREG
-        self.r_comf   = r_comf
-        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf
-
-    def _calculate_reward(self, w_dist=1., w_head=3., w_coll=1., w_COLREG=1., w_comf=1.):
-        """Returns reward of the current state."""
-
-        N0, E0, head0 = self.OS.eta
-
-        # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
-
-        # 1. Distance reward
-        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        #r_dist = -OS_goal_ED / self.OS_goal_init
-        r_dist = 0.0
-
-        # 2. Heading reward
-        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+        # Distance reward
+        OS_goal_ED       = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        r_dist           = (self.OS_goal_old - OS_goal_ED) / 0.3425
+        self.OS_goal_old = OS_goal_ED
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -700,12 +632,11 @@ class FossenEnv(gym.Env):
         #w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
 
         self.r_dist   = r_dist * w_dist #/ w_sum
-        self.r_head   = r_head * w_head #/ w_sum
         self.r_coll   = r_coll * w_coll #/ w_sum
         self.r_COLREG = r_COLREG * w_COLREG #/ w_sum
         self.r_comf   = r_comf * w_comf #/ w_sum
 
-        self.r = r_dist + r_head + r_coll + r_COLREG + r_comf
+        self.r = r_dist + r_coll + r_COLREG + r_comf
 
 
     def _done(self):
@@ -1015,7 +946,6 @@ class FossenEnv(gym.Env):
                 if self.step_cnt == 0:
                     self.ax1.clear()
                     self.ax1.old_time = 0
-                    self.ax1.old_r_head = 0
                     self.ax1.old_r_dist = 0
                     self.ax1.old_r_coll = 0
                     self.ax1.old_r_COLREG = 0
@@ -1026,9 +956,8 @@ class FossenEnv(gym.Env):
                 self.ax1.set_xlabel("Timestep in episode")
                 self.ax1.set_ylabel("Reward")
 
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "blue", label="Heading")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "green", label="Collision")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "red", label="Collision")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
                 
@@ -1036,7 +965,6 @@ class FossenEnv(gym.Env):
                     self.ax1.legend()
 
                 self.ax1.old_time = self.step_cnt
-                self.ax1.old_r_head = self.r_head
                 self.ax1.old_r_dist = self.r_dist
                 self.ax1.old_r_coll = self.r_coll
                 self.ax1.old_r_COLREG = self.r_COLREG
@@ -1053,7 +981,7 @@ class FossenEnv(gym.Env):
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("State information")
 
-                for i in range(9):
+                for i in range(8):
                     self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
                                 color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
                                 label=self.state_names[i])    
