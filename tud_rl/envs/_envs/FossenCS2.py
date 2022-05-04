@@ -8,7 +8,7 @@ class CyberShipII:
     """This class provides a vessel behaving according to the nonlinear ship manoeuvering model (3 DOF) proposed in 
     Skjetne et al. (2004) in Modeling, Identification and Control."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, cnt_approach, tau_u) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max, cnt_approach, tau_u=None, f2=None, f23_sum=None) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
@@ -70,8 +70,8 @@ class CyberShipII:
             # system is underactuated in v-direction, u-force will be constant, r-tau compoment controlled
             self.tau_u         = tau_u         # initialization in Nm
             self.tau_cnt_r     = 0.0           # initialization in Nm
-            self.tau_cnt_r_inc = 0.05          # increment in Nm
-            self.tau_cnt_r_max = 0.5           # maximum (absolute value) in Nm           
+            self.tau_cnt_r_inc = 0.25          # increment in Nm
+            self.tau_cnt_r_max = 1.0           # maximum (absolute value) in Nm           
 
 
         # ---------------------- Approach 2: Control rps and angle (following Skjetne et al. (2004)) ----------------------
@@ -122,19 +122,18 @@ class CyberShipII:
         elif cnt_approach == "f123":
 
             # the reference assumes that the vessel is fully actuated; we impose the restriction tau_v = 0 by setting f1 = 0
+            # in addition, we restrict the CS to have constant tau_u = f23_sum [N] by imposing f2 + f3 = f23_sum [N]
             self.lx = 0.5
             self.ly = 0.1
 
             self.B = np.array([[0, 1, 1],
                                [1, 0, 0],
                                [self.lx, -self.ly, self.ly]], dtype=np.float32)
-            self.f1 = 0.0
-            self.f2 = 2.0
-            self.f3 = 2.0
 
-            self.df23 = 1       # increment (in N)
-            self.f23_max = 5    # maximum (in N)
-
+            self.f1 = 0.0            # in N
+            self.f2 = f2             # in N
+            self.f23_sum = f23_sum   # in N, sum of f2 + f3
+            self.f3 = f23_sum - f2   # in N
 
         #------------------------- Motion Initialization -----------------------------------
         self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)        # N (in m),   E (in m),   psi (in rad)   in NE-system
@@ -317,19 +316,13 @@ class CyberShipII:
             2 - decrease rudder angle by 5 degree per second
         
         Control Approach 3:
-            Action 'a' is an integer taking values in [0, 1, 2, ..., 8]. They correspond to:
+            Action 'a' is an integer taking values in [0, 1, 2, 3, 4]. They correspond to:
 
-            0 - increase f2, increase f3
-            1 - increase f2, keep f3
-            2 - increase f2, decrease f3
-            
-            3 - keep f2, increase f3
-            4 - keep f2, keep f3
-            5 - keep f2, decrease f3
-
-            6 - decrease f2, increase f3
-            7 - decrease f2, keep f3
-            8 - decrease f2, decrease f3
+            0 - set f2 = 0.00 [N] 
+            1 - set f2 = 0.75 [N] 
+            2 - set f2 = 1.50 [N] 
+            3 - set f2 = 2.25 [N] 
+            4 - set f2 = 3.00 [N] 
         """
         # store action for rendering
         self.action = a
@@ -368,46 +361,23 @@ class CyberShipII:
 
         elif self.cnt_approach == "f123":
 
-            assert a in range(9), "Unknown action."
+            assert a in range(3), "Unknown action."
 
-            # increase f2
+            # set f2
             if a == 0:
-                self.f2 += self.df23
-                self.f3 += self.df23
+                self.f2 = 0.75
             
             elif a == 1:
-                self.f2 += self.df23
+                self.f2 = 1.5
             
             elif a == 2:
-                self.f2 += self.df23
-                self.f3 -= self.df23
-            
-            # keep f2
-            elif a == 3:
-                self.f3 += self.df23
-            
-            elif a == 4:
-                pass
+                self.f2 = 2.25
 
-            elif a == 5:
-                self.f3 -= self.df23
-            
-            # decrease f2
-            elif a == 6:
-                self.f2 -= self.df23
-                self.f3 += self.df23
-            
-            elif a == 7:
-                self.f2 -= self.df23
-
-            elif a == 8:
-                self.f2 -= self.df23
-                self.f3 -= self.df23
-            
-            # clip both
-            self.f2 = np.clip(self.f2, 0, self.f23_max)
-            self.f3 = np.clip(self.f3, 0, self.f23_max)
-
+            # set f3
+            self.f3 = self.f23_sum - self.f2
+        
+        # set new tau in all approaches
+        self._set_tau()
 
     def _get_sideslip(self):
         """Returns the sideslip angle in radiant."""

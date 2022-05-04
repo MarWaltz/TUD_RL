@@ -18,13 +18,13 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=True, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=False):
+    def __init__(self, N_TSs_max=3, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=False):
         super().__init__()
 
         # simulation settings
-        self.delta_t      = 0.5                        # simulation time interval (in s)
-        self.N_max        = 300                        # maximum N-coordinate (in m)
-        self.E_max        = 300                        # maximum E-coordinate (in m)
+        self.delta_t = 0.5                        # simulation time interval (in s)
+        self.N_max   = 200                        # maximum N-coordinate (in m)
+        self.E_max   = 200                        # maximum E-coordinate (in m)
         
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -38,7 +38,7 @@ class FossenEnv(gym.Env):
 
         self.sight             = 100                   # sight of the agent (in m)
         self.coll_dist         = 6.275                 # collision distance (in m, five times ship length)
-        self.TCPA_crit         = 180                   # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 120                   # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 20                    # minimum distance of a spawning vessel to other TSs (in m)
         self.cnt_approach      = cnt_approach          # whether to control actuator forces or rudder angle and rps directly
 
@@ -63,14 +63,11 @@ class FossenEnv(gym.Env):
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         
-        if cnt_approach in ["tau", "rps_angle"]:
+        if cnt_approach in ["tau", "rps_angle", "f123"]:
             self.action_space = spaces.Discrete(3)
 
-        elif cnt_approach == "f123":
-            self.action_space = spaces.Discrete(9)
-
         # custom inits
-        self._max_episode_steps = 750
+        self._max_episode_steps = 500
         self.r = 0
         self.r_head   = 0
         self.r_dist   = 0
@@ -115,6 +112,16 @@ class FossenEnv(gym.Env):
             head   = dtr(np.random.uniform(260, 280))
 
         # init agent (OS for 'Own Ship')
+        if self.cnt_approach == "tau":
+            tau_u   = 3.0
+            f2      = None
+            f23_sum = None
+        
+        elif self.cnt_approach == "f123":
+            tau_u   = None
+            f2      = 1.5
+            f23_sum = 3.0
+
         self.OS = CyberShipII(N_init       = N_init, 
                               E_init       = E_init, 
                               psi_init     = head,
@@ -125,11 +132,20 @@ class FossenEnv(gym.Env):
                               N_max        = self.N_max,
                               E_max        = self.E_max,
                               cnt_approach = self.cnt_approach,
-                              tau_u        = 3.0)
+                              tau_u        = tau_u,
+                              f2           = f2,
+                              f23_sum      = f23_sum)
 
         # set longitudinal speed to near-convergence
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.tau_u)
+        if self.cnt_approach == "tau":
+            self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.tau_u)
+        
+        elif self.cnt_approach == "f123":
+            self.OS.nu[0] = self.OS._u_from_tau_u(self.OS.f23_sum)
+
+        # initial distance to goal
+        self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
 
         # init other vessels
         if self.N_TSs_random:
@@ -185,15 +201,23 @@ class FossenEnv(gym.Env):
             3) relative bearing (in rad), 
             4) intersection angle (in rad),
             5) and a forward thrust (tau-u in N).
-
-        Procedure is simplified if control approach is not 'tau'. 
-
         Returns: 
             CyberShipII."""
 
+        assert self.cnt_approach in ["tau", "f123"], "TS spawning only implemented for 'tau' and 'f123' controls."
+
         while True:
 
-            # init a CSII
+            if self.cnt_approach == "tau":
+                tau_u   = np.random.uniform(0, 5)
+                f2      = None
+                f23_sum = None
+
+            elif self.cnt_approach == "f123":
+                tau_u   = None
+                f23_sum = np.random.uniform(0, 5)
+                f2      = f23_sum / 2.0
+
             TS = CyberShipII(N_init       = np.random.uniform(self.N_max / 5, self.N_max), 
                              E_init       = np.random.uniform(self.E_max / 5, self.E_max), 
                              psi_init     = np.random.uniform(0, 2*np.pi),
@@ -204,14 +228,17 @@ class FossenEnv(gym.Env):
                              N_max        = self.N_max,
                              E_max        = self.E_max,
                              cnt_approach = self.cnt_approach,
-                             tau_u        = np.random.uniform(0, 5))
+                             tau_u        = tau_u,
+                             f2           = f2,
+                             f23_sum      = f23_sum)
 
             # predict converged speed of sampled TS
             # Note: if we don't do this, all further calculations are heavily biased
-            TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
-
-            if self.cnt_approach != "tau":
-                return TS
+            if self.cnt_approach == "tau":
+                TS.nu[0] = TS._u_from_tau_u(TS.tau_u)
+        
+            elif self.cnt_approach == "f123":
+                TS.nu[0] = TS._u_from_tau_u(TS.f23_sum)
 
             # quick access for OS
             N0, E0, _ = self.OS.eta
@@ -279,7 +306,16 @@ class FossenEnv(gym.Env):
                 TS.nu[0] = VTS
 
                 # set tau_u of TS so that it will keep this velocity
-                TS.tau_u = TS._tau_u_from_u(VTS)
+                tau_u = TS._tau_u_from_u(VTS)
+
+                if self.cnt_approach == "tau":
+                    TS.tau_u = tau_u
+
+                elif self.cnt_approach == "f123":
+                    TS.f23_sum = tau_u
+                    TS.f2      = tau_u / 2.0
+                    TS.f3      = tau_u / 2.0
+                
                 TS._set_tau()
 
             # backtrace original position of TS
@@ -290,16 +326,16 @@ class FossenEnv(gym.Env):
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
             
             # TS should spawn outside the sight of the agent
-            if ED(N0=N0, E0=E0, N1=N_TS, E1=E_TS, sqrt=True) > self.sight:
+            #if ED(N0=N0, E0=E0, N1=N_TS, E1=E_TS, sqrt=True) > self.sight:
 
-                # no TS yet there
-                if len(self.TSs) == 0:
-                    break
+            # no TS yet there
+            if len(self.TSs) == 0:
+                break
 
-                # TS shouldn't spawn too close to other TS
-                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
-                    >= self.min_dist_spawn_TS:
-                    break
+            # TS shouldn't spawn too close to other TS
+            if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
+                >= self.min_dist_spawn_TS:
+                break
         return TS
 
 
@@ -343,7 +379,13 @@ class FossenEnv(gym.Env):
         #VOS = self.OS._get_V()                  # aggregated velocity
 
         #-------------------------------- OS related ---------------------------------
-        state_OS = np.concatenate([self.OS.nu, np.array([angle_to_pi(head0) / (np.pi), self.OS.tau_cnt_r / self.OS.tau_cnt_r_max])])
+        if self.cnt_approach == "tau":
+            f_info = self.OS.tau_cnt_r / self.OS.tau_cnt_r_max
+
+        elif self.cnt_approach == "f123":
+            f_info = self.OS.tau[2] / self.OS.f23_sum
+
+        state_OS = np.concatenate([self.OS.nu, np.array([angle_to_pi(head0) / (np.pi), f_info])])
 
 
         #------------------------------ goal related ---------------------------------
@@ -432,9 +474,6 @@ class FossenEnv(gym.Env):
 
         # perform control action
         self.OS._control(a)
-
-        # update resulting tau
-        self.OS._set_tau()
 
         # update agent dynamics
         self.OS._upd_dynamics()
@@ -541,8 +580,7 @@ class FossenEnv(gym.Env):
                     return self._get_TS(), True
         return TS, False
 
-
-    def _calculate_reward(self, w_dist=0., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
+    def _calculate_reward(self, w_dist=1., w_head=1., w_coll=1., w_COLREG=1., w_comf=1.):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -550,12 +588,13 @@ class FossenEnv(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
 
         # 1. Distance reward
-        #OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        #r_dist = - OS_goal_ED / self.E_max
-        r_dist = 0.0
+        OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+        r_dist = - OS_goal_ED / self.E_max
+        #r_dist = 0.0
 
         # 2. Heading reward
-        r_head = 1 - np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+        r_head = -3*np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -563,12 +602,15 @@ class FossenEnv(gym.Env):
 
         for TS_idx, TS in enumerate(self.TSs):
 
-            # get ED
-            ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+            # compute ship domain and ED
+            #domain = self._get_ship_domain(OS=self.OS, TS=TS)
+            ED_TS  = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
-            # Collision: event penalty
+            # Collision: event penalty or basic Gaussian reward
             if ED_TS <= self.coll_dist:
                 r_coll -= 10
+            #else:
+            #    r_coll -= 3 * np.exp(-0.5 * ED_TS**2 / 5**2)
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -579,14 +621,21 @@ class FossenEnv(gym.Env):
 
                     # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 1.0
+                        r_COLREG -= 3.0
 
                     # steer to the left (r <= 0) in starboard crossing (large) situation
                     elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
-                        r_COLREG -= 1.0
+                        r_COLREG -= 3.0
+
+                    # assess when COLREG situation changes
+                    #if self.TS_COLREGs[TS_idx] != self.TS_COLREGs_old[TS_idx]:
+                    
+                        # relative bearing should be in (pi, 2pi) after Head-on, starboard or portside crossing
+                    #    if self.TS_COLREGs_old[TS_idx] in [1, 2, 3] and bng_rel(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1], head0=head0) <= np.pi:
+                    #            r_COLREG -= 10
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = 1-np.sqrt(abs(self.OS.nu[2])/0.3)
+        r_comf = -10 * abs(self.OS.nu[2])**2
 
         # -------------------------------------- Overall reward --------------------------------------------
         self.r_dist   = r_dist
@@ -594,9 +643,63 @@ class FossenEnv(gym.Env):
         self.r_coll   = r_coll
         self.r_COLREG = r_COLREG
         self.r_comf   = r_comf
+        self.r = w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf
 
-        w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
-        self.r = (w_dist * r_dist + w_head * r_head + w_coll * r_coll + w_COLREG * r_COLREG + w_comf * r_comf) / w_sum
+    #def _calculate_reward(self, w_dist=1., w_head=5., w_coll=1., w_COLREG=1., w_comf=1.):
+    #    """Returns reward of the current state."""
+
+    #    N0, E0, head0 = self.OS.eta
+
+        # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
+
+        # 1. Distance reward
+    #    OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+    #    r_dist = -OS_goal_ED / self.OS_goal_init
+
+        # 2. Heading reward
+    #    r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+
+        # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
+    #    r_coll = 0
+    #    r_COLREG = 0
+
+     #   for TS_idx, TS in enumerate(self.TSs):
+
+            # get ED
+      #      ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+
+            # Collision: event penalty
+       #     if ED_TS <= self.coll_dist:
+ #               r_coll -= 10
+#
+            # COLREG: if vessel just spawned, don't assess COLREG reward
+  #          if not self.respawn_flags[TS_idx]:
+
+                # evaluate TS if in sight and has positive TCPA (alternative: only evaluate if TS in ship domain)
+   #             if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
+    #                 chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
+
+                    # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
+     #               if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
+      #                  r_COLREG -= 1.0
+
+                    # steer to the left (r <= 0) in starboard crossing (large) situation
+       #             elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
+        #                r_COLREG -= 1.0
+
+        # --------------------------------- 5. Comfort penalty --------------------------------
+        #r_comf = -np.sqrt(abs(self.OS.nu[2])/0.3)
+
+        # -------------------------------------- Overall reward --------------------------------------------
+        #w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
+
+       # self.r_dist   = r_dist * w_dist #/ w_sum
+       # self.r_head   = r_head * w_head #/ w_sum
+       # self.r_coll   = r_coll * w_coll #/ w_sum
+       # self.r_COLREG = r_COLREG * w_COLREG #/ w_sum
+       # self.r_comf   = r_comf * w_comf #/ w_sum
+
+#        self.r = r_dist + r_head + r_coll + r_COLREG + r_comf
 
 
     def _done(self):
@@ -612,8 +715,8 @@ class FossenEnv(gym.Env):
             d = True
 
         # collision
-        if any([ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1]) <= self.coll_dist for TS in self.TSs]):
-            d = True
+        #if any([ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1]) <= self.coll_dist for TS in self.TSs]):
+        #    d = True
 
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
@@ -813,7 +916,7 @@ class FossenEnv(gym.Env):
         # plot every nth timestep (except we only want trajectory)
         if not self.plot_traj:
 
-            if self.step_cnt % 2 == 0: 
+            if self.step_cnt % 1 == 0: 
 
                 # check whether figure has been initialized
                 if len(plt.get_fignums()) == 0:
