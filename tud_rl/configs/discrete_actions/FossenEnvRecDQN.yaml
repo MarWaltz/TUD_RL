@@ -6,10 +6,16 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_TSs_max: 0
+    N_TSs_max: 2
+    w_dist: 5.0
+    w_coll: 1.0
+    w_COLREG: 1.0
+    w_comf: 1.0
     cnt_approach: tau
     state_design: RecDQN
     plot_traj: False
+    N_TSs_random : False
+    N_TSs_increasing : False
   info: ''
 agent:
   DQN: {}

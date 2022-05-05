@@ -632,51 +632,40 @@ class RecDQN(nn.Module):
 
         returns: torch.Size([batch_size, 128 + 128])
         """
-        
         # extract OS and TS states
         s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
         s_TS = s[:, self.num_obs_OS:]
 
-        # check whether there are any relevant TS
-        TS_there = True if s_TS.shape[1] != 0 else False
-
         # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selction or training
         first_dim = s_TS.shape[0]
 
-        if TS_there:
+        # ----------------- preprocess s_TS -------------------        
+        s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
+        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
 
-            s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
-            # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+        # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
+        N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
 
-            # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
-            N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+        if torch.sum(N_TS_obs == 0).item() != 0:
+            raise Exception("There is no TS, something went wrong here!")
 
-            # get selection index according to number of TSs (no-TS cases will be masked later)
-            h_idx = copy.deepcopy(N_TS_obs)
-            h_idx[h_idx == 0] = 1
-            h_idx -= 1
+        # get selection index according to number of TSs
+        h_idx = copy.deepcopy(N_TS_obs)
+        h_idx[h_idx == 0] = 1
+        h_idx -= 1
 
-            # padd nan's to zeroes to avoid LSTM-issues
-            #s_TS = torch.nan_to_num(s_TS, nan=0.0)
-            s_TS[torch.isnan(s_TS)] = 0.0
+        # padd nan's to zeroes to avoid LSTM-issues
+        s_TS[torch.isnan(s_TS)] = 0.0
 
-        # --------------------------------- calculations -----------------------------------------
+        # ------------------- calculations ---------------------
         # process OS
         x_OS = F.relu(self.denseOS_inner(s_OS))
 
-        if TS_there:
+        # process TS
+        x_TS, (_, _) = self.LSTM_inner(s_TS)
 
-            # process TS
-            x_TS, (_, _) = self.LSTM_inner(s_TS)
-
-            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
-            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
-
-            # mask no-TS cases to yield zero extracted information
-            x_TS[N_TS_obs == 0] = 0.0
-        
-        else:
-            x_TS = torch.zeros(first_dim, 128)
+        # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+        x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
 
         # dense TS
         x_TS = F.relu(self.denseTS_inner(x_TS))
@@ -764,9 +753,13 @@ class LSTMRecDQN(RecDQN):
         #--- inner recurrence ---
         batch_size, history_length, _ = s_hist.shape
         x_hist = torch.zeros((batch_size, history_length, 128 + 128))
-        
+        #x_hist = []
+
         for t in range(history_length):
+            #x_hist.append(self._inner_rec(s_hist[:, t, :]))
             x_hist[:, t, :] = self._inner_rec(s_hist[:, t, :])
+        
+        #x_hist_t = torch.stack(x_hist, dim=1)
 
         #--- outer recurrence ---
         extracted_mem, (_, _) = self.LSTM_outer(x_hist)

@@ -18,7 +18,17 @@ from .FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED, angle_to_2pi,
 class FossenEnv(gym.Env):
     """This environment contains an agent steering a CyberShip II."""
 
-    def __init__(self, N_TSs_max=3, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design="RecDQN", plot_traj=True):
+    def __init__(self, 
+                 N_TSs_max        = 3, 
+                 N_TSs_random     = False, 
+                 N_TSs_increasing = False, 
+                 cnt_approach     = "tau", 
+                 state_design     = "RecDQN", 
+                 plot_traj        = True,
+                 w_dist           = 1.0,
+                 w_coll           = 1.0,
+                 w_COLREG         = 1.0,
+                 w_comf           = 1.0):
         super().__init__()
 
         # simulation settings
@@ -65,6 +75,12 @@ class FossenEnv(gym.Env):
         
         if cnt_approach in ["tau", "rps_angle", "f123"]:
             self.action_space = spaces.Discrete(3)
+
+        # reward weights
+        self.w_dist   = w_dist
+        self.w_coll   = w_coll
+        self.w_COLREG = w_COLREG
+        self.w_comf   = w_comf
 
         # custom inits
         self._max_episode_steps = 750
@@ -437,37 +453,49 @@ class FossenEnv(gym.Env):
                 # store it
                 state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS, inside_domain])
 
-        # no TS is in sight
+        # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agents
         if len(state_TSs) == 0:
-
-            if self.state_design == "RecDQN":
-                state_TSs = np.array([np.nan] * self.num_obs_TS * self.N_TSs_max, dtype=np.float32)
             
-            elif self.state_design == "maxRisk":
-                state_TSs = np.array([0.0] * self.num_obs_TS, dtype=np.float32)
+            # completely irrelevant entry
+            risk_ratios.append(np.inf)  
 
-        # at least one TS in sight
-        else:
+            # ED
+            ED_ghost = self.sight / self.E_max
 
-            # sort according to descending riskRatios (or ED)
-            order = np.argsort(risk_ratios)[::-1]
-            state_TSs = [state_TSs[idx] for idx in order]
+            # relative bearing
+            bng_rel_ghost = -1.0
 
-            #state_TSs = sorted(state_TSs, key=lambda x: x[0], reverse=True)
+            # heading intersection angle
+            C_ghost = -1.0
 
-            if self.state_design == "RecDQN":
+            # speed
+            V_ghost = 0.0
 
-                # keep everything, pad nans at the right side to guarantee state size is always identical
-                state_TSs = np.array(state_TSs).flatten(order="C")
+            # COLREG mode
+            sigma_ghost = 0
 
-                desired_length = self.num_obs_TS * self.N_TSs_max
-                state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
-                    'constant', constant_values=np.nan).astype(np.float32)
+            # inside domain
+            inside_domain_ghost = 0.0
 
-            elif self.state_design == "maxRisk":
+            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, inside_domain_ghost])
 
-                # select only highest risk TS
-                state_TSs = np.array(state_TSs[-1])
+        # sort according to descending riskRatios (or ED)
+        order = np.argsort(risk_ratios)[::-1]
+        state_TSs = [state_TSs[idx] for idx in order]
+
+        if self.state_design == "RecDQN":
+
+            # keep everything, pad nans at the right side to guarantee state size is always identical
+            state_TSs = np.array(state_TSs).flatten(order="C")
+
+            desired_length = self.num_obs_TS * self.N_TSs_max
+            state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
+                'constant', constant_values=np.nan).astype(np.float32)
+
+        elif self.state_design == "maxRisk":
+
+            # select only highest risk TS
+            state_TSs = np.array(state_TSs[-1])
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs])
@@ -586,7 +614,7 @@ class FossenEnv(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self, w_dist=1., w_coll=1., w_COLREG=1., w_comf=1.):
+    def _calculate_reward(self):
         """Returns reward of the current state."""
 
         N0, E0, _ = self.OS.eta
@@ -629,14 +657,14 @@ class FossenEnv(gym.Env):
         r_comf = -(self.OS.nu[2]/0.3)**2
 
         # -------------------------------------- Overall reward --------------------------------------------
-        #w_sum = w_dist + w_head + w_coll + w_COLREG + w_comf
+        w_sum = self.w_dist + self.w_coll + self.w_COLREG + self.w_comf
 
-        self.r_dist   = r_dist * w_dist #/ w_sum
-        self.r_coll   = r_coll * w_coll #/ w_sum
-        self.r_COLREG = r_COLREG * w_COLREG #/ w_sum
-        self.r_comf   = r_comf * w_comf #/ w_sum
+        self.r_dist   = r_dist * self.w_dist / w_sum
+        self.r_coll   = r_coll * self.w_coll / w_sum
+        self.r_COLREG = r_COLREG * self.w_COLREG / w_sum
+        self.r_comf   = r_comf * self.w_comf / w_sum
 
-        self.r = r_dist + r_coll + r_COLREG + r_comf
+        self.r = self.r_dist + self.r_coll + self.r_COLREG + self.r_comf
 
 
     def _done(self):
