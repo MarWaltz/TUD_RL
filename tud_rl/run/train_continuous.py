@@ -133,6 +133,7 @@ def train(c: ConfigFile, agent_name: str):
 
     # Initialize logging
     agent.logger = EpochLogger(alg_str    = agent.name,
+                               seed       = c.seed,
                                env_str    = c.Env.name,
                                info       = c.Env.info,
                                output_dir = c.output_dir if hasattr(c, "output_dir") else None)

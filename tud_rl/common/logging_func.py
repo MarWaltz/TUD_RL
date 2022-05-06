@@ -103,7 +103,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, alg_str, env_str=None, info=None, output_dir=None, output_fname='progress.txt', exp_name=None):
+    def __init__(self, alg_str, seed, env_str=None, info=None, output_dir=None, output_fname='progress.txt', exp_name=None):
         """
         Initialize a Logger.
         Args:
@@ -131,21 +131,17 @@ class Logger:
             # Get date from today and format to "yyyy-mm-dd_"
             today = date.today().strftime("%Y-%m-%d_")
 
-            # Get folder names in experiments folder
-            #random_str = str(time.time())[-3:]
-            random_str = str(random.randint(10000, 99999))
-
             if env_str is None and info is None:
-                self.output_dir = "experiments/" + alg_str + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + today + str(seed)
             
             elif info is None:
-                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + today + str(seed)
             
             elif env_str is None:
-                self.output_dir = "experiments/" + alg_str + "_" + info + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + info + "_" + today + str(seed)
             
             else:
-                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + info + "_" + today + random_str
+                self.output_dir = "experiments/" + alg_str + "_" + env_str + "_" + info + "_" + today + str(seed)
 
         os.makedirs(self.output_dir)
 
