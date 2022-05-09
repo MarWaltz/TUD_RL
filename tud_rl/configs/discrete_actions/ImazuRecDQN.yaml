@@ -6,8 +6,9 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    situation: 18
+    situation: 6
     state_design: RecDQN
+    plot_traj: False
   info: ''
 agent:
   DQN: {}
@@ -71,7 +72,7 @@ agent:
 seed: 1020
 timesteps: 10000000
 epoch_length: 5000
-eval_episodes: 3
+eval_episodes: 1
 dqn_weights:
 input_norm: false
 input_norm_prior:

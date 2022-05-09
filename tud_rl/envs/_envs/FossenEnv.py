@@ -26,9 +26,11 @@ class FossenEnv(gym.Env):
                  state_design     = "RecDQN", 
                  plot_traj        = True,
                  w_dist           = 1.0,
+                 w_head           = 1.0,
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
-                 w_comf           = 1.0):
+                 w_comf           = 1.0,
+                 COLREG_def       = "line"):
         super().__init__()
 
         # simulation settings
@@ -63,6 +65,9 @@ class FossenEnv(gym.Env):
 
         self.plot_traj = plot_traj       # whether to plot trajectory after termination
 
+        assert COLREG_def in ["correct", "line"], "Unknown COLREG definition."
+        self.COLREG_def = COLREG_def
+
         # gym definitions
         if state_design == "RecDQN":
             obs_size = self.num_obs_OS + self.N_TSs_max * self.num_obs_TS
@@ -78,6 +83,7 @@ class FossenEnv(gym.Env):
 
         # reward weights
         self.w_dist   = w_dist
+        self.w_head   = w_head
         self.w_coll   = w_coll
         self.w_COLREG = w_COLREG
         self.w_comf   = w_comf
@@ -85,8 +91,8 @@ class FossenEnv(gym.Env):
         # custom inits
         self._max_episode_steps = 750
         self.r = 0
-        self.r_head   = 0
         self.r_dist   = 0
+        self.r_head   = 0
         self.r_coll   = 0
         self.r_COLREG = 0
         self.r_comf   = 0
@@ -262,8 +268,8 @@ class FossenEnv(gym.Env):
             VOS   = self.OS._get_V()
 
             # sample COLREG situation 
-            # head-on = 1, starb. cross. (small) = 2, starb. cross (large) = 3,  ports. cross. = 4, overtaking = 5
-            COLREG_s = random.choice([1, 2, 3, 4, 5])
+            # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
+            COLREG_s = random.choice([1, 2, 3, 4])
 
             #--------------------------------------- line mode --------------------------------------
 
@@ -288,30 +294,26 @@ class FossenEnv(gym.Env):
             if COLREG_s == 1:
                 C_TS_s = dtr(np.random.uniform(175, 185))
 
-            # starboard crossing (small)
+            # starboard crossing
             elif COLREG_s == 2:
-                C_TS_s = dtr(np.random.uniform(185, 210))
-
-            # starboard crossing (large)
-            elif COLREG_s == 3:
-                C_TS_s = dtr(np.random.uniform(210, 292.5))
+                C_TS_s = dtr(np.random.uniform(185, 292.5))
 
             # portside crossing
-            elif COLREG_s == 4:
+            elif COLREG_s == 3:
                 C_TS_s = dtr(np.random.uniform(67.5, 175))
 
             # overtaking
-            elif COLREG_s == 5:
+            elif COLREG_s == 4:
                 C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
             # determine TS heading (treating absolute bearing towards goal as heading of OS)
             head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
             # no speed constraints except in overtaking
-            if COLREG_s in [1, 2, 3, 4]:
+            if COLREG_s in [1, 2, 3]:
                 VTS = TS.nu[0]
 
-            elif COLREG_s == 5:
+            elif COLREG_s == 4:
 
                 # project VOS vector on TS direction
                 VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
@@ -488,7 +490,9 @@ class FossenEnv(gym.Env):
             # keep everything, pad nans at the right side to guarantee state size is always identical
             state_TSs = np.array(state_TSs).flatten(order="C")
 
-            desired_length = self.num_obs_TS * self.N_TSs_max
+            # at least one since there is always the ghost ship
+            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
+
             state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
                 'constant', constant_values=np.nan).astype(np.float32)
 
@@ -617,13 +621,16 @@ class FossenEnv(gym.Env):
     def _calculate_reward(self):
         """Returns reward of the current state."""
 
-        N0, E0, _ = self.OS.eta
+        N0, E0, head0 = self.OS.eta
 
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
         # Distance reward
         OS_goal_ED       = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
         r_dist           = (self.OS_goal_old - OS_goal_ED) / 0.3425
         self.OS_goal_old = OS_goal_ED
+
+        # Heading reward
+        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -641,30 +648,27 @@ class FossenEnv(gym.Env):
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
 
-                # evaluate TS if in sight and has positive TCPA (alternative: only evaluate if TS in ship domain)
+                # evaluate TS if in sight and has positive TCPA
                 if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
                      chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
 
-                    # steer to the right (r >= 0) in Head-on and starboard crossing (small) situations
+                    # steer to the right (r >= 0) in Head-on and starboard crossing situations
                     if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
-                        r_COLREG -= 1.0
-
-                    # steer to the left (r <= 0) in starboard crossing (large) situation
-                    elif self.TS_COLREGs[TS_idx] in [3] and self.OS.nu[2] > 0:
                         r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
         r_comf = -(self.OS.nu[2]/0.3)**2
 
         # -------------------------------------- Overall reward --------------------------------------------
-        w_sum = self.w_dist + self.w_coll + self.w_COLREG + self.w_comf
+        w_sum = self.w_dist + self.w_head + self.w_coll + self.w_COLREG + self.w_comf
 
         self.r_dist   = r_dist * self.w_dist / w_sum
+        self.r_head   = r_head * self.w_head / w_sum
         self.r_coll   = r_coll * self.w_coll / w_sum
         self.r_COLREG = r_COLREG * self.w_COLREG / w_sum
         self.r_comf   = r_comf * self.w_comf / w_sum
 
-        self.r = self.r_dist + self.r_coll + self.r_COLREG + self.r_comf
+        self.r = self.r_dist + self.r_head + self.r_coll + self.r_COLREG + self.r_comf
 
 
     def _done(self):
@@ -755,6 +759,12 @@ class FossenEnv(gym.Env):
         NTS, ETS, psi_TS = TS.eta
         V_OS  = OS._get_V()
         V_TS  = TS._get_V()
+
+        # artificially change definition to keep scenarios constant
+        #if self.COLREG_def == "line":
+        #    psi_OS = bng_abs(N0=NOS, E0=EOS, N1=self.goal["N"], E1=self.goal["E"])
+
+        #chiOS = angle_to_2pi(psi_OS + OS._get_sideslip())
         chiOS = OS._get_course()
         chiTS = TS._get_course()
 
@@ -784,21 +794,17 @@ class FossenEnv(gym.Env):
         if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
             return 1
         
-        # COLREG 2: Starboard crossing (small angle)
-        if 5 <= rtd(bng_OS) <= 45 and 185 <= rtd(C_T) <= 210:
+        # COLREG 2: Starboard crossing
+        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
             return 2
 
-        # COLREG 3: Starboard crossing (large angle)
-        if 45 < rtd(bng_OS) <= 112.5 and 210 < rtd(C_T) <= 292.5:
+        # COLREG 3: Portside crossing
+        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
             return 3
 
-        # COLREG 4: Portside crossing
-        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
-            return 4
-
-        # COLREG 5: Overtaking
+        # COLREG 4: Overtaking
         if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
-            return 5
+            return 4
 
         # COLREG 0: nothing
         return 0
@@ -931,9 +937,6 @@ class FossenEnv(gym.Env):
                     circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
                     ax.add_patch(circ)
 
-                    circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=5*self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-                    ax.add_patch(circ)
-
                     # set other vessels
                     for TS in self.TSs:
 
@@ -966,7 +969,7 @@ class FossenEnv(gym.Env):
                         ax.add_patch(circ)
 
                     # set legend for COLREGS
-                    ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(6)], fontsize=8,
+                    ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
                                     loc='lower center', bbox_to_anchor=(0.6, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
 
 
@@ -975,6 +978,7 @@ class FossenEnv(gym.Env):
                     self.ax1.clear()
                     self.ax1.old_time = 0
                     self.ax1.old_r_dist = 0
+                    self.ax1.old_r_head = 0
                     self.ax1.old_r_coll = 0
                     self.ax1.old_r_COLREG = 0
                     self.ax1.old_r_comf = 0
@@ -985,6 +989,7 @@ class FossenEnv(gym.Env):
                 self.ax1.set_ylabel("Reward")
 
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
+                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "grey", label="Heading")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "red", label="Collision")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
                 self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
@@ -994,30 +999,32 @@ class FossenEnv(gym.Env):
 
                 self.ax1.old_time = self.step_cnt
                 self.ax1.old_r_dist = self.r_dist
+                self.ax1.old_r_head = self.r_head
                 self.ax1.old_r_coll = self.r_coll
                 self.ax1.old_r_COLREG = self.r_COLREG
                 self.ax1.old_r_comf = self.r_comf
 
 
                 # ------------------------------ state plot --------------------------------
-                if self.step_cnt == 0:
-                    self.ax2.clear()
-                    self.ax2.old_time = 0
-                    self.ax2.old_state = self.state_init
+                if False:
+                    if self.step_cnt == 0:
+                        self.ax2.clear()
+                        self.ax2.old_time = 0
+                        self.ax2.old_state = self.state_init
 
-                self.ax2.set_xlim(0, self._max_episode_steps)
-                self.ax2.set_xlabel("Timestep in episode")
-                self.ax2.set_ylabel("State information")
+                    self.ax2.set_xlim(0, self._max_episode_steps)
+                    self.ax2.set_xlabel("Timestep in episode")
+                    self.ax2.set_ylabel("State information")
 
-                for i in range(8):
-                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
-                                color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
-                                label=self.state_names[i])    
-                if self.step_cnt == 0:
-                    self.ax2.legend()
+                    for i in range(8):
+                        self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
+                                    color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
+                                    label=self.state_names[i])    
+                    if self.step_cnt == 0:
+                        self.ax2.legend()
 
-                self.ax2.old_time = self.step_cnt
-                self.ax2.old_state = self.state
+                    self.ax2.old_time = self.step_cnt
+                    self.ax2.old_state = self.state
 
                 # ------------------------------ action plot --------------------------------
                 if self.step_cnt == 0:

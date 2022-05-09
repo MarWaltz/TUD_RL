@@ -5,7 +5,7 @@ from .FossenFnc import dtr
 class Imazu(FossenEnv):
     """Implements the 22 ship encounter situations of Imazu (1987) as detailed in Sawada et al. (2021, JMST)."""
 
-    def __init__(self, situation, state_design):
+    def __init__(self, plot_traj, situation, state_design):
         
         if situation in range(5):
             N_TSs = 1
@@ -16,7 +16,7 @@ class Imazu(FossenEnv):
         elif situation in range(13, 23):
             N_TSs = 3
 
-        super().__init__(N_TSs_max=N_TSs, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design=state_design)
+        super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, cnt_approach="tau", state_design=state_design)
 
         self.situation = situation
         self.N_TSs = N_TSs
@@ -254,6 +254,20 @@ class Imazu(FossenEnv):
         self._set_state()
         self.state_init = self.state
 
+        # trajectory storing
+        if self.plot_traj:
+            self.OS_traj_N = [self.OS.eta[0]]
+            self.OS_traj_E = [self.OS.eta[1]]
+
+            self.TS_traj_N = [[] for _ in range(self.N_TSs)]
+            self.TS_traj_E = [[] for _ in range(self.N_TSs)]
+            self.TS_ptr = [i for i in range(self.N_TSs)]
+
+            for TS_idx, TS in enumerate(self.TSs):
+                ptr = self.TS_ptr[TS_idx]                
+                self.TS_traj_N[ptr].append(TS.eta[0])
+                self.TS_traj_E[ptr].append(TS.eta[1])
+
         return self.state
 
     def _nm_up(self, x):
@@ -262,3 +276,6 @@ class Imazu(FossenEnv):
 
     def _handle_respawn(self, TS, respawn=True, mirrow=False, clip=False):
         return TS, False
+
+    def _calculate_reward(self):
+        return 0.0

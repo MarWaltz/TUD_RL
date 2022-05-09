@@ -36,6 +36,8 @@ class LSTMRecDQNAgent(BaseAgent):
         if self.net_struc is not None:
             logger.warning("The net structure cannot be controlled via the config-spec for LSTM-based agents.")
 
+        assert self.history_length == 2, "Currently, only 'history_length = 2' is available."
+
         # linear epsilon schedule
         self.exploration = LinearDecayEpsilonGreedy(eps_init        = self.eps_init, 
                                                     eps_final       = self.eps_final,

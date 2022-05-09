@@ -6,11 +6,12 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_TSs_max: 2
-    w_dist: 5.0
+    N_TSs_max: 1
+    w_dist: 2.0
+    w_head: 2.0
     w_coll: 1.0
-    w_COLREG: 1.0
-    w_comf: 1.0
+    w_COLREG: 2.0
+    w_comf: 1.25
     cnt_approach: tau
     state_design: RecDQN
     plot_traj: False
@@ -98,7 +99,7 @@ net_struc:
 - identity
 optimizer: Adam
 loss: MSELoss
-lr: 0.0001
+lr: 0.00001
 buffer_length: 100000
 grad_rescale: false
 grad_clip: false
