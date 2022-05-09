@@ -7,7 +7,8 @@ from tud_rl.envs._envs.FossenFnc import (angle_to_2pi, angle_to_pi, dtr,
 
 
 class KVLCC2:
-    """This class provides a KVLCC2 tanker behaving according to the MMG standard model of Yasukawa, Yoshimura (2015)."""
+    """This class provides a KVLCC2 tanker behaving according to the MMG standard model of Yasukawa, Yoshimura (2015).
+    Based on implementation of Niklas Paulig: https://github.com/nikpau/mmgdynamics."""
 
     def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, delta_t, N_max, E_max) -> None:
 
