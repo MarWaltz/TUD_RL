@@ -57,7 +57,7 @@ class FossenEnv(gym.Env):
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
 
-        self.goal_reach_dist = 10                         # euclidean distance (in m) at which goal is considered as reached
+        self.goal_reach_dist = 5                          # euclidean distance (in m) at which goal is considered as reached
         self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
 
         self.num_obs_OS = 8                               # number of observations for the OS
