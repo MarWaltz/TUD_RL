@@ -34,8 +34,8 @@ class MMG_Env(gym.Env):
 
         # simulation settings
         self.delta_t = 3.0                           # simulation time interval (in s)
-        self.N_max   = 10_000                        # maximum N-coordinate (in m)
-        self.E_max   = 10_000                        # maximum E-coordinate (in m)
+        self.N_max   = 15_000                        # maximum N-coordinate (in m)
+        self.E_max   = 15_000                        # maximum E-coordinate (in m)
         
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -47,9 +47,9 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = 5_000                 # sight of the agent (in m)
+        self.sight             = self.N_max/2          # sight of the agent (in m)
         self.coll_dist         = 320                   # collision distance (in m, five times ship length)
-        self.TCPA_crit         = 30 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
@@ -85,7 +85,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 500
+        self._max_episode_steps = 750
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -132,7 +132,7 @@ class MMG_Env(gym.Env):
         # init agent (OS for 'Own Ship')
         self.OS = KVLCC2(N_init   = N_init, 
                          E_init   = E_init, 
-                         psi_init = math.pi/2, #head,
+                         psi_init = head,
                          u_init   = 0.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
@@ -203,9 +203,7 @@ class MMG_Env(gym.Env):
             4) intersection angle (in rad),
             5) and a forward thrust (tau-u in N).
         Returns: 
-            CyberShipII."""
-
-        assert self.cnt_approach in ["tau", "f123"], "TS spawning only implemented for 'tau' and 'f123' controls."
+            KVLCC2."""
 
         while True:
             TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
@@ -501,7 +499,7 @@ class MMG_Env(gym.Env):
 
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward()
+        self._calculate_reward(a)
         d = self._done()
        
         return self.state, self.r, d, {}
@@ -513,13 +511,13 @@ class MMG_Env(gym.Env):
         2) Respawn due to being too far away from the agent.
 
         Args:
-            TS (CyberShipII): Vessel of interest.
+            TS (KVLCC2): Vessel of interest.
             respawn (bool):   For 1) Whether the vessel should respawn somewhere else.
             mirrow (bool):    For 1) Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
                                      Inspired by Xu et al. (2022, Neurocomputing).
             clip (bool):      For 1) Whether to artificially keep vessel on the map by clipping. Thus, it will stay on boarder.
         Returns
-            CybershipII, respawn_flag (bool)
+            KVLCC2, respawn_flag (bool)
         """
 
         assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
@@ -561,7 +559,7 @@ class MMG_Env(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self):
+    def _calculate_reward(self, a):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -595,12 +593,12 @@ class MMG_Env(gym.Env):
                 if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
                      chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
 
-                    # steer to the right (r >= 0) in Head-on and starboard crossing situations
-                    if self.TS_COLREGs[TS_idx] in [1, 2] and self.OS.nu[2] < 0:
+                    # steer to the right in Head-on and starboard crossing situations
+                    if self.TS_COLREGs_old[TS_idx] in [1, 2] and a == 2:
                         r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = -(self.OS.nu[2]/0.3)**2
+        r_comf = -(self.OS.nu[2]/0.1)**2
 
         # -------------------------------------- Overall reward --------------------------------------------
         w_sum = self.w_dist + self.w_head + self.w_coll + self.w_COLREG + self.w_comf
@@ -661,8 +659,8 @@ class MMG_Env(gym.Env):
         Estimation error term 'U' is ignored. 
         
         Args:
-            OS: CyberShipII
-            TS: CyberShipII"""
+            OS: KVLCC2
+            TS: KVLCC2"""
 
         # compute speeds and courses
         VOS = OS._get_V()
@@ -677,7 +675,7 @@ class MMG_Env(gym.Env):
 
         # compute domain
         V = np.max([VOS, VR])
-        return OS.length*V**1.26 + 30*V
+        return OS.Lpp*V**1.26 + 30*V
 
 
     def _get_COLREG_situation(self, OS, TS):
@@ -892,7 +890,7 @@ class MMG_Env(gym.Env):
                         col = COLREG_COLORS[COLREG]
 
                         # vessel
-                        rect = self._get_rect(E = E, N = N, width = TS.width, length = TS.length, heading = headTS,
+                        rect = self._get_rect(E = E, N = N, width = TS.B, length = TS.Lpp, heading = headTS,
                                             linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
                         ax.add_patch(rect)
 
