@@ -1,7 +1,6 @@
 import math
 
 import numpy as np
-from scipy.integrate import solve_ivp
 from tud_rl.envs._envs.FossenFnc import (angle_to_2pi, angle_to_pi, dtr,
                                          polar_from_xy, rtd)
 
@@ -48,7 +47,7 @@ class KVLCC2:
             "epsilon":      1.09,           # Ratio of wake fraction at propeller and rudder positions ((1 - w_R) / (1 - w_P))
             "A_R_Ld_em":    1/46.8,         # Fraction of moveable Rudder area to length*draft
             "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
-            "rho":          1000,           # Water density of freshwater
+            "rho":          1020,           # Water density of seawater
             "t_R":          0.387,          # Steering resistance deduction factor
             "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
             "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
@@ -81,14 +80,14 @@ class KVLCC2:
 
         #------------------------- Motion Initialization -----------------------------------
         # Propeller revolutions [s⁻¹]
-        self.nps = 4.0
+        self.nps = 1.8
 
         # rudder angle max (in rad) and increment (in rad/s)
         self.rud_angle_max = dtr(10)
         self.rud_angle_inc = dtr(2.5) * self.delta_t
 
         # init rudder angle
-        self.rud_angle = 0
+        self.rud_angle = 0.0
 
         # eta, nu
         self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)  # N (in m),   E (in m),   psi (in rad)   in NE-system
@@ -125,10 +124,9 @@ class KVLCC2:
                 0.0728*g_rc)
 
     def _vm_from_v_r(self, v, r):
-        """v = lateral velocity midship + x coord center of gravity * yaw rate"""
         return v - self.x_G * r
 
-    def _mmg_dynamics(self, t, y, fl_psi, fl_vel) -> np.ndarray:
+    def _mmg_dynamics(self, t, nu, psi, fl_psi, fl_vel) -> np.ndarray:
         """System of ODEs after Yasukawa, H., Yoshimura, Y. (2015) for the MMG standard model.
         Args:
             t (np.ndarray):  time
@@ -139,13 +137,14 @@ class KVLCC2:
             np.ndarray: [eta_dot, nu_dot]
         """
 
+        #----------------------------- preparation ------------------------------
         # unpack values
-        _, _, psi, u, v, r = y
+        u, v, r = nu
 
         vm = self._vm_from_v_r(v, r)
-        U = math.sqrt(u**2 + vm**2)  # overall speed of the vessel
+        U = math.sqrt(u**2 + vm**2)
 
-        if U == 0.0:  # no vessel movement. Velocity in all directions = 0
+        if U == 0.0:
             beta = 0.0
             v_dash = 0.0
             r_dash = 0.0
@@ -154,11 +153,45 @@ class KVLCC2:
             v_dash = vm / U             # non-dimensionalized lateral velocity
             r_dash = r * self.Lpp / U   # non-dimensionalized yaw rate
 
+        #---------------- hydrodynamic forces acting on ship hull ----------------
+        X_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
+            - self.R_0_dash
+            + self.X_vv_dash * (v_dash**2)
+            + self.X_vr_dash * v_dash * r_dash
+            + self.X_rr_dash * (r_dash**2)
+            + self.X_vvvv_dash * (v_dash**4)
+        )
+        )
+
+        Y_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
+            self.Y_v_dash * v_dash
+            + self.Y_r_dash * r_dash
+            + self.Y_vvv_dash * (v_dash**3)
+            + self.Y_vvr_dash * (v_dash**2) * r_dash
+            + self.Y_vrr_dash * v_dash * (r_dash**2)
+            + self.Y_rrr_dash * (r_dash**3)
+        )
+        )
+
+        N_H = (0.5 * self.rho * (self.Lpp**2) * self.d * (U**2) * (
+            self.N_v_dash * v_dash
+            + self.N_r_dash * r_dash
+            + self.N_vvv_dash * (v_dash**3)
+            + self.N_vvr_dash * (v_dash**2) * r_dash
+            + self.N_vrr_dash * v_dash * (r_dash**2)
+            + self.N_rrr_dash * (r_dash**3)
+        )
+        )
+
+        #---------------- longitudinal surge force due to propeller ----------------
         # redefine
         beta_P = beta - (self.x_P/self.Lpp) * r_dash
+
         if all([key in self.kvlcc2_full.keys() for key in ["C_1","C_2_plus","C_2_minus"]]):
             C_2 = self.C_2_plus if beta_P >= 0 else self.C_2_minus
-            w_P = -(1+(1-math.exp(-self.C_1*abs(beta_P))*(C_2-1))*(1-self.w_P0))+1
+
+            tmp = 1-math.exp(-self.C_1*abs(beta_P))*(C_2-1)
+            w_P = 1-(1-self.w_P0)*(1+tmp)
         else:
             w_P = self.w_P0 * math.exp(-4.0 * (beta_P)**2)
 
@@ -174,6 +207,10 @@ class KVLCC2:
             # inferred slope + intercept dependent on J (empirical)
             K_T = self.J_slo * J + self.J_int
 
+        X_P = (1 - self.t_P) * self.rho * K_T * self.nps**2 * self.D_p**4
+
+
+        #--------------------- hydrodynamic forces by steering ----------------------
         # effective inflow angle to rudder in maneuvering motions
         beta_R = beta - self.l_R * r_dash
 
@@ -191,12 +228,10 @@ class KVLCC2:
 
         # longitudinal inflow velocity components to rudder
         if J == 0.0:
-            u_R = math.sqrt(self.eta_param * (self.kappa * self.epsilon *
-                                        8.0 * self.k_0 * self.nps ** 2 * self.D_p**4 / np.pi)**2)
+            u_R = 0.0
         else:
             u_R = u * (1 - w_P) * self.epsilon * math.sqrt(
-                self.eta_param * (1.0 + self.kappa * (
-                    math.sqrt(1.0 + 8.0 * K_T / (np.pi * J**2)) - 1))**2 + (1 - self.eta_param)
+                self.eta_param * (1.0 + self.kappa * (math.sqrt(1.0 + 8.0 * K_T / (np.pi * J**2)) - 1))**2 + (1 - self.eta_param)
             )
         # rudder inflow velocity
         U_R = math.sqrt(u_R**2 + v_R**2)
@@ -205,61 +240,22 @@ class KVLCC2:
         alpha_R = self.rud_angle - math.atan2(v_R, u_R)
 
         # normal force on rudder
-        if self.A_R is not None:
-            F_N = 0.5 * self.A_R * self.rho * \
-                self.f_alpha * (U_R**2) * math.sin(alpha_R)
-        else:
-            F_N = 0.5 * self.A_R_Ld_em * (self.Lpp * self.d * self.rho) * \
-                self.f_alpha * (U_R**2) * math.sin(alpha_R)
-
-        # longitudinal surge force around midship acting on ship hull
-        X_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
-            - self.R_0_dash
-            + self.X_vv_dash * (v_dash**2)
-            + self.X_vr_dash * v_dash * r_dash
-            + self.X_rr_dash * (r_dash**2)
-            + self.X_vvvv_dash * (v_dash**4)
-        )
-        )
+        F_N = 0.5 * self.A_R * self.rho * self.f_alpha * (U_R**2) * math.sin(alpha_R)
 
         # longitudinal surge force around midship by steering
         X_R = -(1 - self.t_R) * F_N * math.sin(self.rud_angle)
 
-        # longitudinal Surge force due to propeller
-        X_P = (1 - self.t_P) * self.rho * K_T * self.nps**2 * self.D_p**4
-
-        # longitudinal surge force around midship acting on ship hull
-        Y_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
-            self.Y_v_dash * v_dash
-            + self.Y_r_dash * r_dash
-            + self.Y_vvv_dash * (v_dash**3)
-            + self.Y_vvr_dash * (v_dash**2) * r_dash
-            + self.Y_vrr_dash * v_dash * (r_dash**2)
-            + self.Y_rrr_dash * (r_dash**3)
-        )
-        )
-
         # lateral surge force by steering
         Y_R = -(1 + self.a_H) * F_N * math.cos(self.rud_angle)
-
-        # yaw moment around midship acting on ship hull
-        N_H = (0.5 * self.rho * (self.Lpp**2) * self.d * (U**2) * (
-            self.N_v_dash * v_dash
-            + self.N_r_dash * r_dash
-            + self.N_vvv_dash * (v_dash**3)
-            + self.N_vvr_dash * (v_dash**2) * r_dash
-            + self.N_vrr_dash * v_dash * (r_dash**2)
-            + self.N_rrr_dash * (r_dash**3)
-        )
-        )
 
         # redimensionalize x_H
         x_H = self.x_H_dash * self.Lpp
 
         # yaw moment around midship by steering
-        N_R = -((-1/2) + self.a_H * x_H) * F_N * math.cos(self.rud_angle)
+        N_R = -(-0.5 + self.a_H * x_H) * F_N * math.cos(self.rud_angle)
 
-        # forces related to currents:
+
+        #------------------------- forces related to currents --------------------------
         if fl_vel is not None and fl_vel != 0.:
             
             # longitudinal velocity of current dependent on ship heading
@@ -280,12 +276,14 @@ class KVLCC2:
             A_Lc = self.Lpp * self.d * self.C_b
             Y_C = 0.5 * self.rho * A_Lc * self._C_Y(g_rc) * abs(v_rc) * v_rc
 
-            # current Moment
+            # current moment
             N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc) * abs(v_rc) * v_rc
 
         else:
             X_C, Y_C, N_C = 0.0, 0.0, 0.0
 
+
+        #-------------------------- Equation solving ----------------------------
         # added masses and added moment of inertia
         m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
         m_y = self.m_y_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
@@ -294,51 +292,39 @@ class KVLCC2:
         I_zG = self.I_zG
 
         # longitudinal acceleration
-        d_u = ((X_H + X_R + X_P + X_C) + (m + m_y) * v *
-            r + self.x_G * m * (r**2)) / (m + m_x)
+        d_u = ((X_H + X_R + X_P + X_C) + (m + m_y) * v * r + self.x_G * m * (r**2)) / (m + m_x)
 
         # lateral acceleration
         f = (I_zG + J_z + (self.x_G**2) * m)
 
-        d_v = ((Y_H+Y_R+Y_C) - (m+m_x)*u*r - ((self.x_G*m*(N_H + N_R + N_C))/(f)) + ((self.x_G**2*m**2*u*r)/(f)))\
+        d_v = ((Y_H + Y_R + Y_C) - (m+m_x)*u*r - ((self.x_G*m*(N_H + N_R + N_C))/(f)) + ((self.x_G**2*m**2*u*r)/(f)))\
             / ((m+m_y)-((self.x_G**2*m**2)/(f)))
 
         # yaw rate acceleration
         d_r = ((N_H + N_R + N_C) - (self.x_G * m * d_v + self.x_G * m * u * r)) / \
             (I_zG + J_z + (self.x_G**2) * m)
 
-        # this constitutes nu_dot
-        nu_dot = np.array([d_u, d_v, d_r])
-
-        # get eta_dot
-        eta_dot = np.dot(self._T_of_psi(psi), np.array([u, v, r]))
-
-        return np.concatenate([eta_dot, nu_dot])
+        return np.array([d_u, d_v, d_r])
 
 
     def _upd_dynamics(self):
-        """Updates positions and velocities for next simulation step."""
+        """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
-        # store current values for change rate computation
-        self.nu_old = self.nu
+        # store current values
+        eta_dot_old = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
-        # integrate
-        sol = solve_ivp(fun    = self._mmg_dynamics,
-                        t_span = (0.0, self.delta_t),
-                        y0     = np.concatenate([self.eta, self.nu]),
-                        t_eval = np.array([self.delta_t]),
-                        args   = (0.0, 0.0),   # fl_psi, fl_vel
-                        method = "RK45")
+        # euler update of velocities
+        self.nu_dot = self._mmg_dynamics(t=None, nu=self.nu, psi=self.eta[2], fl_psi=0.0, fl_vel=0.0)
+        self.nu += self.nu_dot * self.delta_t
 
-        # store new eta and nu
-        self.eta = sol.y[0:3, 0]
-        self.nu  = sol.y[3:, 0]
+        # find new eta_dot via rotation
+        eta_dot_new = np.dot(self._T_of_psi(self.eta[2]), self.nu)
+
+        # trapezoidal update of positions
+        self.eta += 0.5 * (eta_dot_old + eta_dot_new) * self.delta_t
 
         # transform heading to [0, 2pi)
         self.eta[2] = angle_to_2pi(self.eta[2])
-
-        # get nu_dot           
-        self.nu_dot  = (self.nu - self.nu_old) / self.delta_t
 
 
     def _control(self, a):
@@ -384,7 +370,7 @@ class KVLCC2:
         """Returns the aggregated velocity."""
         u, v, r = self.nu
         vm = self._vm_from_v_r(v, r)
-        return np.sqrt(u**2 + vm**2)
+        return math.sqrt(u**2 + vm**2)
 
 
     def _is_off_map(self):
