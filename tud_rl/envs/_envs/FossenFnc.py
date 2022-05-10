@@ -1,4 +1,4 @@
-from math import sqrt
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -40,7 +40,6 @@ def angle_to_2pi(angle):
     """Transforms an angle to [0, 2pi)."""
     if angle >= 0:
         return angle - np.floor(angle / (2*np.pi)) * 2*np.pi
-
     else:
         return angle + (np.floor(-angle / (2*np.pi)) + 1) * 2*np.pi
 
@@ -49,7 +48,6 @@ def angle_to_pi(angle):
     """Transforms an angle to [-pi, pi)."""
     if angle >= 0:
         return angle - np.floor((angle + np.pi) / (2*np.pi)) * 2*np.pi
-
     else:
         return angle + np.floor((-angle + np.pi)  / (2*np.pi)) * 2*np.pi
 
@@ -64,7 +62,7 @@ def ED(N0, E0, N1, E1, sqrt=True):
     d_sq = (N0 - N1)**2 + (E0 - E1)**2
 
     if sqrt:
-        return np.sqrt(d_sq)
+        return math.sqrt(d_sq)
     return d_sq
 
 
@@ -77,53 +75,14 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
         r, angle as a tuple of floats."""
 
     #------------ radius ---------------
-    if with_r:
-        r = sqrt(x**2 + y**2)
-    else:
-        r = None
-
-    #------------ angle ---------------
-    if with_angle:
-        # zero cases
-        if x == 0 and y >= 0:
-            angle = 0
-        
-        elif x == 0 and y < 0:
-            angle = np.pi
-
-        elif x >= 0 and y == 0:
-            angle = np.pi/2
-        
-        elif x < 0 and y == 0:
-            angle = 3/2 * np.pi
-
-        else:
-            frac = np.arctan(np.abs(x / y))
-
-            # I. Q.
-            if x > 0 and y > 0:
-                angle = frac
-
-            # II. Q.
-            elif x < 0 and y > 0:
-                angle = 2*np.pi - frac
-            
-            # III. Q.
-            elif x < 0 and y < 0:
-                angle = frac + np.pi
-            
-            # IV. Q.
-            elif x > 0 and y < 0:
-                angle = np.pi - frac
-    else:
-        angle = None
-    
+    r = math.sqrt(x**2 + y**2) if with_r else None
+    angle = angle_to_2pi(math.atan2(x, y)) if with_angle else None
     return r, angle
 
 
 def xy_from_polar(r, angle):
     """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
-    return r * np.sin(angle), r * np.cos(angle)
+    return r * math.sin(angle), r * math.cos(angle)
 
 
 def bng_abs(N0, E0, N1, E1):
@@ -210,37 +169,3 @@ def project_vector(VA, angleA, VB, angleB):
 
     # x,y components of projection
     return xy_from_polar(r=v_proj, angle=angleB)
-
-
-#-------------------------------------- Backup ----------------------------------------
-def range_rate(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
-    """Computes the rate at which the range (ED) of two vehicles is changing."""
-
-    beta = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=chiOS)
-    alpha = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=chiTS)
-
-    return np.cos(alpha) * VOS + np.cos(beta) * VTS
-
-
-def tcpa_benjamin(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
-    """Computes the time to closest point of approach. If 0, the CPA has already been past. Follows Benjamin (2017)."""
-    
-    rdot = range_rate(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-
-    if rdot >= 0:
-        return 0.0
-    else:
-        # easy access
-        xOS = EOS
-        yOS = NOS
-        xTS = ETS
-        yTS = NTS
-
-        k1 = 2 * np.cos(chiOS) * VOS * yOS - 2 * np.cos(chiOS) * VOS * yTS - 2 * yOS * np.cos(chiTS) * VTS \
-            + 2 * np.cos(chiTS) * VTS * yTS + 2 * np.sin(chiOS) * VOS * xOS - 2 * np.sin(chiOS) * VOS * xTS \
-                - 2 * xOS * np.sin(chiTS) * VTS + 2 * np.sin(chiTS) * VTS * xTS
-        
-        k2 = np.cos(chiOS)**2 * VOS**2 - 2 * np.cos(chiOS) * VOS * np.cos(chiTS) * VTS + np.cos(chiTS)**2 * VTS**2 \
-            + np.sin(chiOS)**2 * VOS**2 - 2 * np.sin(chiOS) * VOS * np.sin(chiTS) * VTS + np.sin(chiTS)**2 * VTS**2
-        
-        return - k1/k2

@@ -1,6 +1,6 @@
 import copy
 import random
-from math import sqrt
+import math
 
 import gym
 import matplotlib.patches as patches
@@ -21,8 +21,7 @@ class MMG_Env(gym.Env):
     def __init__(self, 
                  N_TSs_max        = 3, 
                  N_TSs_random     = False, 
-                 N_TSs_increasing = False, 
-                 cnt_approach     = "tau", 
+                 N_TSs_increasing = False,
                  state_design     = "RecDQN", 
                  plot_traj        = True,
                  w_dist           = 1.0,
@@ -34,7 +33,7 @@ class MMG_Env(gym.Env):
         super().__init__()
 
         # simulation settings
-        self.delta_t = 1.0                        # simulation time interval (in s)
+        self.delta_t = 3.0                           # simulation time interval (in s)
         self.N_max   = 10_000                        # maximum N-coordinate (in m)
         self.E_max   = 10_000                        # maximum E-coordinate (in m)
         
@@ -49,15 +48,15 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = 5_000                 # sight of the agent (in m)
-        self.coll_dist         = 5 * 320               # collision distance (in m, five times ship length)
+        self.coll_dist         = 320                   # collision distance (in m, five times ship length)
         self.TCPA_crit         = 30 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
 
-        self.goal_reach_dist = 500                        # euclidean distance (in m) at which goal is considered as reached
-        self.stop_spawn_dist = 5 * self.goal_reach_dist   # euclidean distance (in m) under which vessels do not spawn anymore
+        self.goal_reach_dist = 320                        # euclidean distance (in m) at which goal is considered as reached
+        self.stop_spawn_dist = 2_500                      # euclidean distance (in m) under which vessels do not spawn anymore
 
         self.num_obs_OS = 8                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
@@ -69,16 +68,14 @@ class MMG_Env(gym.Env):
 
         # gym definitions
         if state_design == "RecDQN":
-            obs_size = self.num_obs_OS + self.N_TSs_max * self.num_obs_TS
+            obs_size = self.num_obs_OS + max([1, self.N_TSs_max]) * self.num_obs_TS
 
         elif state_design == "maxRisk":
             obs_size = self.num_obs_OS + self.num_obs_TS
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
-        
-        if cnt_approach in ["tau", "rps_angle", "f123"]:
-            self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(3)
 
         # reward weights
         self.w_dist   = w_dist
@@ -88,7 +85,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 500
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -135,17 +132,18 @@ class MMG_Env(gym.Env):
         # init agent (OS for 'Own Ship')
         self.OS = KVLCC2(N_init   = N_init, 
                          E_init   = E_init, 
-                         psi_init = head,
+                         psi_init = math.pi/2, #head,
                          u_init   = 0.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
                          delta_t  = self.delta_t,
                          N_max    = self.N_max,
-                         E_max    = self.E_max)
+                         E_max    = self.E_max,
+                         nps      = 1.8)
 
         # set longitudinal speed to near-convergence
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        pass
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
 
         # initial distance to goal
         self.OS_goal_old = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
@@ -218,11 +216,12 @@ class MMG_Env(gym.Env):
                         r_init   = 0.0,
                         delta_t  = self.delta_t,
                         N_max    = self.N_max,
-                        E_max    = self.E_max)
+                        E_max    = self.E_max,
+                        nps      = np.random.uniform(1.0, 2.0))
 
             # predict converged speed of sampled TS
             # Note: if we don't do this, all further calculations are heavily biased
-            pass
+            TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
 
             # quick access for OS
             N0, E0, _ = self.OS.eta
@@ -285,12 +284,12 @@ class MMG_Env(gym.Env):
                 VTS = np.random.uniform(0, V_max_TS)
                 TS.nu[0] = VTS
 
-                # set tau_u of TS so that it will keep this velocity
-                pass
+                # set nps of TS so that it will keep this velocity
+                TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
 
             # backtrace original position of TS
-            E_TS = E_hit - VTS * np.sin(head_TS_s) * t_hit
-            N_TS = N_hit - VTS * np.cos(head_TS_s) * t_hit
+            E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+            N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
 
             # set positional values
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
@@ -345,9 +344,7 @@ class MMG_Env(gym.Env):
         """
 
         # quick access for OS
-        N0, E0, head0 = self.OS.eta              # N, E, heading
-        #chiOS = self.OS._get_course()           # course angle (heading + sideslip)
-        #VOS = self.OS._get_V()                  # aggregated velocity
+        N0, E0, head0 = self.OS.eta
 
         #-------------------------------- OS related ---------------------------------
         cmp1 = self.OS.nu
@@ -572,7 +569,7 @@ class MMG_Env(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
         # Distance reward
         OS_goal_ED       = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist           = (self.OS_goal_old - OS_goal_ED) / 0.3425
+        r_dist           = (self.OS_goal_old - OS_goal_ED) / 20.0
         self.OS_goal_old = OS_goal_ED
 
         # Heading reward
@@ -676,7 +673,7 @@ class MMG_Env(gym.Env):
         # compute relative speed
         vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
         vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        VR = sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
 
         # compute domain
         V = np.max([VOS, VR])
@@ -778,8 +775,8 @@ class MMG_Env(gym.Env):
         tempY = y - cy
 
         # apply rotation
-        rotatedX = tempX * np.cos(heading) - tempY * np.sin(heading)
-        rotatedY = tempX * np.sin(heading) + tempY * np.cos(heading)
+        rotatedX = tempX * math.cos(heading) - tempY * math.sin(heading)
+        rotatedY = tempX * math.sin(heading) + tempY * math.cos(heading)
 
         # translate back
         E0 = rotatedX + cx
@@ -798,29 +795,29 @@ class MMG_Env(gym.Env):
 
         # 1. Quadrant
         if angle <= np.pi/2:
-            E1 = E + np.sin(angle) * l
-            N1 = N + np.cos(angle) * l
+            E1 = E + math.sin(angle) * l
+            N1 = N + math.cos(angle) * l
         
         # 2. Quadrant
         elif 3/2 *np.pi < angle <= 2*np.pi:
             angle = 2*np.pi - angle
 
-            E1 = E - np.sin(angle) * l
-            N1 = N + np.cos(angle) * l
+            E1 = E - math.sin(angle) * l
+            N1 = N + math.cos(angle) * l
 
         # 3. Quadrant
         elif np.pi < angle <= 3/2*np.pi:
             angle -= np.pi
 
-            E1 = E - np.sin(angle) * l
-            N1 = N - np.cos(angle) * l
+            E1 = E - math.sin(angle) * l
+            N1 = N - math.cos(angle) * l
 
         # 4. Quadrant
         elif np.pi/2 < angle <= np.pi:
             angle = np.pi - angle
 
-            E1 = E + np.sin(angle) * l
-            N1 = N - np.cos(angle) * l
+            E1 = E + math.sin(angle) * l
+            N1 = N - math.cos(angle) * l
         
         # draw on axis
         axis.plot([E, E1], [N, N1], **kwargs)

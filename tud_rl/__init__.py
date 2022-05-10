@@ -27,6 +27,10 @@ gym.register(
     entry_point=loc + "FossenEnvStarScene"
 )
 gym.register(
+    id="MMGEnv-v0",
+    entry_point=loc + "MMG_Env"
+)
+gym.register(
     id="Imazu-v0",
     entry_point=loc + "Imazu"
 )

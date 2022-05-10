@@ -70,7 +70,7 @@ class FossenEnv(gym.Env):
 
         # gym definitions
         if state_design == "RecDQN":
-            obs_size = self.num_obs_OS + self.N_TSs_max * self.num_obs_TS
+            obs_size = self.num_obs_OS + max([1, self.N_TSs_max]) * self.num_obs_TS
 
         elif state_design == "maxRisk":
             obs_size = self.num_obs_OS + self.num_obs_TS

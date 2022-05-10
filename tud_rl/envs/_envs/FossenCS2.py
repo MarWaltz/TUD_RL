@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
@@ -184,8 +186,8 @@ class CyberShipII:
     def _T_of_psi(self, psi):
         """Computes rotation matrix for given heading (in rad)."""
 
-        return np.array([[np.cos(psi), -np.sin(psi), 0],
-                         [np.sin(psi),  np.cos(psi), 0],
+        return np.array([[math.cos(psi), -math.sin(psi), 0],
+                         [math.sin(psi),  math.cos(psi), 0],
                          [0, 0, 1]])
 
 
@@ -265,10 +267,7 @@ class CyberShipII:
 
 
     def _upd_dynamics(self, euler=True):
-        """Updates positions and velocities for next simulation step.
-        Args:
-            euler (bool):  Whether to use Euler integration or, if false, the RK45 procedure.
-        """
+        """Updates positions and velocities for next simulation step."""
 
         if euler:
 
