@@ -1,6 +1,6 @@
 import copy
-import random
 import math
+import random
 
 import gym
 import matplotlib.patches as patches
@@ -9,7 +9,7 @@ from gym import spaces
 from matplotlib import pyplot as plt
 from tud_rl.envs._envs.FossenFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                          angle_to_2pi, angle_to_pi, bng_abs,
-                                         bng_rel, dtr, head_inter,
+                                         bng_rel, dcpa, dtr, head_inter,
                                          polar_from_xy, project_vector, rtd,
                                          tcpa, xy_from_polar)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
@@ -34,8 +34,8 @@ class MMG_Env(gym.Env):
 
         # simulation settings
         self.delta_t = 3.0                           # simulation time interval (in s)
-        self.N_max   = 20_000                        # maximum N-coordinate (in m)
-        self.E_max   = 20_000                        # maximum E-coordinate (in m)
+        self.N_max   = 15_000                        # maximum N-coordinate (in m)
+        self.E_max   = 15_000                        # maximum E-coordinate (in m)
 
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -47,8 +47,9 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = self.N_max/2          # sight of the agent (in m)
+        self.sight             = 5_000                 # sight of the agent (in m)
         self.coll_dist         = 320                   # collision distance (in m, five times ship length)
+        self.CR_al             = 0.1                   # collision risk metric when TS enters sight of agent
         self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
@@ -146,7 +147,8 @@ class MMG_Env(gym.Env):
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
 
         # initial distance to goal
-        self.OS_goal_old = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
+        self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
+        self.OS_goal_old  = self.OS_goal_init
 
         # init other vessels
         if self.N_TSs_random:
@@ -338,7 +340,7 @@ class MMG_Env(gym.Env):
             heading intersection angle C_T
             speed (V)
             COLREG mode TS (sigma_TS)
-            Inside_domain bool (not ED_TS / Ship domain (= riskRatio))
+            CR
         """
 
         # quick access for OS
@@ -355,12 +357,11 @@ class MMG_Env(gym.Env):
         #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
         state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (np.pi), 
-                               OS_goal_ED / self.E_max])
+                               OS_goal_ED / self.OS_goal_init])
 
 
         #--------------------------- dynamic obstacle related -------------------------
         state_TSs = []
-        risk_ratios = []
 
         for TS_idx, TS in enumerate(self.TSs):
 
@@ -371,12 +372,8 @@ class MMG_Env(gym.Env):
 
             if ED_OS_TS <= self.sight:
 
-                # store risk-ratio: euclidean distance / ship domain
-                risk_ratios.append(ED_OS_TS / self._get_ship_domain(OS=self.OS, TS=TS))
-
-                #----------------------------- state -----------------------------------
                 # euclidean distance
-                ED_OS_TS_norm = ED_OS_TS / self.E_max
+                ED_OS_TS_norm = ED_OS_TS / self.sight
 
                 # relative bearing
                 bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (np.pi)
@@ -390,20 +387,17 @@ class MMG_Env(gym.Env):
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
 
-                # inside domain
-                inside_domain = 1.0 if ED_OS_TS <= self._get_ship_domain(OS=self.OS, TS=TS) else 0.0
+                # collision risk
+                CR = self._get_CR(OS=self.OS, TS=TS)
 
                 # store it
-                state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS, inside_domain])
+                state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, sigma_TS, CR])
 
         # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agents
         if len(state_TSs) == 0:
-            
-            # completely irrelevant entry
-            risk_ratios.append(np.inf)  
 
             # ED
-            ED_ghost = self.sight / self.E_max
+            ED_ghost = 1.0
 
             # relative bearing
             bng_rel_ghost = -1.0
@@ -417,14 +411,16 @@ class MMG_Env(gym.Env):
             # COLREG mode
             sigma_ghost = 0
 
-            # inside domain
-            inside_domain_ghost = 0.0
+            # collision risk
+            CR_ghost = 0.1
 
-            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, inside_domain_ghost])
+            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, CR_ghost])
 
-        # sort according to descending riskRatios (or ED)
-        order = np.argsort(risk_ratios)[::-1]
-        state_TSs = [state_TSs[idx] for idx in order]
+        # sort according to collision risk (ascending, larger CR is more dangerous)
+        state_TSs = sorted(state_TSs, key=lambda x: x[-1])
+
+        #order = np.argsort(risk_ratios)[::-1]
+        #state_TSs = [state_TSs[idx] for idx in order]
 
         if self.state_design == "RecDQN":
 
@@ -582,9 +578,10 @@ class MMG_Env(gym.Env):
             # get ED
             ED_TS = ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
 
-            # Collision: event penalty
-            if ED_TS <= self.coll_dist:
-                r_coll -= 10
+            # reward based on collision risk
+            CR = self._get_CR(OS=self.OS, TS=TS)
+            if CR > 0.1:
+                r_coll -= 100/81 * (CR - 0.1)**2
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -653,6 +650,25 @@ class MMG_Env(gym.Env):
 
         return d
 
+    def _get_CR(self, OS, TS):
+        """Computes the collision risk metric similar to Chun et al. (2021)."""
+        
+        # compute speeds and courses
+        VOS = OS._get_V()
+        VTS = TS._get_V()
+        chiOS = OS._get_course()
+        chiTS = TS._get_course()
+
+        # compute relative speed
+        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
+        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+
+        # CPA measures
+        TCPA = tcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+        DCPA = dcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+
+        return math.exp(math.log(self.CR_al) / (self.sight) * (DCPA + abs(TCPA) * VR))
 
     def _get_ship_domain(self, OS, TS):
         """Computes a simplified ship domain for the OS with respect to TS following Zhao and Roh (2019, Ocean Engineering). 
@@ -899,15 +915,18 @@ class MMG_Env(gym.Env):
                             ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
                                             angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
 
-                        # TCPA
+                        # collision risk
                         TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.text(E, N + 2, f"TCPA: {np.round(TCPA_TS, 2)}",
+                        ax.text(E, N + 400, f"TCPA: {np.round(TCPA_TS, 2)}",
                                     horizontalalignment='center', verticalalignment='center', color=col)
-
-                        # ship domain around OS
-                        domain = self._get_ship_domain(OS=self.OS, TS=TS)
-                        circ = patches.Circle((E0, N0), radius=domain, edgecolor=col, facecolor='none', alpha=0.3)
-                        ax.add_patch(circ)
+                        
+                        DCPA_TS = dcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+                        ax.text(E, N-200, f"DCPA: {np.round(DCPA_TS, 2)}",
+                                    horizontalalignment='center', verticalalignment='center', color=col)
+                        
+                        CR = self._get_CR(OS=self.OS, TS=TS)
+                        ax.text(E, N-800, f"CR: {np.round(CR, 4)}",
+                                    horizontalalignment='center', verticalalignment='center', color=col)
 
                     # set legend for COLREGS
                     ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
