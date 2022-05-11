@@ -1,4 +1,4 @@
-from .FossenEnv import *
+from tud_rl.envs._envs.FossenEnv import *
 
 
 class FossenEnvStarScene(FossenEnv):

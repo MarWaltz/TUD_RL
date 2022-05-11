@@ -10,20 +10,6 @@ COLREG_NAMES  = {0 : "Null",
 COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(5)]
 
 
-class StaticObstacle:
-    """A static circle-shaped obstacle."""
-    
-    def __init__(self, N_init, E_init, max_radius) -> None:
-        
-        # spawning point
-        self.N = N_init
-        self.E = E_init
-
-        # size
-        self.radius = np.random.uniform(1, max_radius)
-        self.radius_norm = self.radius / max_radius
-
-
 #------------------- Helper functions with angles, mainly following Benjamin (2017) ----------------
 
 def dtr(angle):

@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 from scipy.optimize import newton
-from tud_rl.envs._envs.FossenFnc import angle_to_2pi, dtr, polar_from_xy
+from tud_rl.envs._envs.VesselFnc import angle_to_2pi, dtr, polar_from_xy
 
 
 class KVLCC2:

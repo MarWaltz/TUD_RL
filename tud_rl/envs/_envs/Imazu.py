@@ -1,5 +1,5 @@
-from .FossenEnv import *
-from .FossenFnc import dtr
+from tud_rl.envs._envs.FossenEnv import *
+from tud_rl.envs._envs.VesselFnc import dtr
 
 
 class Imazu(FossenEnv):

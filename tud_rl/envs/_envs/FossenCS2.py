@@ -3,7 +3,7 @@ import math
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import newton
-from tud_rl.envs._envs.FossenFnc import (angle_to_2pi, angle_to_pi, dtr,
+from tud_rl.envs._envs.VesselFnc import (angle_to_2pi, angle_to_pi, dtr,
                                          polar_from_xy)
 
 
