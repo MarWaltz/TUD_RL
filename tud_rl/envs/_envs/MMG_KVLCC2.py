@@ -82,8 +82,8 @@ class KVLCC2:
         self.nps = nps
 
         # rudder angle max (in rad) and increment (in rad/s)
-        self.rud_angle_max = dtr(10)
-        self.rud_angle_inc = dtr(2.5)
+        self.rud_angle_max = dtr(20.0)
+        self.rud_angle_inc = dtr(5.0)
 
         # init rudder angle
         self.rud_angle = 0.0

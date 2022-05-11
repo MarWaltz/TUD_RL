@@ -34,9 +34,9 @@ class MMG_Env(gym.Env):
 
         # simulation settings
         self.delta_t = 3.0                           # simulation time interval (in s)
-        self.N_max   = 15_000                        # maximum N-coordinate (in m)
-        self.E_max   = 15_000                        # maximum E-coordinate (in m)
-        
+        self.N_max   = 20_000                        # maximum N-coordinate (in m)
+        self.E_max   = 20_000                        # maximum E-coordinate (in m)
+
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
@@ -85,7 +85,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 750
+        self._max_episode_steps = 1000
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -499,7 +499,7 @@ class MMG_Env(gym.Env):
 
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward(a)
+        self._calculate_reward()
         d = self._done()
        
         return self.state, self.r, d, {}
@@ -559,7 +559,7 @@ class MMG_Env(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self, a):
+    def _calculate_reward(self):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -591,10 +591,10 @@ class MMG_Env(gym.Env):
 
                 # evaluate TS if in sight and has positive TCPA
                 if ED_TS <= self.sight and tcpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1],\
-                     chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0:
+                     chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0.0:
 
                     # steer to the right in Head-on and starboard crossing situations
-                    if self.TS_COLREGs_old[TS_idx] in [1, 2] and a == 2:
+                    if self.TS_COLREGs_old[TS_idx] in [1, 2] and self.OS.nu[2] < 0.0:
                         r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
