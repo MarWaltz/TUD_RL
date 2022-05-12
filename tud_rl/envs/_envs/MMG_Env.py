@@ -47,8 +47,8 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = 5_000                 # sight of the agent (in m)
-        self.coll_dist         = 320                   # collision distance (in m, five times ship length)
+        self.sight             = 25_000                # sight of the agent (in m)
+        self.CR_dist           = 5_000                 # collision risk distance (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS enters sight of agent
         self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
@@ -379,7 +379,7 @@ class MMG_Env(gym.Env):
             if ED_OS_TS <= self.sight:
 
                 # euclidean distance
-                ED_OS_TS_norm = ED_OS_TS / self.sight
+                ED_OS_TS_norm = ED_OS_TS / self.E_max
 
                 # relative bearing
                 bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (np.pi)
@@ -588,7 +588,7 @@ class MMG_Env(gym.Env):
             if CR == 1.0:
                 r_coll -= 10
             elif CR > 0.1:
-                r_coll -= 100/81 * (CR - 0.1)**2
+                r_coll -= CR
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
@@ -657,7 +657,6 @@ class MMG_Env(gym.Env):
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
 
-        S = self.sight
         D = self._get_ship_domain(OS, TS)
 
         # check if already in ship domain
@@ -679,7 +678,7 @@ class MMG_Env(gym.Env):
         TCPA = tcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
         DCPA = dcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
 
-        frac = math.log(self.CR_al) / (S-D)
+        frac = math.log(self.CR_al) / (self.CR_dist-D)
         return min([1.0, math.exp(frac * (DCPA + VR * abs(TCPA) - D))])
 
 
