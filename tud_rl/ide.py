@@ -10,7 +10,6 @@ import tud_rl.run.visualize_continuous as vizcont
 import tud_rl.run.train_discrete as discr
 import tud_rl.run.visualize_discrete as vizdiscr
 
-
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.agents import validate_agent, is_discrete
 from tud_rl.configs.continuous_actions import __path__ as cont_path
@@ -18,12 +17,11 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 
 # ---------------- User Settings -----------------------------
 # ------------------------------------------------------------
-
-TASK        = "train"        # ["train", "viz"]
-CONFIG_FILE = "example.json" # Your configuration file as `.yaml` or `.json`
-SEED        = None           # Set a seed different to the one specified in your config
-AGENT_NAME  = "RecDQN"       # Agent to train/viz with.
-DQN_WEIGHTS = None           # Path to a weight file for weight initialization
+TASK        = "viz"                       # ["train", "viz"]
+CONFIG_FILE = "MMGEnvRecDQN.yaml"        # Your configuration file as `.yaml` or `.json`
+SEED        = 20                  # Set a seed different to the one specified in your config
+AGENT_NAME  = "RecDQN"              # Agent to train/viz with.
+DQN_WEIGHTS = "RecDQN_weights.pth"                 # Path to a weight file for weight initialization
 
 # ------------------------------------------------------------
 # ------------------------------------------------------------

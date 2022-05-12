@@ -656,7 +656,14 @@ class MMG_Env(gym.Env):
 
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
-        
+
+        S = self.sight
+        D = self._get_ship_domain(OS, TS)
+
+        # check if already in ship domain
+        if ED(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= D:
+            return 1.0
+
         # compute speeds and courses
         VOS = OS._get_V()
         VTS = TS._get_V()
@@ -671,9 +678,6 @@ class MMG_Env(gym.Env):
         # CPA measures
         TCPA = tcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
         DCPA = dcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-
-        S = self.sight
-        D = self._get_ship_domain(OS, TS)
 
         frac = math.log(self.CR_al) / (S-D)
         return min([1.0, math.exp(frac * (DCPA + VR * abs(TCPA) - D))])
