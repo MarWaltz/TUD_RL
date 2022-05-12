@@ -363,7 +363,7 @@ class MMG_Env(gym.Env):
         #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
         state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (np.pi), 
-                               OS_goal_ED / self.OS_goal_init])
+                               OS_goal_ED / self.E_max])
 
 
         #--------------------------- dynamic obstacle related -------------------------
