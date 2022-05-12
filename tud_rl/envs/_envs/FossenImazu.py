@@ -2,7 +2,7 @@ from tud_rl.envs._envs.FossenEnv import *
 from tud_rl.envs._envs.VesselFnc import dtr
 
 
-class Imazu(FossenEnv):
+class FossenImazu(FossenEnv):
     """Implements the 22 ship encounter situations of Imazu (1987) as detailed in Sawada et al. (2021, JMST)."""
 
     def __init__(self, plot_traj, situation, state_design):
