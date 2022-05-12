@@ -31,9 +31,14 @@ gym.register(
     entry_point=loc + "MMG_Env"
 )
 gym.register(
-    id="Imazu-v0",
-    entry_point=loc + "Imazu"
+    id="FossenImazu-v0",
+    entry_point=loc + "FossenImazu"
 )
+gym.register(
+    id="MMGImazu-v0",
+    entry_point=loc + "MMG_Imazu"
+)
+
 
 
 # Initialize logger
