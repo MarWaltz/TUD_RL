@@ -150,6 +150,12 @@ class MMG_Env(gym.Env):
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
         self.OS_goal_old  = self.OS_goal_init
 
+        # initially compute ship domain for plotting
+        rads  = np.linspace(0.0, 2*math.pi, 100)
+        dists = [self._get_ship_domain(OS=None, TS=None, ang=rad) for rad in rads]
+        self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
+
         # init other vessels
         if self.N_TSs_random:
             self.N_TSs = np.random.choice(self.N_TSs_max + 1)
@@ -217,7 +223,7 @@ class MMG_Env(gym.Env):
                         delta_t  = self.delta_t,
                         N_max    = self.N_max,
                         E_max    = self.E_max,
-                        nps      = np.random.uniform(1.0, 2.0))
+                        nps      = np.random.uniform(0.9, 1.1) * self.OS.nps)
 
             # predict converged speed of sampled TS
             # Note: if we don't do this, all further calculations are heavily biased
@@ -515,7 +521,6 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
-
         assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
 
         # check whether spawning is still considered
@@ -580,7 +585,9 @@ class MMG_Env(gym.Env):
 
             # reward based on collision risk
             CR = self._get_CR(OS=self.OS, TS=TS)
-            if CR > 0.1:
+            if CR == 1.0:
+                r_coll -= 10
+            elif CR > 0.1:
                 r_coll -= 100/81 * (CR - 0.1)**2
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
@@ -621,10 +628,6 @@ class MMG_Env(gym.Env):
         if OS_goal_ED <= self.goal_reach_dist:
             d = True
 
-        # collision
-        #if any([ED(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1]) <= self.coll_dist for TS in self.TSs]):
-        #    d = True
-
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
             d = True
@@ -650,6 +653,7 @@ class MMG_Env(gym.Env):
 
         return d
 
+
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
         
@@ -668,31 +672,40 @@ class MMG_Env(gym.Env):
         TCPA = tcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
         DCPA = dcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
 
-        return math.exp(math.log(self.CR_al) / (self.sight) * (DCPA + abs(TCPA) * VR))
+        S = self.sight
+        D = self._get_ship_domain(OS, TS)
 
-    def _get_ship_domain(self, OS, TS):
-        """Computes a simplified ship domain for the OS with respect to TS following Zhao and Roh (2019, Ocean Engineering). 
-        Estimation error term 'U' is ignored. 
-        
+        frac = math.log(self.CR_al) / (S-D)
+        return min([1.0, math.exp(frac * (DCPA + VR * abs(TCPA) - D))])
+
+
+    def _get_ship_domain(self, OS, TS, ang=None):
+        """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
         Args:
             OS: KVLCC2
             TS: KVLCC2"""
 
-        # compute speeds and courses
-        VOS = OS._get_V()
-        VTS = TS._get_V()
-        chiOS = OS._get_course()
-        chiTS = TS._get_course()
+        # relative bearing
+        if ang is None:
+            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
 
-        # compute relative speed
-        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
-        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+        # circle parts
+        if 0 <= rtd(ang) < 90:
+            return self.OS.ship_domain_AB
+        elif 180 <= rtd(ang) < 270:
+            return self.OS.ship_domain_CD
 
-        # compute domain
-        V = np.max([VOS, VR])
-        return OS.Lpp*V**1.26 + 30*V
-
+        # ellipsis
+        elif 90 <= rtd(ang) < 180:
+            ang -= dtr(90)
+            a = self.OS.ship_domain_AB
+            b = self.OS.ship_domain_CD
+        else:
+            ang -= dtr(270)
+            a = self.OS.ship_domain_CD
+            b = self.OS.ship_domain_AB
+        return ((math.cos(ang) / a)**2 + (math.sin(ang) / b)**2)**(-0.5)
+    
 
     def _get_COLREG_situation(self, OS, TS):
         """Determines the COLREG situation from the perspective of the OS. 
@@ -717,11 +730,6 @@ class MMG_Env(gym.Env):
         V_OS  = OS._get_V()
         V_TS  = TS._get_V()
 
-        # artificially change definition to keep scenarios constant
-        #if self.COLREG_def == "line":
-        #    psi_OS = bng_abs(N0=NOS, E0=EOS, N1=self.goal["N"], E1=self.goal["E"])
-
-        #chiOS = angle_to_2pi(psi_OS + OS._get_sideslip())
         chiOS = OS._get_course()
         chiTS = TS._get_course()
 
@@ -774,6 +782,20 @@ class MMG_Env(gym.Env):
         return ste + "\n" + pos + "\n" + vel
 
 
+    def _rotate_point(self, x, y, cx, cy, angle):
+        """Rotates a point (x,y) around origin (cx,cy) by an angle (defined counter-clockwise with zero at y-axis)."""
+
+        # translate point to origin
+        tempX = x - cx
+        tempY = y - cy
+
+        # apply rotation
+        rotatedX = tempX * math.cos(angle) - tempY * math.sin(angle)
+        rotatedY = tempX * math.sin(angle) + tempY * math.cos(angle)
+
+        # translate back
+        return rotatedX + cx, rotatedY + cy
+
     def _get_rect(self, E, N, width, length, heading, **kwargs):
         """Returns a patches.rectangle object. heading in rad."""
 
@@ -784,17 +806,7 @@ class MMG_Env(gym.Env):
         cy = N
         heading = -heading   # negate since our heading is defined clockwise, contrary to plt rotations
 
-        # translate point to origin
-        tempX = x - cx
-        tempY = y - cy
-
-        # apply rotation
-        rotatedX = tempX * math.cos(heading) - tempY * math.sin(heading)
-        rotatedY = tempX * math.sin(heading) + tempY * math.cos(heading)
-
-        # translate back
-        E0 = rotatedX + cx
-        N0 = rotatedY + cy
+        E0, N0 = self._rotate_point(x=x, y=y, cx=cx, cy=cy, angle=heading)
 
         # create rect
         return patches.Rectangle((E0, N0), width, length, rtd(heading), **kwargs)
@@ -870,16 +882,24 @@ class MMG_Env(gym.Env):
                     ax.set_xlabel("East")
                     ax.set_ylabel("North")
 
+                    # access
+                    N0, E0, head0 = self.OS.eta
+                    chiOS = self.OS._get_course()
+                    VOS = self.OS._get_V()
+
                     # set OS
-                    N0, E0, head0 = self.OS.eta          # N, E, heading
-                    chiOS = self.OS._get_course()        # course angle (heading + sideslip)
-                    VOS = self.OS._get_V()               # aggregated velocity
-                    
-                    ax.text(-2, self.N_max - 12.5, self.__str__(), fontsize=8)
-                    
                     rect = self._get_rect(E = E0, N = N0, width = self.OS.B, length = self.OS.Lpp, heading = head0,
                                         linewidth=1, edgecolor='black', facecolor='none')
                     ax.add_patch(rect)
+                    
+                    # step information
+                    ax.text(0.05 * self.E_max, 0.9 * self.N_max, self.__str__(), fontsize=8)
+
+                    # ship domain
+                    xys = [self._rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    xs = [xy[0] for xy in xys]
+                    ys = [xy[1] for xy in xys]
+                    ax.plot(xs, ys, color="black", alpha=0.3)
 
                     # add jets according to COLREGS
                     for COLREG_deg in [5, 355]:
@@ -897,15 +917,16 @@ class MMG_Env(gym.Env):
                     # set other vessels
                     for TS in self.TSs:
 
-                        N, E, headTS = TS.eta               # N, E, heading
-                        chiTS = TS._get_course()            # course angle (heading + sideslip)
-                        VTS = TS._get_V()                   # aggregated velocity
+                        # access
+                        N, E, headTS = TS.eta
+                        chiTS = TS._get_course()
+                        VTS = TS._get_V()
 
                         # determine color according to COLREG scenario
                         COLREG = self._get_COLREG_situation(OS=self.OS, TS=TS)
                         col = COLREG_COLORS[COLREG]
 
-                        # vessel
+                        # place TS
                         rect = self._get_rect(E = E, N = N, width = TS.B, length = TS.Lpp, heading = headTS,
                                             linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
                         ax.add_patch(rect)
@@ -917,15 +938,19 @@ class MMG_Env(gym.Env):
 
                         # collision risk
                         TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.text(E, N + 400, f"TCPA: {np.round(TCPA_TS, 2)}",
+                        ax.text(E + 800, N + 200, f"TCPA: {np.round(TCPA_TS, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
-                        
+
                         DCPA_TS = dcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.text(E, N-200, f"DCPA: {np.round(DCPA_TS, 2)}",
+                        ax.text(E + 800, N-200, f"DCPA: {np.round(DCPA_TS, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
                         
                         CR = self._get_CR(OS=self.OS, TS=TS)
-                        ax.text(E, N-800, f"CR: {np.round(CR, 4)}",
+                        ax.text(E + 800, N-600, f"CR: {np.round(CR, 4)}", fontsize=7,
+                                    horizontalalignment='center', verticalalignment='center', color=col)
+                        
+                        D = self._get_ship_domain(OS=self.OS, TS=TS)
+                        ax.text(E + 800, N-1000, f"D: {np.round(D, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
 
                     # set legend for COLREGS

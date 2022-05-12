@@ -77,6 +77,9 @@ class KVLCC2:
         for key, value in self.kvlcc2_full.items():
             setattr(self, key, value)
 
+        self.ship_domain_AB = 3 * self.Lpp + 0.5 * self.Lpp # [m]
+        self.ship_domain_CD = 1 * self.Lpp + 0.5 * self.B   # [m]
+
         #------------------------- Motion Initialization -----------------------------------
         # Propeller revolutions [s⁻¹]
         self.nps = nps
