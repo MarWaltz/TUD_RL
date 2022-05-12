@@ -271,6 +271,6 @@ def train(c: ConfigFile, agent_name: str):
             torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
 
             # save input normalizer values
-            if c["input_norm"]:
+            if c.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
