@@ -628,7 +628,7 @@ class RecDQN(nn.Module):
         """Computes the inner recurrence for temporal information about target ships.
         s: torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
 
-        returns: torch.Size([batch_size, 128 + 128])
+        returns: torch.Size([batch_size, 128])
         """
         # extract OS and TS states
         s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
@@ -649,7 +649,6 @@ class RecDQN(nn.Module):
 
         # get selection index according to number of TSs
         h_idx = copy.deepcopy(N_TS_obs)
-        h_idx[h_idx == 0] = 1
         h_idx -= 1
 
         # padd nan's to zeroes to avoid LSTM-issues
@@ -746,24 +745,43 @@ class LSTMRecDQN(RecDQN):
         
         Returns: 
             torch.Size([batch_size, num_actions]), critic_net_info (dict) (if log_info)"""
-        
+
         # setup x_tilde which comes into outer LSTM
         batch_size, history_length, _ = s_hist.shape
         x_tilde = torch.zeros((batch_size, history_length + 1, 128))
 
-        # CAREFUL: The following is buggy if some hist_len in [0, 1].
+        # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
+        s_t2 = s_hist[:, 0, :]
+        s_t2[hist_len < 2, :] = 0.0
+        
+        t1_idx = hist_len - 1
+        t1_idx[t1_idx < 0] = 0
+
+        s_t1 = s_hist[torch.arange(batch_size), t1_idx, :]
+        s_t1[hist_len < 1, :] = 0.0
 
         # spatial recurrence: t-2
-        x_tilde[:, 0, :] = self._inner_rec(s_hist[:, 0, :], time=2)
+        x_tilde[:, 0, :] = self._inner_rec(s_t2, time=2)
 
         # spatial recurrence: t-1
-        x_tilde[:, 1, :] = self._inner_rec(s_hist[:, 1, :], time=1)
+        x_tilde[:, 1, :] = self._inner_rec(s_t1, time=1)
        
         # spatial recurrence: t
-        #x_tilde[torch.arange(batch_size), hist_len, :] = self._inner_rec(s, time=0)
+        x_tilde[:, 2, :] = self._inner_rec(s, time=0)
 
-        # outer recurrence for time
-        extracted_mem, (_, _) = self.LSTM_outer(x_tilde)
+        # roll entries according to hist_len
+        if batch_size == 1:
+            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+        else:
+            if sum(hist_len != 2):
+                x_tilde_f = torch.zeros_like(x_tilde)
+                for b_idx in range(batch_size):
+                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
+            else:
+                x_tilde_f = x_tilde
+
+        # push through outer LSTM
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
 
         # Note: No-history cases are not possible since there is always at least the current time step.
 
@@ -781,7 +799,7 @@ class LSTMRecDQN(RecDQN):
         s:      torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
         time:   int in [0, 1, 2]
 
-        returns: torch.Size([batch_size, 128 + 128])
+        returns: torch.Size([batch_size, 128])
         """
 
         assert time in [0, 1, 2], "Unknown time step."
@@ -808,7 +826,6 @@ class LSTMRecDQN(RecDQN):
 
         # get selection index according to number of TSs
         h_idx = copy.deepcopy(N_TS_obs)
-        h_idx[h_idx == 0] = 1
         h_idx -= 1
 
         # padd nan's to zeroes to avoid LSTM-issues
