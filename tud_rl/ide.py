@@ -17,11 +17,14 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 
 # ---------------- User Settings -----------------------------
 # ------------------------------------------------------------
-TASK        = "viz"                       # ["train", "viz"]
-CONFIG_FILE = "MMGEnvRecDQN.yaml"        # Your configuration file as `.yaml` or `.json`
-SEED        = 20                  # Set a seed different to the one specified in your config
-AGENT_NAME  = "RecDQN"              # Agent to train/viz with.
-DQN_WEIGHTS = "RecDQN_weights.pth"                 # Path to a weight file for weight initialization
+
+TASK        = "train"           # ["train", "viz"]
+CONFIG_FILE = "oa_mdp.yaml"     # configuration file as `.yaml` or `.json`
+SEED        = 42                # set a seed different to the one specified in your config
+AGENT_NAME  = "TD3"             # agent to train/viz
+DQN_WEIGHTS = None              # path to file for weight initialization (discrete actions)
+ACTOR_WEIGHTS = None            # path to file for weight initialization (continuous actions)
+CRITIC_WEIGHTS = None           # path to file for weight initialization (continuous actions)
 
 # ------------------------------------------------------------
 # ------------------------------------------------------------
@@ -47,6 +50,12 @@ if SEED is not None:
 # consider weights
 if DQN_WEIGHTS is not None:
     config.overwrite(dqn_weights=DQN_WEIGHTS)
+
+if CRITIC_WEIGHTS is not None:
+    config.overwrite(critic_weights=CRITIC_WEIGHTS)
+
+if ACTOR_WEIGHTS is not None:
+    config.overwrite(actor_weights=ACTOR_WEIGHTS)
 
 # handle maximum episode steps
 config.max_episode_handler()
