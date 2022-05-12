@@ -31,7 +31,15 @@ parser.add_argument(
 
 parser.add_argument(
     "-w", "--dqn_weights", type=str, default=None,
-    help="Weights for visualization. Example: `dqn_weights.pth`.")
+    help="Weights for visualization in discrete action spaces. Example: `dqn_weights.pth`.")
+
+parser.add_argument(
+    "-aw", "--actor_weights", type=str, default=None,
+    help="Weights (actor) for visualization in continuous action spaces. Example: `actor_weights.pth`.")
+
+parser.add_argument(
+    "-cw", "--critic_weights", type=str, default=None,
+    help="Weights (critic) for visualization in continuous action spaces. Example: `critic_weights.pth`.")
 
 args = parser.parse_args()
 
@@ -56,6 +64,12 @@ if args.seed is not None:
 # consider weights
 if args.dqn_weights is not None:
     config.overwrite(dqn_weights=args.dqn_weights)
+
+if args.actor_weights is not None:
+    config.overwrite(actor_weights=args.actor_weights)
+
+if args.critic_weights is not None:
+    config.overwrite(critic_weights=args.critic_weights)
 
 # handle maximum episode steps
 config.max_episode_handler()
