@@ -1,5 +1,5 @@
 import numpy as np
-#import pybulletgym
+import pybulletgym
 import gym
 
 class gym_POMDP_wrapper(gym.ObservationWrapper):
