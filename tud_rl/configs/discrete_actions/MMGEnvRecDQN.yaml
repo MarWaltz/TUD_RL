@@ -14,8 +14,8 @@ env:
     w_comf: 0.0
     state_design: RecDQN
     plot_traj: False
-    N_TSs_random : True
-    N_TSs_increasing : False
+    N_TSs_random : False
+    N_TSs_increasing : True
   info: ''
 agent:
   DQN: {}
