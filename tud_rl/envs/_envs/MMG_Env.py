@@ -162,14 +162,10 @@ class MMG_Env(gym.Env):
 
         elif self.N_TSs_increasing:
 
-            if self.outer_step_cnt <= 1e6:
-                self.N_TSs = 0
-            elif self.outer_step_cnt <= 2e6:
+            if self.outer_step_cnt <= 3e6:
                 self.N_TSs = 1
-            elif self.outer_step_cnt <= 3e6:
-                self.N_TSs = 2
             else:
-                self.N_TSs = 3
+                self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
         else:
             self.N_TSs = self.N_TSs_max
 
