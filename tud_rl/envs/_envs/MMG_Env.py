@@ -48,7 +48,7 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = 25_000                # sight of the agent (in m)
-        self.CR_dist           = 3_000                 # collision risk distance (in m)
+        self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
         self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
@@ -161,11 +161,7 @@ class MMG_Env(gym.Env):
             self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
 
         elif self.N_TSs_increasing:
-
-            if self.outer_step_cnt <= 3e6:
-                self.N_TSs = 1
-            else:
-                self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
+            raise NotImplementedError()
         else:
             self.N_TSs = self.N_TSs_max
 
@@ -232,7 +228,7 @@ class MMG_Env(gym.Env):
 
             # sample COLREG situation 
             # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
-            COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.2, 0.2, 0.2, 0.2, 0.2])
+            COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
             if COLREG_s == 0:
                 return TS
 
@@ -413,7 +409,7 @@ class MMG_Env(gym.Env):
             sigma_ghost = 0
 
             # collision risk
-            CR_ghost = 0.1
+            CR_ghost = 0.0
 
             state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, CR_ghost])
 
@@ -528,38 +524,6 @@ class MMG_Env(gym.Env):
                 return self._get_TS(), True
         return TS, False
 
-            # 1) leaving of simulation area
-            #if TS._is_off_map():
-                
-            #    if respawn:
-            #        return self._get_TS(), True
-                
-            #    elif mirrow:
-                    # quick access
-            #        psi = TS.eta[2]
-
-                    # right or left bound (E-axis)
-            #        if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
-            #            TS.eta[2] = 2*math.pi - psi
-                    
-                    # upper and lower bound (N-axis)
-            #        else:
-            #            TS.eta[2] = math.pi - psi
-                
-            #    elif clip:
-            #        TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
-            #        TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
-
-            #    return TS, False
-            
-            # 2) too far away from agent
-            #else:
-            #    TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
-            #                chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
-                
-            #    if TCPA_TS < -0.1*self.TCPA_crit or TCPA_TS > 1.25*self.TCPA_crit:
-            #        return self._get_TS(), True
-
 
     def _calculate_reward(self):
         """Returns reward of the current state."""
@@ -661,6 +625,7 @@ class MMG_Env(gym.Env):
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
         D = self._get_ship_domain(OS, TS)
+        CR_dist = self.CR_dist_multiple * D
 
         # check if already in ship domain
         if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
@@ -685,7 +650,7 @@ class MMG_Env(gym.Env):
         if TCPA < 0:
             return 0.0
 
-        return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / self.CR_dist)])
+        return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)])
 
 
     def _get_ship_domain(self, OS, TS, ang=None):
@@ -906,6 +871,12 @@ class MMG_Env(gym.Env):
 
                     # ship domain
                     xys = [self._rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    xs = [xy[0] for xy in xys]
+                    ys = [xy[1] for xy in xys]
+                    ax.plot(xs, ys, color="black", alpha=0.7)
+
+                    # collision risk distance
+                    xys = [self._rotate_point(E0 + (1 + self.CR_dist_multiple) * x, N0 + (1 + self.CR_dist_multiple) * y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
                     ax.plot(xs, ys, color="black", alpha=0.3)
