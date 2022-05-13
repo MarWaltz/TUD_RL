@@ -9,7 +9,7 @@ from gym import spaces
 from matplotlib import pyplot as plt
 from tud_rl.envs._envs.VesselFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                          angle_to_2pi, angle_to_pi, bng_abs,
-                                         bng_rel, dcpa, dtr, head_inter,
+                                         bng_rel, cpa, dtr, head_inter,
                                          polar_from_xy, project_vector, rtd,
                                          tcpa, xy_from_polar)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
@@ -48,8 +48,8 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = 25_000                # sight of the agent (in m)
-        self.CR_dist           = 5_000                 # collision risk distance (in m)
-        self.CR_al             = 0.1                   # collision risk metric when TS enters sight of agent
+        self.CR_dist           = 3_000                 # collision risk distance (in m)
+        self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
         self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
@@ -86,7 +86,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 750
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -158,7 +158,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(self.N_TSs_max + 1)
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
 
         elif self.N_TSs_increasing:
 
@@ -216,7 +216,7 @@ class MMG_Env(gym.Env):
         while True:
             TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
                         E_init   = np.random.uniform(self.E_max / 5, self.E_max), 
-                        psi_init = np.random.uniform(0, 2*np.pi),
+                        psi_init = np.random.uniform(0, 2*math.pi),
                         u_init   = 0.0,
                         v_init   = 0.0,
                         r_init   = 0.0,
@@ -300,9 +300,6 @@ class MMG_Env(gym.Env):
             # set positional values
             TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
             
-            # TS should spawn outside the sight of the agent
-            #if ED(N0=N0, E0=E0, N1=N_TS, E1=E_TS, sqrt=True) > self.sight:
-
             # no TS yet there
             if len(self.TSs) == 0:
                 break
@@ -353,16 +350,16 @@ class MMG_Env(gym.Env):
         N0, E0, head0 = self.OS.eta
 
         #-------------------------------- OS related ---------------------------------
-        cmp1 = self.OS.nu
-        cmp2 = np.array([angle_to_pi(head0) / (np.pi),                 # heading
+        cmp1 = self.OS.nu / np.array([5.0, 0.5, 0.002])
+        cmp2 = np.array([angle_to_pi(head0) / (math.pi),               # heading
                          self.OS.nu_dot[2],                            # r_dot
-                         self.OS.rud_angle / self.OS.rud_angle_max])   # tau component
+                         self.OS.rud_angle / self.OS.rud_angle_max])   # rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
 
 
         #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (np.pi), 
+        state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (math.pi), 
                                OS_goal_ED / self.E_max])
 
 
@@ -382,10 +379,10 @@ class MMG_Env(gym.Env):
                 ED_OS_TS_norm = ED_OS_TS / self.E_max
 
                 # relative bearing
-                bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (np.pi)
+                bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (math.pi)
 
                 # heading intersection angle
-                C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (np.pi)
+                C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (math.pi)
 
                 # speed
                 V_TS = TS._get_V()
@@ -538,11 +535,11 @@ class MMG_Env(gym.Env):
 
                     # right or left bound (E-axis)
                     if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
-                        TS.eta[2] = 2*np.pi - psi
+                        TS.eta[2] = 2*math.pi - psi
                     
                     # upper and lower bound (N-axis)
                     else:
-                        TS.eta[2] = np.pi - psi
+                        TS.eta[2] = math.pi - psi
                 
                 elif clip:
                     TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
@@ -572,7 +569,7 @@ class MMG_Env(gym.Env):
         self.OS_goal_old = OS_goal_ED
 
         # Heading reward
-        r_head = -np.abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / np.pi
+        r_head = -abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / math.pi
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -587,7 +584,7 @@ class MMG_Env(gym.Env):
             CR = self._get_CR(OS=self.OS, TS=TS)
             if CR == 1.0:
                 r_coll -= 10
-            elif CR > 0.1:
+            else:
                 r_coll -= CR
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
@@ -656,11 +653,13 @@ class MMG_Env(gym.Env):
 
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
-
+        # quick access
+        N0, E0, _ = OS.eta
+        N1, E1, _ = TS.eta
         D = self._get_ship_domain(OS, TS)
 
         # check if already in ship domain
-        if ED(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= D:
+        if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
             return 1.0
 
         # compute speeds and courses
@@ -674,12 +673,15 @@ class MMG_Env(gym.Env):
         vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
         VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
 
-        # CPA measures
-        TCPA = tcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-        DCPA = dcpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+        # compute CPA measures under the assumption that agent is at ship domain border in the direction of the TS
+        bng_absolute = bng_abs(N0=N0, E0=E0, N1=N1, E1=E1)
+        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
 
-        frac = math.log(self.CR_al) / (self.CR_dist-D)
-        return min([1.0, math.exp(frac * (DCPA + VR * abs(TCPA) - D))])
+        DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+        if TCPA < 0:
+            return 0.0
+
+        return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / self.CR_dist)])
 
 
     def _get_ship_domain(self, OS, TS, ang=None):
@@ -823,27 +825,27 @@ class MMG_Env(gym.Env):
         angle = angle_to_2pi(angle)
 
         # 1. Quadrant
-        if angle <= np.pi/2:
+        if angle <= math.pi/2:
             E1 = E + math.sin(angle) * l
             N1 = N + math.cos(angle) * l
         
         # 2. Quadrant
-        elif 3/2 *np.pi < angle <= 2*np.pi:
-            angle = 2*np.pi - angle
+        elif 3/2 *math.pi < angle <= 2*math.pi:
+            angle = 2*math.pi - angle
 
             E1 = E - math.sin(angle) * l
             N1 = N + math.cos(angle) * l
 
         # 3. Quadrant
-        elif np.pi < angle <= 3/2*np.pi:
-            angle -= np.pi
+        elif math.pi < angle <= 3/2*math.pi:
+            angle -= math.pi
 
             E1 = E - math.sin(angle) * l
             N1 = N - math.cos(angle) * l
 
         # 4. Quadrant
-        elif np.pi/2 < angle <= np.pi:
-            angle = np.pi - angle
+        elif math.pi/2 < angle <= math.pi:
+            angle = math.pi - angle
 
             E1 = E + math.sin(angle) * l
             N1 = N - math.cos(angle) * l
@@ -939,21 +941,25 @@ class MMG_Env(gym.Env):
                             ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
                                             angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
 
-                        # collision risk
-                        TCPA_TS = tcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.text(E + 800, N + 200, f"TCPA: {np.round(TCPA_TS, 2)}", fontsize=7,
-                                    horizontalalignment='center', verticalalignment='center', color=col)
-
-                        DCPA_TS = dcpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.text(E + 800, N-200, f"DCPA: {np.round(DCPA_TS, 2)}", fontsize=7,
-                                    horizontalalignment='center', verticalalignment='center', color=col)
-                        
+                        # collision risk                        
                         CR = self._get_CR(OS=self.OS, TS=TS)
                         ax.text(E + 800, N-600, f"CR: {np.round(CR, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
                         
                         D = self._get_ship_domain(OS=self.OS, TS=TS)
                         ax.text(E + 800, N-1000, f"D: {np.round(D, 4)}", fontsize=7,
+                                    horizontalalignment='center', verticalalignment='center', color=col)
+
+                        bng_absolute = bng_abs(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
+                        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
+
+                        DCPA_TS, TCPA_TS = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=TS.eta[0], ETS=TS.eta[1], \
+                            chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+                        ax.scatter(E0+E_add, N0+N_add, color=col, s=10)
+
+                        ax.text(E + 800, N + 200, f"TCPA: {np.round(TCPA_TS, 2)}", fontsize=7,
+                                    horizontalalignment='center', verticalalignment='center', color=col)
+                        ax.text(E + 800, N-200, f"DCPA: {np.round(DCPA_TS, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
 
                     # set legend for COLREGS

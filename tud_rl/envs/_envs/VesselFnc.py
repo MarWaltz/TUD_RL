@@ -105,8 +105,8 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     return - nom / den
 
 
-def dcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
-    """Computes distance of closest point of approach. Follows Chun et al. (2021, OE)."""
+def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
+    """Returns DCPA and TCPA. Follows Chun et al. (2021, OE)."""
 
     # easy access
     xOS = EOS
@@ -129,7 +129,7 @@ def dcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     xTS_tcpa = xTS + TCPA * vxTS
     yTS_tcpa = yTS + TCPA * vyTS
 
-    return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa)
+    return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa), TCPA
 
 
 def project_vector(VA, angleA, VB, angleB):

@@ -19,6 +19,10 @@ gym.register(
     entry_point=loc + "ObstacleAvoidance"
 )
 gym.register(
+    id="ComplexOA-v0",
+    entry_point=loc + "ComplexOA"
+)
+gym.register(
     id="FossenEnv-v0",
     entry_point=loc + "FossenEnv"
 )
