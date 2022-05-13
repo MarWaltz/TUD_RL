@@ -57,7 +57,7 @@ class MMG_Env(gym.Env):
         self.state_design = state_design
 
         self.goal_reach_dist = 320                        # euclidean distance (in m) at which goal is considered as reached
-        self.stop_spawn_dist = 2_500                      # euclidean distance (in m) under which vessels do not spawn anymore
+        self.stop_spawn_dist = 5_000                      # euclidean distance (in m) under which vessels do not spawn anymore
 
         self.num_obs_OS = 8                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
@@ -236,7 +236,9 @@ class MMG_Env(gym.Env):
 
             # sample COLREG situation 
             # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
-            COLREG_s = random.choice([1, 2, 3, 4])
+            COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.2, 0.2, 0.2, 0.2, 0.2])
+            if COLREG_s == 0:
+                return TS
 
             #--------------------------------------- line mode --------------------------------------
 
@@ -247,7 +249,7 @@ class MMG_Env(gym.Env):
             VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
             
             # sample time
-            t_hit = np.random.uniform(self.TCPA_crit * 0.5, self.TCPA_crit)
+            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
             # compute hit point
             E_hit = E0 + VR_goal_x * t_hit
@@ -287,7 +289,7 @@ class MMG_Env(gym.Env):
                 V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
 
                 # sample TS speed
-                VTS = np.random.uniform(0, V_max_TS)
+                VTS = np.random.uniform(0.3, 0.7) * V_max_TS
                 TS.nu[0] = VTS
 
                 # set nps of TS so that it will keep this velocity
@@ -523,38 +525,44 @@ class MMG_Env(gym.Env):
         # check whether spawning is still considered
         if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
 
+            TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
+                        chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+            
+            if TCPA_TS < -0.1*self.TCPA_crit or TCPA_TS > 1.25*self.TCPA_crit:
+                return self._get_TS(), True
+        return TS, False
+
             # 1) leaving of simulation area
-            if TS._is_off_map():
+            #if TS._is_off_map():
                 
-                if respawn:
-                    return self._get_TS(), True
+            #    if respawn:
+            #        return self._get_TS(), True
                 
-                elif mirrow:
+            #    elif mirrow:
                     # quick access
-                    psi = TS.eta[2]
+            #        psi = TS.eta[2]
 
                     # right or left bound (E-axis)
-                    if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
-                        TS.eta[2] = 2*math.pi - psi
+            #        if TS.eta[1] <= 0 or TS.eta[1] >= TS.E_max:
+            #            TS.eta[2] = 2*math.pi - psi
                     
                     # upper and lower bound (N-axis)
-                    else:
-                        TS.eta[2] = math.pi - psi
+            #        else:
+            #            TS.eta[2] = math.pi - psi
                 
-                elif clip:
-                    TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
-                    TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
+            #    elif clip:
+            #        TS.eta[0] = np.clip(TS.eta[0], 0, TS.N_max)
+            #        TS.eta[1] = np.clip(TS.eta[1], 0, TS.E_max)
 
-                return TS, False
+            #    return TS, False
             
             # 2) too far away from agent
-            else:
-                TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
-                            chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+            #else:
+            #    TCPA_TS = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],
+            #                chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
                 
-                if TCPA_TS < -0.1*self.TCPA_crit or TCPA_TS > 1.25*self.TCPA_crit:
-                    return self._get_TS(), True
-        return TS, False
+            #    if TCPA_TS < -0.1*self.TCPA_crit or TCPA_TS > 1.25*self.TCPA_crit:
+            #        return self._get_TS(), True
 
 
     def _calculate_reward(self):
