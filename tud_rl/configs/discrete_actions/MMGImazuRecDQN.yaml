@@ -6,7 +6,7 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    situation: 1
+    situation: 5
     state_design: RecDQN
     plot_traj: False
   info: ''
@@ -69,6 +69,8 @@ agent:
     N: 5
     N_to_update: 1
   RecDQN: {}
+  LSTMRecDQN:
+    history_length: 2
 seed: 1020
 timesteps: 10000000
 epoch_length: 5000

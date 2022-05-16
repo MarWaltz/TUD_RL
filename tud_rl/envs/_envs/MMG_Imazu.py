@@ -120,8 +120,8 @@ class MMG_Imazu(MMG_Env):
                 TS1.nps = 1.0
 
             # predict converged speed of TS
-            TS1.nu[0] = TS1._get_nps_from_u(TS1.nps)
-            TS2.nu[0] = TS2._get_nps_from_u(TS2.nps)
+            TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
+            TS2.nu[0] = TS2._get_u_from_nps(TS2.nps)
 
             # heading according to situation
             if self.situation == 5:
@@ -179,9 +179,9 @@ class MMG_Imazu(MMG_Env):
                 TS1.nps = 1.0
 
             # predict converged speed of TS
-            TS1.nu[0] = TS1._get_nps_from_u(TS1.nps)
-            TS2.nu[0] = TS2._get_nps_from_u(TS2.nps)
-            TS3.nu[0] = TS3._get_nps_from_u(TS3.nps)
+            TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
+            TS2.nu[0] = TS2._get_u_from_nps(TS2.nps)
+            TS3.nu[0] = TS3._get_u_from_nps(TS3.nps)
 
             # heading according to situation
             if self.situation == 13:
