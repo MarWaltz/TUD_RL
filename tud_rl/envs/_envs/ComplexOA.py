@@ -304,25 +304,25 @@ class ComplexOA(gym.Env):
 
         ############## POLAR STATE INPUT ###############
         
-        phi = np.arctan2(vy,vx)                                     # heading of obstacles
-        agent_phi = np.arctan2(self.agent_y,self.agent_x)           # heading of agent
-        u = np.sqrt(vx**2 + vy**2)                                  # absolute speed of obstacles
-        agent_u = np.sqrt(self.agent_vx**2 + self.agent_vy**2)      # absolute speed of agent
+        agent_beta = np.arctan2(self.agent_vy,self.agent_vx)        # sideslip of agent
+        agent_U = np.sqrt(self.agent_vx**2 + self.agent_vy**2)      # absolute speed of agent
 
-        theta  = np.arctan2(y-self.agent_y, x-self.agent_x) - agent_phi    # direction of obstacle position in agent's body frame
-        theta2 = np.arctan2(self.agent_y-y, self.agent_x-x) - phi          # moving direction of agent with respect to obstacle
-
+        C_T =  np.arctan2(vy,vx) - agent_beta                          # intersection angle
+        U_TS = np.sqrt(vx**2 + vy**2)                                  # absolute speed of obstacles
+        
+        theta = np.arctan2(y-self.agent_y, x-self.agent_x) - agent_beta    # direction of obstacle position in agent's body frame
 
         # state definition
         self.state = np.array([self.agent_ay/self.ay_max,
-                               agent_u/self.u_scale])
+                               agent_beta/np.pi,
+                               agent_U/self.u_scale])
         self.state = np.append(self.state, eucl_dist/self.R_scale)
         self.state = np.append(self.state,  theta/np.pi)
 
         # POMDP specs
         if self.POMDP_type in ["MDP", "FL"]:
-            v_obs = np.array([u/self.u_scale,
-                               theta2/np.pi])
+            v_obs = np.array([U_TS/self.u_scale,
+                              C_T/np.pi])
             self.state = np.append(self.state, v_obs)
 
         if self.POMDP_type == "FL" and np.random.binomial(1, self.FL_prob) == 1:
