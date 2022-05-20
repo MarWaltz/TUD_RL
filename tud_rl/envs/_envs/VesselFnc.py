@@ -155,3 +155,13 @@ def project_vector(VA, angleA, VB, angleB):
 
     # x,y components of projection
     return xy_from_polar(r=v_proj, angle=angleB)
+
+
+def NM_to_meter(NM):
+    """Convertes nautical miles in meter."""
+    return NM * 1852
+
+
+def meter_to_NM(meter):
+    """Convertes meter in nautical miles."""
+    return meter / 1852

@@ -1,18 +1,18 @@
 import copy
 import math
-import random
 
 import gym
 import matplotlib.patches as patches
 import numpy as np
 from gym import spaces
 from matplotlib import pyplot as plt
+from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (COLREG_COLORS, COLREG_NAMES, ED,
-                                         angle_to_2pi, angle_to_pi, bng_abs,
-                                         bng_rel, cpa, dtr, head_inter,
+                                         NM_to_meter, angle_to_2pi,
+                                         angle_to_pi, bng_abs, bng_rel, cpa,
+                                         dtr, head_inter, meter_to_NM,
                                          polar_from_xy, project_vector, rtd,
                                          tcpa, xy_from_polar)
-from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 
 
 class MMG_Env(gym.Env):
@@ -34,8 +34,8 @@ class MMG_Env(gym.Env):
 
         # simulation settings
         self.delta_t = 3.0                           # simulation time interval (in s)
-        self.N_max   = 15_000                        # maximum N-coordinate (in m)
-        self.E_max   = 15_000                        # maximum E-coordinate (in m)
+        self.N_max   = NM_to_meter(14.0)             # maximum N-coordinate (in m)
+        self.E_max   = NM_to_meter(14.0)             # maximum E-coordinate (in m)
 
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -47,22 +47,24 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = 25_000                # sight of the agent (in m)
+        self.sight             = NM_to_meter(25.0)     # sight of the agent (in m)
         self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
-        self.TCPA_crit         = 15 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
 
-        self.goal_reach_dist = 320                        # euclidean distance (in m) at which goal is considered as reached
-        self.stop_spawn_dist = 5_000                      # euclidean distance (in m) under which vessels do not spawn anymore
+        self.goal_reach_dist = 3 * 320                    # euclidean distance (in m) at which goal is considered as reached
+        self.stop_spawn_dist = NM_to_meter(7.0)           # euclidean distance (in m) under which vessels do not spawn anymore
 
         self.num_obs_OS = 8                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
 
-        self.plot_traj = plot_traj       # whether to plot trajectory after termination
+        self.plot_traj = plot_traj                             # whether to plot trajectory after termination
+        self.plot_every = 5 * 60                                # seconds between markers in trajectory plotting
+        self.plot_every_step = self.plot_every / self.delta_t  # number of timesteps between markers in trajectory plotting
 
         assert COLREG_def in ["correct", "line"], "Unknown COLREG definition."
         self.COLREG_def = COLREG_def
@@ -86,7 +88,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 750
+        self._max_episode_steps = 1500
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -102,37 +104,29 @@ class MMG_Env(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        # sample goal and agent positions
+        # sample setup
         sit_init = np.random.choice([0, 1, 2, 3])
 
-        # init goal
+        # init agent heading
         if sit_init == 0:
-            self.goal = {"N" : 0.9 * self.N_max, "E" : 0.5 * self.E_max}
-            N_init = 0.1 * self.N_max
-            E_init = 0.5 * self.E_max
-            head   = angle_to_2pi(dtr(np.random.uniform(-10, 10)))
+            head = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
         
         elif sit_init == 1:
-            self.goal = {"N" : 0.5 * self.N_max, "E" : 0.9 * self.E_max}
-            N_init = 0.5 * self.N_max
-            E_init = 0.1 * self.E_max
-            head   = dtr(np.random.uniform(35, 55))
+            head = dtr(np.random.uniform(85, 95))
 
         elif sit_init == 2:
-            self.goal = {"N" : 0.1 * self.N_max, "E" : 0.5 * self.E_max}
-            N_init = 0.9 * self.N_max
-            E_init = 0.5 * self.E_max
-            head   = dtr(np.random.uniform(170, 190))
+            head = dtr(np.random.uniform(175, 185))
 
         elif sit_init == 3:
-            self.goal = {"N" : 0.5 * self.N_max, "E" : 0.1 * self.E_max}
-            N_init = 0.5 * self.N_max
-            E_init = 0.9 * self.E_max
-            head   = dtr(np.random.uniform(260, 280))
+            head = dtr(np.random.uniform(265, 275))
 
-        # init agent (OS for 'Own Ship')
-        self.OS = KVLCC2(N_init   = N_init, 
-                         E_init   = E_init, 
+        # init agent (OS for 'Own Ship'), so that CPA_N, CPA_E will be reached in 25 [min]
+        CPA_N = NM_to_meter(7.0)
+        CPA_E = NM_to_meter(7.0)
+        TCPA = 25 * 60
+
+        self.OS = KVLCC2(N_init   = 0.0, 
+                         E_init   = 0.0, 
                          psi_init = head,
                          u_init   = 0.0,
                          v_init   = 0.0,
@@ -145,6 +139,23 @@ class MMG_Env(gym.Env):
         # set longitudinal speed to near-convergence
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
+
+        # backtrace motion
+        self.OS.eta[0] = CPA_N - self.OS._get_V() * np.cos(head) * TCPA
+        self.OS.eta[1] = CPA_E - self.OS._get_V() * np.sin(head) * TCPA
+
+        # init goal
+        if sit_init == 0:
+            self.goal = {"N" : CPA_N + abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
+        
+        elif sit_init == 1:
+            self.goal = {"N" : self.OS.eta[0], "E" : CPA_E + abs(CPA_E - self.OS.eta[1])}
+
+        elif sit_init == 2:
+            self.goal = {"N" : CPA_N - abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
+
+        elif sit_init == 3:
+            self.goal = {"N" : self.OS.eta[0], "E" : CPA_E - abs(CPA_E - self.OS.eta[1])}
 
         # initial distance to goal
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
@@ -183,14 +194,17 @@ class MMG_Env(gym.Env):
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
 
+            self.OS_col_N = []
+            self.OS_col_E = []
+
             self.TS_traj_N = [[] for _ in range(self.N_TSs)]
             self.TS_traj_E = [[] for _ in range(self.N_TSs)]
-            self.TS_ptr = [i for i in range(self.N_TSs)]
 
-            for TS_idx, TS in enumerate(self.TSs):
-                ptr = self.TS_ptr[TS_idx]                
-                self.TS_traj_N[ptr].append(TS.eta[0])
-                self.TS_traj_E[ptr].append(TS.eta[1])
+            self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
+ 
+            for TS_idx, TS in enumerate(self.TSs):             
+                self.TS_traj_N[TS_idx].append(TS.eta[0])
+                self.TS_traj_E[TS_idx].append(TS.eta[1])
 
         return self.state
 
@@ -454,31 +468,7 @@ class MMG_Env(gym.Env):
 
         # handle respawning of other vessels
         if self.N_TSs > 0:
-            self.TSs, self.respawn_flags = list(zip(*[self._handle_respawn(TS, respawn=True) for TS in self.TSs]))
-
-        # trajectory plotting
-        if self.plot_traj:
-
-            # agent update
-            self.OS_traj_N.append(self.OS.eta[0])
-            self.OS_traj_E.append(self.OS.eta[1])
-
-            # check TS respawning
-            if self.N_TSs > 0:
-                for TS_idx, flag in enumerate(self.respawn_flags):
-                    if flag:
-                        # add new trajectory slot
-                        self.TS_traj_N.append([])
-                        self.TS_traj_E.append([])
-
-                        # update pointer
-                        self.TS_ptr[TS_idx] = max(self.TS_ptr) + 1
-
-                # TS update
-                for TS_idx, TS in enumerate(self.TSs):
-                    ptr = self.TS_ptr[TS_idx]
-                    self.TS_traj_N[ptr].append(TS.eta[0])
-                    self.TS_traj_E[ptr].append(TS.eta[1])
+            self.TSs, self.respawn_flags = list(zip(*[self._handle_respawn(TS) for TS in self.TSs]))
 
         # update COLREG scenarios
         self._set_COLREGs()
@@ -490,6 +480,33 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt += 1
 
+        # trajectory plotting
+        if self.plot_traj:
+
+            # agent update
+            self.OS_traj_N.append(self.OS.eta[0])
+            self.OS_traj_E.append(self.OS.eta[1])
+
+            if self.N_TSs > 0:
+
+                # check whether we had a collision
+                for TS in self.TSs:
+                    D = self._get_ship_domain(self.OS, TS)
+                    if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= D:
+                        self.OS_col_N.append(self.OS.eta[0])
+                        self.OS_col_E.append(self.OS.eta[1])
+                        break
+
+                # check TS respawning
+                for TS_idx, flag in enumerate(self.respawn_flags):
+                    if flag:
+                        self.TS_spawn_steps[TS_idx].append(self.step_cnt)
+
+                # TS update
+                for TS_idx, TS in enumerate(self.TSs):
+                    self.TS_traj_N[TS_idx].append(TS.eta[0])
+                    self.TS_traj_E[TS_idx].append(TS.eta[1])
+
         # compute state, reward, done        
         self._set_state()
         self._calculate_reward()
@@ -498,22 +515,14 @@ class MMG_Env(gym.Env):
         return self.state, self.r, d, {}
 
 
-    def _handle_respawn(self, TS, respawn=True, mirrow=False, clip=False):
-        """Handles respawning of a vessel. Considers two situations:
-        1) Respawn due to leaving of the simulation map.
-        2) Respawn due to being too far away from the agent.
+    def _handle_respawn(self, TS):
+        """Handles respawning of a vessel due to being too far away from the agent.
 
         Args:
             TS (KVLCC2): Vessel of interest.
-            respawn (bool):   For 1) Whether the vessel should respawn somewhere else.
-            mirrow (bool):    For 1) Whether the vessel should by mirrowed if it hits the boundary of the simulation area. 
-                                     Inspired by Xu et al. (2022, Neurocomputing).
-            clip (bool):      For 1) Whether to artificially keep vessel on the map by clipping. Thus, it will stay on boarder.
         Returns
             KVLCC2, respawn_flag (bool)
         """
-        assert sum([respawn, mirrow, clip]) <= 1, "Can choose either 'respawn', 'mirrow', or 'clip', not a combination."
-
         # check whether spawning is still considered
         if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
 
@@ -600,23 +609,90 @@ class MMG_Env(gym.Env):
         # plot trajectory
         if self.plot_traj and d:
 
-            fig = plt.figure()
-            ax = fig.add_subplot(1, 1, 1)
-            
-            ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
-
-            for idx in range(len(self.TS_traj_E)):
-                ax.plot(self.TS_traj_E[idx], self.TS_traj_N[idx])
-
-            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-            ax.add_patch(circ)
-
-            ax.set_xlim(0, self.E_max)
-            ax.set_ylim(0, self.N_max)
-            ax.scatter(self.goal["E"], self.goal["N"])
-            plt.show()
-
+            # show the plot for MMG training env, only return axis in Imazu problems
+            if "MMG_Env" == self.__class__.__name__:
+                self.plot_traj_fnc()
         return d
+
+
+    def plot_traj_fnc(self, ax=None, sit=None):
+        """Creates the final trajectory plot."""
+        if ax is None:
+            _, ax = plt.subplots()
+            show = True
+        else:
+            show = False
+
+        # E-axis
+        ax.set_xlim(0, self.E_max)
+        ax.set_xticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+        ax.set_xticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+        ax.set_xlabel("East [NM]", fontsize=8)
+
+        # N-axis
+        ax.set_ylim(0, self.N_max)
+        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+        ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+        ax.set_ylabel("North [NM]", fontsize=8)
+
+        ax.scatter(self.goal["E"], self.goal["N"])
+        
+        # OS trajectory
+        ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
+
+        # OS markers
+        OS_traj_E_m = [ele for idx, ele in enumerate(self.OS_traj_E) if idx % self.plot_every_step == 0]
+        OS_traj_N_m = [ele for idx, ele in enumerate(self.OS_traj_N) if idx % self.plot_every_step == 0]
+        ax.scatter(OS_traj_E_m, OS_traj_N_m, color="black", s=5)
+
+        # OS collision
+        if len(self.OS_col_N) > 0:
+            ax.scatter(self.OS_col_E, self.OS_col_N, color="red", s=5)
+
+        # TS
+        for TS_idx in range(self.N_TSs):
+
+            # add final step cnt since we finish here
+            spawn_steps = self.TS_spawn_steps[TS_idx]
+            if spawn_steps[-1] != self.step_cnt:
+                spawn_steps.append(self.step_cnt)
+
+            # trajectories
+            if len(spawn_steps) == 1:
+                ax.plot(self.TS_traj_E[TS_idx], self.TS_traj_N[TS_idx])
+            else:
+                for step_idx in range(len(spawn_steps)-1):
+                    start = spawn_steps[step_idx]
+                    end   = spawn_steps[step_idx+1]
+
+                    ax.plot(self.TS_traj_E[TS_idx][start:end], self.TS_traj_N[TS_idx][start:end], color=COLREG_COLORS[TS_idx])
+
+            # markers
+            TS_traj_E_m = [ele for idx, ele in enumerate(self.TS_traj_E[TS_idx]) if idx % self.plot_every_step == 0]
+            TS_traj_N_m = [ele for idx, ele in enumerate(self.TS_traj_N[TS_idx]) if idx % self.plot_every_step == 0]
+            ax.scatter(TS_traj_E_m, TS_traj_N_m, color=COLREG_COLORS[TS_idx], s=5)
+
+        circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+        ax.add_patch(circ)
+
+        if show:
+            plt.show()
+        else:
+            ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 8})
+            ax.grid(linewidth=1.0, alpha=0.425)
+
+            if sit not in [17, 18, 19, 20, 21, 22]:
+                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
+                ax.set_xlabel("")
+            else:
+                ax.tick_params(axis='x', labelsize=8)
+
+            if sit not in [1, 7, 13, 19]:
+                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
+                ax.set_ylabel("")
+            else:
+                ax.tick_params(axis='y', labelsize=8)
+            return ax
 
 
     def _get_CR(self, OS, TS):
@@ -750,9 +826,12 @@ class MMG_Env(gym.Env):
 
 
     def __str__(self) -> str:
+        N0, E0, head0 = self.OS.eta
+        u, v, r = np.round(self.OS.nu,3)
+
         ste = f"Step: {self.step_cnt}"
-        pos = f"N: {np.round(self.OS.eta[0], 3)}, E: {np.round(self.OS.eta[1], 3)}, " + r"$\psi$: " + f"{np.round(rtd(self.OS.eta[2]), 3)}°"
-        vel = f"u: {np.round(self.OS.nu[0], 3)}, v: {np.round(self.OS.nu[1], 3)}, r: {np.round(self.OS.nu[2], 3)}"
+        pos = f"N: {np.round(meter_to_NM(N0),3) - 7}, E: {np.round(meter_to_NM(E0),3) - 7}, " + r"$\psi$: " + f"{np.round(rtd(head0), 3)}°"
+        vel = f"u: {u}, v: {v}, r: {r}"
         return ste + "\n" + pos + "\n" + vel
 
 
@@ -851,10 +930,20 @@ class MMG_Env(gym.Env):
                 for ax in [self.ax0, self.fig2_ax]:
                     # clear prior axes, set limits and add labels and title
                     ax.clear()
-                    ax.set_xlim(-5, self.E_max + 5)
-                    ax.set_ylim(-5, self.N_max + 5)
-                    ax.set_xlabel("East")
-                    ax.set_ylabel("North")
+                    ax.set_xlim(0, self.E_max)
+                    ax.set_ylim(0, self.N_max)
+
+                    # E-axis
+                    ax.set_xlim(0, self.E_max)
+                    ax.set_xticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+                    ax.set_xticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+                    ax.set_xlabel("East [NM]", fontsize=8)
+
+                    # N-axis
+                    ax.set_ylim(0, self.N_max)
+                    ax.set_yticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+                    ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+                    ax.set_ylabel("North [NM]", fontsize=8)
 
                     # access
                     N0, E0, head0 = self.OS.eta
@@ -939,7 +1028,7 @@ class MMG_Env(gym.Env):
 
                     # set legend for COLREGS
                     ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
-                                    loc='lower center', bbox_to_anchor=(0.6, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
+                                    loc='lower center', bbox_to_anchor=(0.52, 1.0), fancybox=False, shadow=False, ncol=6).get_frame().set_linewidth(0.0)
 
 
                 # ------------------------------ reward plot --------------------------------

@@ -26,10 +26,10 @@ class MMG_Imazu(MMG_Env):
 
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
-        TCPA = 10 * 60              # time to CPA [s]
+        TCPA = 25 * 60              # time to CPA [s]
 
-        CPA_N = 7_500
-        CPA_E = 7_500
+        CPA_N = NM_to_meter(7.0)
+        CPA_E = NM_to_meter(7.0)
 
         #--------------------------- OS spawn --------------------------------
         head = 0.0
@@ -49,7 +49,7 @@ class MMG_Imazu(MMG_Env):
         # set longitudinal speed to near-convergence
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps)
 
-        # backtrace to motion
+        # backtrace motion
         self.OS.eta[0] = CPA_N - self.OS._get_V() * np.cos(head) * TCPA
         self.OS.eta[1] = CPA_E - self.OS._get_V() * np.sin(head) * TCPA
 
@@ -263,18 +263,21 @@ class MMG_Imazu(MMG_Env):
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
 
+            self.OS_col_N = []
+            self.OS_col_E = []
+
             self.TS_traj_N = [[] for _ in range(self.N_TSs)]
             self.TS_traj_E = [[] for _ in range(self.N_TSs)]
-            self.TS_ptr = [i for i in range(self.N_TSs)]
 
-            for TS_idx, TS in enumerate(self.TSs):
-                ptr = self.TS_ptr[TS_idx]                
-                self.TS_traj_N[ptr].append(TS.eta[0])
-                self.TS_traj_E[ptr].append(TS.eta[1])
+            self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
+ 
+            for TS_idx, TS in enumerate(self.TSs):             
+                self.TS_traj_N[TS_idx].append(TS.eta[0])
+                self.TS_traj_E[TS_idx].append(TS.eta[1])
 
         return self.state
 
-    def _handle_respawn(self, TS, respawn=True, mirrow=False, clip=False):
+    def _handle_respawn(self, TS):
         return TS, False
 
     def _calculate_reward(self):
