@@ -92,8 +92,8 @@ class KVLCC2:
         self.rud_angle = 0.0
 
         # eta, nu
-        self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)  # N (in m),   E (in m),   psi (in rad)   in NE-system
-        self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)    # u (in m/s), v in (m/s), r (in rad/s)   in BODY-system
+        self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)  # N (in m),   E (in m),    psi (in rad)   in NE-system
+        self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)    # u (in m/s), vm in (m/s), r (in rad/s)   in (midship-centered) BODY-system
 
         self.nu_dot  = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
@@ -125,16 +125,12 @@ class KVLCC2:
                 0.1617*g_rc**2 + 
                 0.0728*g_rc)
 
-    def _vm_from_v_r(self, v, r):
-        return v - self.x_G * r
-
     def _mmg_dynamics(self, nu, psi, rud_angle, nps, fl_psi, fl_vel) -> np.ndarray:
         """System of ODEs after Yasukawa, H., Yoshimura, Y. (2015) for the MMG standard model. Returns nu_dot."""
         #----------------------------- preparation ------------------------------
         # unpack values
-        u, v, r = nu
+        u, vm, r = nu
 
-        vm = self._vm_from_v_r(v, r)
         U = math.sqrt(u**2 + vm**2)
 
         if U == 0.0:
@@ -301,10 +297,7 @@ class KVLCC2:
         # yaw rate acceleration
         d_r = (N_M - self.x_G * m * (d_vm + u * r)) / f
 
-        # construct d_v
-        d_v = d_vm + self.x_G * d_r
-
-        return np.array([d_u, d_v, d_r])
+        return np.array([d_u, d_vm, d_r])
 
 
     def _upd_dynamics(self):
@@ -359,20 +352,18 @@ class KVLCC2:
 
     def _get_sideslip(self):
         """Returns the sideslip angle in radiant."""
-        u, v, r = self.nu
-        vm = self._vm_from_v_r(v, r)
-        return polar_from_xy(x=vm, y=u, with_r=False, with_angle=True)[1]
+        u, vm, _ = self.nu
+        return math.atan2(-vm, u)
 
 
     def _get_course(self):
-        """Returns the course angle in radiant, which is heading + sideslip."""
-        return angle_to_2pi(self.eta[2] + self._get_sideslip())
+        """Returns the course angle in radiant, which is heading - sideslip for the MMG model."""
+        return angle_to_2pi(self.eta[2] - self._get_sideslip())
 
 
     def _get_V(self):
         """Returns the aggregated velocity."""
-        u, v, r = self.nu
-        vm = self._vm_from_v_r(v, r)
+        u, vm, _ = self.nu
         return math.sqrt(u**2 + vm**2)
 
 
