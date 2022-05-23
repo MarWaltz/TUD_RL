@@ -84,7 +84,7 @@ class MMG_Imazu(MMG_Env):
 
             # lower speed for overtaking situations
             if self.situation == 3:
-                TS1.nps = 1.0
+                TS1.nps = 0.7
 
             # predict converged speed of TS
             TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
@@ -117,7 +117,7 @@ class MMG_Imazu(MMG_Env):
 
             # lower speed for overtaking situations
             if self.situation == 7:
-                TS1.nps = 1.0
+                TS1.nps = 0.7
 
             # predict converged speed of TS
             TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
@@ -163,7 +163,7 @@ class MMG_Imazu(MMG_Env):
 
             # setup
             self.TSs = [TS1, TS2]
-        
+
         elif self.situation in range(12, 23):
 
             # set TS2, TS3
@@ -172,7 +172,7 @@ class MMG_Imazu(MMG_Env):
 
             # lower speed for overtaking situations
             if self.situation in [15, 17, 20, 22]:
-                TS1.nps = 1.0
+                TS1.nps = 0.7
 
             # predict converged speed of TS
             TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)

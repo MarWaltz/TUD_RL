@@ -36,6 +36,8 @@ class MMG_Env(gym.Env):
         self.delta_t = 3.0                           # simulation time interval (in s)
         self.N_max   = NM_to_meter(14.0)             # maximum N-coordinate (in m)
         self.E_max   = NM_to_meter(14.0)             # maximum E-coordinate (in m)
+        self.CPA_N   = self.N_max / 2                # center point (N)
+        self.CPA_E   = self.E_max / 2                # center point (E)
 
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
@@ -50,7 +52,7 @@ class MMG_Env(gym.Env):
         self.sight             = NM_to_meter(25.0)     # sight of the agent (in m)
         self.CR_dist_multiple  = 3                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
-        self.TCPA_crit         = 20 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
@@ -105,26 +107,22 @@ class MMG_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # sample setup
-        sit_init = np.random.choice([0, 1, 2, 3])
+        self.sit_init = np.random.choice([0, 1, 2, 3])
 
         # init agent heading
-        if sit_init == 0:
+        if self.sit_init == 0:
             head = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
         
-        elif sit_init == 1:
+        elif self.sit_init == 1:
             head = dtr(np.random.uniform(85, 95))
 
-        elif sit_init == 2:
+        elif self.sit_init == 2:
             head = dtr(np.random.uniform(175, 185))
 
-        elif sit_init == 3:
+        elif self.sit_init == 3:
             head = dtr(np.random.uniform(265, 275))
 
         # init agent (OS for 'Own Ship'), so that CPA_N, CPA_E will be reached in 25 [min]
-        CPA_N = NM_to_meter(7.0)
-        CPA_E = NM_to_meter(7.0)
-        TCPA = 25 * 60
-
         self.OS = KVLCC2(N_init   = 0.0, 
                          E_init   = 0.0, 
                          psi_init = head,
@@ -141,21 +139,21 @@ class MMG_Env(gym.Env):
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
 
         # backtrace motion
-        self.OS.eta[0] = CPA_N - self.OS._get_V() * np.cos(head) * TCPA
-        self.OS.eta[1] = CPA_E - self.OS._get_V() * np.sin(head) * TCPA
+        self.OS.eta[0] = self.CPA_N - self.OS._get_V() * np.cos(head) * self.TCPA_crit
+        self.OS.eta[1] = self.CPA_E - self.OS._get_V() * np.sin(head) * self.TCPA_crit
 
         # init goal
-        if sit_init == 0:
-            self.goal = {"N" : CPA_N + abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
+        if self.sit_init == 0:
+            self.goal = {"N" : self.CPA_N + abs(self.CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
         
-        elif sit_init == 1:
-            self.goal = {"N" : self.OS.eta[0], "E" : CPA_E + abs(CPA_E - self.OS.eta[1])}
+        elif self.sit_init == 1:
+            self.goal = {"N" : self.OS.eta[0], "E" : self.CPA_E + abs(self.CPA_E - self.OS.eta[1])}
 
-        elif sit_init == 2:
-            self.goal = {"N" : CPA_N - abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
+        elif self.sit_init == 2:
+            self.goal = {"N" : self.CPA_N - abs(self.CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
 
-        elif sit_init == 3:
-            self.goal = {"N" : self.OS.eta[0], "E" : CPA_E - abs(CPA_E - self.OS.eta[1])}
+        elif self.sit_init == 3:
+            self.goal = {"N" : self.OS.eta[0], "E" : self.CPA_E - abs(self.CPA_E - self.OS.eta[1])}
 
         # initial distance to goal
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
@@ -169,7 +167,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3, 4], p=[0.05, 0.3, 0.3, 0.3, 0.05])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
@@ -212,7 +210,7 @@ class MMG_Env(gym.Env):
         return self.state
 
 
-    def _get_TS(self):
+    def _get_TS(self, mode="center"):
         """Places a target ship by sampling a 
             1) COLREG situation,
             2) TCPA (in s, or setting to 60s),
@@ -221,6 +219,8 @@ class MMG_Env(gym.Env):
             5) and a forward thrust (tau-u in N).
         Returns: 
             KVLCC2."""
+
+        assert mode in ["line", "center"], "Unknown spawning mode for TS."
 
         while True:
             TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
@@ -238,87 +238,123 @@ class MMG_Env(gym.Env):
             # Note: if we don't do this, all further calculations are heavily biased
             TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
 
-            # quick access for OS
-            N0, E0, _ = self.OS.eta
-            chiOS = self.OS._get_course()
-            VOS   = self.OS._get_V()
-
-            # sample COLREG situation 
-            # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
-            COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
-            if COLREG_s == 0:
-                return TS
-
             #--------------------------------------- line mode --------------------------------------
+            if mode == "line":
 
-            # determine relative speed of OS towards goal, need absolute bearing first
-            bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+                # quick access for OS
+                N0, E0, _ = self.OS.eta
+                chiOS = self.OS._get_course()
+                VOS   = self.OS._get_V()
 
-            # project VOS vector on relative velocity direction
-            VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
-            
-            # sample time
-            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+                # sample COLREG situation 
+                # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
+                COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
+                if COLREG_s == 0:
+                    return TS
 
-            # compute hit point
-            E_hit = E0 + VR_goal_x * t_hit
-            N_hit = N0 + VR_goal_y * t_hit
+                # determine relative speed of OS towards goal, need absolute bearing first
+                bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
-            # Note: In the following, we only sample the intersection angle and not a relative bearing.
-            #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
-            #       and we need only one further information to uniquely determine the origin of its motion.
+                # project VOS vector on relative velocity direction
+                VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
+                
+                # sample time
+                t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
-            # head-on
-            if COLREG_s == 1:
-                C_TS_s = dtr(np.random.uniform(175, 185))
+                # compute hit point
+                E_hit = E0 + VR_goal_x * t_hit
+                N_hit = N0 + VR_goal_y * t_hit
 
-            # starboard crossing
-            elif COLREG_s == 2:
-                C_TS_s = dtr(np.random.uniform(185, 292.5))
+                # Note: In the following, we only sample the intersection angle and not a relative bearing.
+                #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+                #       and we need only one further information to uniquely determine the origin of its motion.
 
-            # portside crossing
-            elif COLREG_s == 3:
-                C_TS_s = dtr(np.random.uniform(67.5, 175))
+                # head-on
+                if COLREG_s == 1:
+                    C_TS_s = dtr(np.random.uniform(175, 185))
 
-            # overtaking
-            elif COLREG_s == 4:
-                C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+                # starboard crossing
+                elif COLREG_s == 2:
+                    C_TS_s = dtr(np.random.uniform(185, 292.5))
 
-            # determine TS heading (treating absolute bearing towards goal as heading of OS)
-            head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
+                # portside crossing
+                elif COLREG_s == 3:
+                    C_TS_s = dtr(np.random.uniform(67.5, 175))
 
-            # no speed constraints except in overtaking
-            if COLREG_s in [1, 2, 3]:
-                VTS = TS.nu[0]
+                # overtaking
+                elif COLREG_s == 4:
+                    C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
-            elif COLREG_s == 4:
+                # determine TS heading (treating absolute bearing towards goal as heading of OS)
+                head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
-                # project VOS vector on TS direction
-                VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
-                V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+                # no speed constraints except in overtaking
+                if COLREG_s in [1, 2, 3]:
+                    VTS = TS.nu[0]
 
-                # sample TS speed
-                VTS = np.random.uniform(0.3, 0.7) * V_max_TS
-                TS.nu[0] = VTS
+                elif COLREG_s == 4:
 
-                # set nps of TS so that it will keep this velocity
-                TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
+                    # project VOS vector on TS direction
+                    VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+                    V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
 
-            # backtrace original position of TS
-            E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
-            N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+                    # sample TS speed
+                    VTS = np.random.uniform(0.3, 0.7) * V_max_TS
+                    TS.nu[0] = VTS
 
-            # set positional values
-            TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
-            
-            # no TS yet there
-            if len(self.TSs) == 0:
+                    # set nps of TS so that it will keep this velocity
+                    TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
+
+                # backtrace original position of TS
+                E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+                N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+
+                # set positional values
+                TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+                
+                # no TS yet there
+                if len(self.TSs) == 0:
+                    break
+
+                # TS shouldn't spawn too close to other TS
+                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
+                    >= self.min_dist_spawn_TS:
+                    break
+
+            #--------------------------------------- center mode --------------------------------------
+            elif mode == "center":
+
+                # check whether we sample an overtaker
+                if np.random.choice([0, 1], p=[0.85, 0.15]) == 1:
+                    
+                    # set heading according to setup
+                    if self.sit_init == 0:
+                        TS.eta[2] = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
+                    
+                    elif self.sit_init == 1:
+                        TS.eta[2] = dtr(np.random.uniform(85, 95))
+
+                    elif self.sit_init == 2:
+                        TS.eta[2] = dtr(np.random.uniform(175, 185))
+
+                    elif self.sit_init == 3:
+                        TS.eta[2] = dtr(np.random.uniform(265, 275))
+
+                    # reduce speed
+                    TS.nps = 0.7
+                    TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+
+                # otherwise sample random TS
+                else:
+                    # sample heading
+                    TS.eta[2] = np.random.uniform(0, 2*math.pi)
+                    
+                # backtrace motion
+                TS.eta[0] = self.CPA_N - TS._get_V() * np.cos(TS.eta[2]) * self.TCPA_crit
+                TS.eta[1] = self.CPA_E - TS._get_V() * np.sin(TS.eta[2]) * self.TCPA_crit
+
                 break
 
-            # TS shouldn't spawn too close to other TS
-            if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
-                >= self.min_dist_spawn_TS:
-                break
         return TS
 
 
@@ -529,6 +565,7 @@ class MMG_Env(gym.Env):
             KVLCC2, respawn_flag (bool)
         """
         return TS, False
+
         # check whether spawning is still considered
         if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
 
@@ -566,7 +603,7 @@ class MMG_Env(gym.Env):
             # reward based on collision risk
             CR = self._get_CR(OS=self.OS, TS=TS)
             if CR == 1.0:
-                r_coll -= 100
+                r_coll -= 25.0
             else:
                 r_coll -= CR
 

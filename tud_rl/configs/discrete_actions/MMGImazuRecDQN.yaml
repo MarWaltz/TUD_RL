@@ -1,14 +1,14 @@
 ---
 env:
   name: MMGImazu-v0
-  max_episode_steps: 1500
+  max_episode_steps: 10_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    situation: 5
+    situation: 21
     state_design: RecDQN
-    plot_traj: True
+    plot_traj: False
   info: ''
 agent:
   DQN: {}
