@@ -48,7 +48,7 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = NM_to_meter(25.0)     # sight of the agent (in m)
-        self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
+        self.CR_dist_multiple  = 3                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
         self.TCPA_crit         = 20 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
@@ -88,7 +88,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 1500
+        self._max_episode_steps = 2000
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -528,6 +528,7 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
+        return TS, False
         # check whether spawning is still considered
         if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
 
@@ -955,7 +956,7 @@ class MMG_Env(gym.Env):
         # plot every nth timestep (except we only want trajectory)
         if not self.plot_traj:
 
-            if self.step_cnt % 1 == 0: 
+            if self.step_cnt % 2 == 0: 
 
                 # check whether figure has been initialized
                 if len(plt.get_fignums()) == 0:
