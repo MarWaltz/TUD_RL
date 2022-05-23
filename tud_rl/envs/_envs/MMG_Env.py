@@ -50,7 +50,7 @@ class MMG_Env(gym.Env):
         self.sight             = NM_to_meter(25.0)     # sight of the agent (in m)
         self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
-        self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
+        self.TCPA_crit         = 20 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
@@ -193,18 +193,21 @@ class MMG_Env(gym.Env):
         if self.plot_traj:
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
+            self.OS_traj_h = [self.OS.eta[2]]
 
             self.OS_col_N = []
             self.OS_col_E = []
 
             self.TS_traj_N = [[] for _ in range(self.N_TSs)]
             self.TS_traj_E = [[] for _ in range(self.N_TSs)]
+            self.TS_traj_h = [[] for _ in range(self.N_TSs)]
 
             self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
  
             for TS_idx, TS in enumerate(self.TSs):             
                 self.TS_traj_N[TS_idx].append(TS.eta[0])
                 self.TS_traj_E[TS_idx].append(TS.eta[1])
+                self.TS_traj_h[TS_idx].append(TS.eta[2])
 
         return self.state
 
@@ -486,6 +489,7 @@ class MMG_Env(gym.Env):
             # agent update
             self.OS_traj_N.append(self.OS.eta[0])
             self.OS_traj_E.append(self.OS.eta[1])
+            self.OS_traj_h.append(self.OS.eta[2])
 
             if self.N_TSs > 0:
 
@@ -506,6 +510,7 @@ class MMG_Env(gym.Env):
                 for TS_idx, TS in enumerate(self.TSs):
                     self.TS_traj_N[TS_idx].append(TS.eta[0])
                     self.TS_traj_E[TS_idx].append(TS.eta[1])
+                    self.TS_traj_h[TS_idx].append(TS.eta[2])
 
         # compute state, reward, done        
         self._set_state()
@@ -560,7 +565,7 @@ class MMG_Env(gym.Env):
             # reward based on collision risk
             CR = self._get_CR(OS=self.OS, TS=TS)
             if CR == 1.0:
-                r_coll -= 10
+                r_coll -= 100
             else:
                 r_coll -= CR
 
@@ -640,6 +645,11 @@ class MMG_Env(gym.Env):
         # OS trajectory
         ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
 
+        # triangle at beginning
+        rec = self._get_triangle(E = self.OS_traj_E[0], N = self.OS_traj_N[0], l=self.OS.Lpp, heading = self.OS_traj_h[0],\
+                facecolor="white", edgecolor="black", linewidth=1.5, zorder=10)
+        ax.add_patch(rec)
+
         # OS markers
         OS_traj_E_m = [ele for idx, ele in enumerate(self.OS_traj_E) if idx % self.plot_every_step == 0]
         OS_traj_N_m = [ele for idx, ele in enumerate(self.OS_traj_N) if idx % self.plot_every_step == 0]
@@ -651,6 +661,8 @@ class MMG_Env(gym.Env):
 
         # TS
         for TS_idx in range(self.N_TSs):
+
+            col = COLREG_COLORS[TS_idx]
 
             # add final step cnt since we finish here
             spawn_steps = self.TS_spawn_steps[TS_idx]
@@ -665,12 +677,21 @@ class MMG_Env(gym.Env):
                     start = spawn_steps[step_idx]
                     end   = spawn_steps[step_idx+1]
 
-                    ax.plot(self.TS_traj_E[TS_idx][start:end], self.TS_traj_N[TS_idx][start:end], color=COLREG_COLORS[TS_idx])
+                    E_traj = self.TS_traj_E[TS_idx][start:end]
+                    N_traj = self.TS_traj_N[TS_idx][start:end]
+
+                    # triangle at beginning
+                    rec = self._get_triangle(E = E_traj[0], N = N_traj[0], l=self.OS.Lpp, heading = self.TS_traj_h[TS_idx][start],\
+                         facecolor="white", edgecolor=col, linewidth=1.5, zorder=10)
+                    ax.add_patch(rec)
+
+                    # trajectory
+                    ax.plot(E_traj, N_traj, color=col)
 
             # markers
             TS_traj_E_m = [ele for idx, ele in enumerate(self.TS_traj_E[TS_idx]) if idx % self.plot_every_step == 0]
             TS_traj_N_m = [ele for idx, ele in enumerate(self.TS_traj_N[TS_idx]) if idx % self.plot_every_step == 0]
-            ax.scatter(TS_traj_E_m, TS_traj_N_m, color=COLREG_COLORS[TS_idx], s=5)
+            ax.scatter(TS_traj_E_m, TS_traj_N_m, color=col, s=5)
 
         circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
         ax.add_patch(circ)
@@ -863,6 +884,31 @@ class MMG_Env(gym.Env):
 
         # create rect
         return patches.Rectangle((E0, N0), width, length, rtd(heading), **kwargs)
+
+
+    def _get_triangle(self, E, N, l, heading, **kwargs):
+        """Returns a patches.polygon object. heading in rad."""
+
+        # quick access 
+        cx = E
+        cy = N
+        heading = -heading   # negate since our heading is defined clockwise, contrary to plt rotations
+
+        topx = cx
+        topy = cy + 2*l
+
+        rightx = cx + l
+        righty = cy - l
+
+        leftx = cx - l
+        lefty = cy - l
+
+        topE, topN     = self._rotate_point(x=topx, y=topy, cx=cx, cy=cy, angle=heading)
+        rightE, rightN = self._rotate_point(x=rightx, y=righty, cx=cx, cy=cy, angle=heading)
+        leftE, leftN   = self._rotate_point(x=leftx, y=lefty, cx=cx, cy=cy, angle=heading)
+
+        # create rect
+        return patches.Polygon(xy=np.array([[topE, topN], [rightE, rightN], [leftE, leftN]]), **kwargs)
 
 
     def _plot_jet(self, axis, E, N, l, angle, **kwargs):

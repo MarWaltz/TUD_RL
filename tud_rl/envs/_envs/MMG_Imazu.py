@@ -10,10 +10,10 @@ class MMG_Imazu(MMG_Env):
         if situation in range(5):
             N_TSs = 1
         
-        elif situation in range(5, 13):
+        elif situation in range(5, 12):
             N_TSs = 2
-        
-        elif situation in range(13, 23):
+
+        elif situation in range(12, 23):
             N_TSs = 3
 
         super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design)
@@ -110,7 +110,7 @@ class MMG_Imazu(MMG_Env):
             # setup
             self.TSs = [TS1]
 
-        elif self.situation in range(5, 13):
+        elif self.situation in range(5, 12):
 
             # set TS2
             TS2 = copy.deepcopy(TS1)
@@ -152,10 +152,6 @@ class MMG_Imazu(MMG_Env):
                 headTS1 = dtr(90)
                 headTS2 = angle_to_2pi(dtr(-30))
 
-            elif self.situation == 12:
-                headTS1 = angle_to_2pi(dtr(-45))
-                headTS2 = angle_to_2pi(dtr(-10))
-
             # backtrace to motion
             TS1.eta[2] = headTS1
             TS1.eta[0] = CPA_N - TS1._get_V() * np.cos(TS1.eta[2]) * TCPA
@@ -168,7 +164,7 @@ class MMG_Imazu(MMG_Env):
             # setup
             self.TSs = [TS1, TS2]
         
-        elif self.situation in range(13, 23):
+        elif self.situation in range(12, 23):
 
             # set TS2, TS3
             TS2 = copy.deepcopy(TS1)
@@ -184,7 +180,12 @@ class MMG_Imazu(MMG_Env):
             TS3.nu[0] = TS3._get_u_from_nps(TS3.nps)
 
             # heading according to situation
-            if self.situation == 13:
+            if self.situation == 12:
+                headTS1 = dtr(180)
+                headTS2 = angle_to_2pi(dtr(-45))
+                headTS3 = angle_to_2pi(dtr(-10))
+
+            elif self.situation == 13:
                 headTS1 = dtr(180)
                 headTS2 = dtr(10)
                 headTS3 = dtr(45)
@@ -262,18 +263,21 @@ class MMG_Imazu(MMG_Env):
         if self.plot_traj:
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
+            self.OS_traj_h = [self.OS.eta[2]]
 
             self.OS_col_N = []
             self.OS_col_E = []
 
             self.TS_traj_N = [[] for _ in range(self.N_TSs)]
             self.TS_traj_E = [[] for _ in range(self.N_TSs)]
+            self.TS_traj_h = [[] for _ in range(self.N_TSs)]
 
             self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
  
             for TS_idx, TS in enumerate(self.TSs):             
                 self.TS_traj_N[TS_idx].append(TS.eta[0])
                 self.TS_traj_E[TS_idx].append(TS.eta[1])
+                self.TS_traj_h[TS_idx].append(TS.eta[2])
 
         return self.state
 
