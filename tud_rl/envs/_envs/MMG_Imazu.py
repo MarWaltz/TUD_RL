@@ -65,6 +65,7 @@ class MMG_Imazu(MMG_Env):
         #--------------------------- Goal spawn --------------------------------
         self.goal = {"N" : CPA_N + abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
+        self.OS_goal_old  = self.OS_goal_init
 
         #--------------------------- TS spawn --------------------------------
         
@@ -289,6 +290,3 @@ class MMG_Imazu(MMG_Env):
 
     def _handle_respawn(self, TS):
         return TS, False
-
-    def _calculate_reward(self):
-        return 0.0

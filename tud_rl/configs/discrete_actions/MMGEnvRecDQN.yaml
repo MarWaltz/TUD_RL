@@ -1,7 +1,7 @@
 ---
 env:
   name: MMGEnv-v0
-  max_episode_steps: 2000
+  max_episode_steps: 1500
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -12,6 +12,7 @@ env:
     w_coll: 1.0
     w_COLREG: 2.0
     w_comf: 0.0
+    spawn_mode : line
     state_design: RecDQN
     plot_traj: False
     N_TSs_random : True

@@ -29,7 +29,7 @@ class MMG_Env(gym.Env):
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
-                 spawn_mode       = "center"):
+                 spawn_mode       = "line"):
         super().__init__()
 
         # simulation settings
@@ -50,7 +50,7 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = NM_to_meter(20.0)     # sight of the agent (in m)
-        self.CR_dist_multiple  = 3                     # collision risk distance = multiple * ship_domain (in m)
+        self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
@@ -90,7 +90,7 @@ class MMG_Env(gym.Env):
         self.w_comf   = w_comf
 
         # custom inits
-        self._max_episode_steps = 2000
+        self._max_episode_steps = 1500
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -170,7 +170,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.4, 0.25, 0.25])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
@@ -560,7 +560,8 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
-        return TS, False
+        if self.spawn_mode == "center":
+            return TS, False
 
         # check whether spawning is still considered
         if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"], sqrt=True) > self.stop_spawn_dist:
@@ -599,7 +600,7 @@ class MMG_Env(gym.Env):
             # reward based on collision risk
             CR = self._get_CR(OS=self.OS, TS=TS)
             if CR == 1.0:
-                r_coll -= 25.0
+                r_coll -= 10.0
             else:
                 r_coll -= CR
 
