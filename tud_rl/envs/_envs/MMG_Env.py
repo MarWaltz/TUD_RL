@@ -49,7 +49,7 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = NM_to_meter(25.0)     # sight of the agent (in m)
+        self.sight             = NM_to_meter(20.0)     # sight of the agent (in m)
         self.CR_dist_multiple  = 3                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
