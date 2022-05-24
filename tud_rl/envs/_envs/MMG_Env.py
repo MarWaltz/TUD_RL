@@ -111,16 +111,16 @@ class MMG_Env(gym.Env):
 
         # init agent heading
         if self.sit_init == 0:
-            head = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
+            head = 0.0
         
         elif self.sit_init == 1:
-            head = dtr(np.random.uniform(85, 95))
+            head = 1/2 * math.pi
 
         elif self.sit_init == 2:
-            head = dtr(np.random.uniform(175, 185))
+            head = math.pi
 
         elif self.sit_init == 3:
-            head = dtr(np.random.uniform(265, 275))
+            head = 3/2 * math.pi
 
         # init agent (OS for 'Own Ship'), so that CPA_N, CPA_E will be reached in 25 [min]
         self.OS = KVLCC2(N_init   = 0.0, 
@@ -154,6 +154,9 @@ class MMG_Env(gym.Env):
 
         elif self.sit_init == 3:
             self.goal = {"N" : self.OS.eta[0], "E" : self.CPA_E - abs(self.CPA_E - self.OS.eta[1])}
+
+        # disturb heading for generalization
+        self.OS.eta[2] += dtr(np.random.uniform(-5, 5))
 
         # initial distance to goal
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
@@ -322,27 +325,23 @@ class MMG_Env(gym.Env):
             #--------------------------------------- center mode --------------------------------------
             elif self.spawn_mode == "center":
 
-                # check whether we sample an overtaker
-                if np.random.choice([0, 1], p=[0.85, 0.15]) == 1:
-                    
-                    # set heading according to setup
-                    if self.sit_init == 0:
-                        TS.eta[2] = angle_to_2pi(dtr(np.random.uniform(-5, 5)))
-                    
-                    elif self.sit_init == 1:
-                        TS.eta[2] = dtr(np.random.uniform(85, 95))
+                # sample either overtaker, head-on, or random angle
+                setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
 
-                    elif self.sit_init == 2:
-                        TS.eta[2] = dtr(np.random.uniform(175, 185))
-
-                    elif self.sit_init == 3:
-                        TS.eta[2] = dtr(np.random.uniform(265, 275))
+                if setting == "overtaker":
+                    
+                    # set heading
+                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-5, 5)))
 
                     # reduce speed
                     TS.nps = 0.7
                     TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+                
+                elif setting == "head-on":
 
-                # otherwise sample random TS
+                    # set heading
+                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(175, 185)))
+
                 else:
                     # sample heading
                     TS.eta[2] = np.random.uniform(0, 2*math.pi)
