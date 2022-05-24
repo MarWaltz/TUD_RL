@@ -8,7 +8,7 @@ env:
   env_kwargs:
     situation: 21
     state_design: RecDQN
-    plot_traj: False
+    plot_traj: True
   info: ''
 agent:
   DQN: {}

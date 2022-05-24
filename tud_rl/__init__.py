@@ -27,23 +27,21 @@ gym.register(
     entry_point=loc + "FossenEnv"
 )
 gym.register(
-    id="FossenEnvStarScene-v0",
-    entry_point=loc + "FossenEnvStarScene"
+    id="FossenImazu-v0",
+    entry_point=loc + "FossenImazu"
+)
+gym.register(
+    id="MMGStar-v0",
+    entry_point=loc + "MMG_Star"
 )
 gym.register(
     id="MMGEnv-v0",
     entry_point=loc + "MMG_Env"
 )
 gym.register(
-    id="FossenImazu-v0",
-    entry_point=loc + "FossenImazu"
-)
-gym.register(
     id="MMGImazu-v0",
     entry_point=loc + "MMG_Imazu"
 )
-
-
 
 # Initialize logger
 logger = logging.getLogger(__name__)
