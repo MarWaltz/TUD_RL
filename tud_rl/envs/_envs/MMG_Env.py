@@ -29,7 +29,7 @@ class MMG_Env(gym.Env):
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
-                 COLREG_def       = "line"):
+                 spawn_mode       = "center"):
         super().__init__()
 
         # simulation settings
@@ -61,15 +61,15 @@ class MMG_Env(gym.Env):
         self.goal_reach_dist = 3 * 320                    # euclidean distance (in m) at which goal is considered as reached
         self.stop_spawn_dist = NM_to_meter(7.0)           # euclidean distance (in m) under which vessels do not spawn anymore
 
-        self.num_obs_OS = 8                               # number of observations for the OS
+        self.num_obs_OS = 7                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
 
         self.plot_traj = plot_traj                             # whether to plot trajectory after termination
         self.plot_every = 5 * 60                                # seconds between markers in trajectory plotting
         self.plot_every_step = self.plot_every / self.delta_t  # number of timesteps between markers in trajectory plotting
 
-        assert COLREG_def in ["correct", "line"], "Unknown COLREG definition."
-        self.COLREG_def = COLREG_def
+        assert spawn_mode in ["center", "line"], "Unknown TS spawning mode."
+        self.spawn_mode = spawn_mode
 
         # gym definitions
         if state_design == "RecDQN":
@@ -167,7 +167,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3, 4], p=[0.05, 0.3, 0.3, 0.3, 0.05])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.4, 0.25, 0.25])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
@@ -210,7 +210,7 @@ class MMG_Env(gym.Env):
         return self.state
 
 
-    def _get_TS(self, mode="center"):
+    def _get_TS(self):
         """Places a target ship by sampling a 
             1) COLREG situation,
             2) TCPA (in s, or setting to 60s),
@@ -219,8 +219,6 @@ class MMG_Env(gym.Env):
             5) and a forward thrust (tau-u in N).
         Returns: 
             KVLCC2."""
-
-        assert mode in ["line", "center"], "Unknown spawning mode for TS."
 
         while True:
             TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
@@ -239,7 +237,7 @@ class MMG_Env(gym.Env):
             TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
 
             #--------------------------------------- line mode --------------------------------------
-            if mode == "line":
+            if self.spawn_mode == "line":
 
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
@@ -322,7 +320,7 @@ class MMG_Env(gym.Env):
                     break
 
             #--------------------------------------- center mode --------------------------------------
-            elif mode == "center":
+            elif self.spawn_mode == "center":
 
                 # check whether we sample an overtaker
                 if np.random.choice([0, 1], p=[0.85, 0.15]) == 1:
@@ -376,7 +374,6 @@ class MMG_Env(gym.Env):
         
         OS:
             u, v, r
-            heading
             r_dot
             rudder_angle
 
@@ -398,7 +395,7 @@ class MMG_Env(gym.Env):
 
         #-------------------------------- OS related ---------------------------------
         cmp1 = self.OS.nu / np.array([5.0, 0.5, 0.002])
-        cmp2 = np.array([angle_to_pi(head0) / (math.pi),               # heading
+        cmp2 = np.array([#angle_to_pi(head0) / (math.pi),               # heading
                          self.OS.nu_dot[2],                            # r_dot
                          self.OS.rud_angle / self.OS.rud_angle_max])   # rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
@@ -658,7 +655,7 @@ class MMG_Env(gym.Env):
         return d
 
 
-    def plot_traj_fnc(self, ax=None, sit=None):
+    def plot_traj_fnc(self, ax=None, sit=None, star=False):
         """Creates the final trajectory plot."""
         if ax is None:
             _, ax = plt.subplots()
@@ -731,26 +728,31 @@ class MMG_Env(gym.Env):
             TS_traj_N_m = [ele for idx, ele in enumerate(self.TS_traj_N[TS_idx]) if idx % self.plot_every_step == 0]
             ax.scatter(TS_traj_E_m, TS_traj_N_m, color=col, s=5)
 
-        circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-        ax.add_patch(circ)
+        # goal
+        if not star:
+            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
+            ax.add_patch(circ)
 
         if show:
             plt.show()
         else:
-            ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 8})
             ax.grid(linewidth=1.0, alpha=0.425)
 
-            if sit not in [17, 18, 19, 20, 21, 22]:
-                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
-                ax.set_xlabel("")
-            else:
-                ax.tick_params(axis='x', labelsize=8)
+            if not star:
+                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 8})
 
-            if sit not in [1, 7, 13, 19]:
-                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
-                ax.set_ylabel("")
-            else:
-                ax.tick_params(axis='y', labelsize=8)
+                if sit not in [18, 19, 20, 21, 22, 23]:
+                    ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
+                    ax.set_xlabel("")
+                else:
+                    ax.tick_params(axis='x', labelsize=8)
+
+                if sit not in [1, 7, 13, 19]:
+                    ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
+                    ax.set_ylabel("")
+                else:
+                    ax.tick_params(axis='y', labelsize=8)
+            
             return ax
 
 

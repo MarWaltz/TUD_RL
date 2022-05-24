@@ -15,6 +15,9 @@ class MMG_Imazu(MMG_Env):
 
         elif situation in range(12, 23):
             N_TSs = 3
+        
+        elif situation == 23:
+            N_TSs = 0
 
         super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design)
 
@@ -250,6 +253,9 @@ class MMG_Imazu(MMG_Env):
 
             # setup
             self.TSs = [TS1, TS2, TS3]
+
+        elif self.situation == 23:
+            self.TSs = []
 
         # determine current COLREG situations
         self.TS_COLREGs = [0] * self.N_TSs_max
