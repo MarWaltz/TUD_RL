@@ -74,7 +74,7 @@ class MMG_Env(gym.Env):
         self.plot_every = 5 * 60                                # seconds between markers in trajectory plotting
         self.plot_every_step = self.plot_every / self.delta_t  # number of timesteps between markers in trajectory plotting
 
-        assert spawn_mode in ["center", "line"], "Unknown TS spawning mode."
+        assert spawn_mode in ["center", "line", "line_v2"], "Unknown TS spawning mode."
         self.spawn_mode = spawn_mode
 
         # gym definitions
@@ -327,7 +327,6 @@ class MMG_Env(gym.Env):
                 if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
                     >= self.min_dist_spawn_TS:
                     break
-
 
             elif self.spawn_mode == "line_v2":
 
