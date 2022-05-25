@@ -907,23 +907,28 @@ class MMG_Env(gym.Env):
         if ang is None:
             ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
 
-        # circle parts
-        if 0 <= rtd(ang) < 90:
-            return self.OS.ship_domain_AB
-        elif 180 <= rtd(ang) < 270:
-            return self.OS.ship_domain_CD
-
         # ellipsis
+        if 0 <= rtd(ang) < 90:
+            a = self.OS.ship_domain_D
+            b = self.OS.ship_domain_A
+
         elif 90 <= rtd(ang) < 180:
-            ang -= dtr(90)
-            a = self.OS.ship_domain_AB
-            b = self.OS.ship_domain_CD
+            ang = dtr(180) - ang
+            a = self.OS.ship_domain_D
+            b = self.OS.ship_domain_C
+
+        elif 180 <= rtd(ang) < 270:
+            ang = ang - dtr(180)
+            a = self.OS.ship_domain_B
+            b = self.OS.ship_domain_C
+
         else:
-            ang -= dtr(270)
-            a = self.OS.ship_domain_CD
-            b = self.OS.ship_domain_AB
-        return ((math.cos(ang) / a)**2 + (math.sin(ang) / b)**2)**(-0.5)
-    
+            ang = dtr(360) - ang
+            a = self.OS.ship_domain_B
+            b = self.OS.ship_domain_A
+
+        return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
+
 
     def _get_COLREG_situation(self, OS, TS):
         """Determines the COLREG situation from the perspective of the OS. 
