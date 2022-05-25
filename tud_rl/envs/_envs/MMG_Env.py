@@ -24,6 +24,7 @@ class MMG_Env(gym.Env):
                  N_TSs_increasing = False,
                  state_design     = "RecDQN", 
                  plot_traj        = True,
+                 CR_zero_negTCPA  = True,
                  w_dist           = 1.0,
                  w_head           = 1.0,
                  w_coll           = 1.0,
@@ -50,8 +51,13 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt = 0
 
         self.sight             = NM_to_meter(20.0)     # sight of the agent (in m)
+
+        # CR calculation
         self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
+        self.CR_zero_negTCPA   = CR_zero_negTCPA       # if True: CR is 0 if TCPA is negative, otherwise uses scaled absolute value
+
+        # spawning
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
@@ -223,134 +229,117 @@ class MMG_Env(gym.Env):
         Returns: 
             KVLCC2."""
 
-        while True:
-            TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
-                        E_init   = np.random.uniform(self.E_max / 5, self.E_max), 
-                        psi_init = np.random.uniform(0, 2*math.pi),
-                        u_init   = 0.0,
-                        v_init   = 0.0,
-                        r_init   = 0.0,
-                        delta_t  = self.delta_t,
-                        N_max    = self.N_max,
-                        E_max    = self.E_max,
-                        nps      = np.random.uniform(0.9, 1.1) * self.OS.nps)
 
-            # predict converged speed of sampled TS
-            # Note: if we don't do this, all further calculations are heavily biased
-            TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+        TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
+                    E_init   = np.random.uniform(self.E_max / 5, self.E_max), 
+                    psi_init = np.random.uniform(0, 2*math.pi),
+                    u_init   = 0.0,
+                    v_init   = 0.0,
+                    r_init   = 0.0,
+                    delta_t  = self.delta_t,
+                    N_max    = self.N_max,
+                    E_max    = self.E_max,
+                    nps      = np.random.uniform(0.9, 1.1) * self.OS.nps)
 
-            #--------------------------------------- line mode --------------------------------------
-            if self.spawn_mode == "line":
+        # predict converged speed of sampled TS
+        # Note: if we don't do this, all further calculations are heavily biased
+        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
 
-                # quick access for OS
-                N0, E0, _ = self.OS.eta
-                chiOS = self.OS._get_course()
-                VOS   = self.OS._get_V()
+        #--------------------------------------- line mode --------------------------------------
+        if self.spawn_mode == "line":
 
-                # sample COLREG situation 
-                # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
-                COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
-                if COLREG_s == 0:
-                    return TS
+            # quick access for OS
+            N0, E0, _ = self.OS.eta
+            chiOS = self.OS._get_course()
+            VOS   = self.OS._get_V()
 
-                # determine relative speed of OS towards goal, need absolute bearing first
-                bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+            # sample situation
+            setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.1, 0.1, 0.8])
 
-                # project VOS vector on relative velocity direction
-                VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
-                
-                # sample time
-                t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+            # determine relative speed of OS towards goal, need absolute bearing first
+            bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
-                # compute hit point
-                E_hit = E0 + VR_goal_x * t_hit
-                N_hit = N0 + VR_goal_y * t_hit
+            # project VOS vector on relative velocity direction
+            VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
+            
+            # sample time
+            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
-                # Note: In the following, we only sample the intersection angle and not a relative bearing.
-                #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
-                #       and we need only one further information to uniquely determine the origin of its motion.
+            # compute hit point
+            E_hit = E0 + VR_goal_x * t_hit
+            N_hit = N0 + VR_goal_y * t_hit
 
-                # head-on
-                if COLREG_s == 1:
-                    C_TS_s = dtr(np.random.uniform(175, 185))
+            # Note: In the following, we only sample the intersection angle and not a relative bearing.
+            #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+            #       and we need only one further information to uniquely determine the origin of its motion.
 
-                # starboard crossing
-                elif COLREG_s == 2:
-                    C_TS_s = dtr(np.random.uniform(185, 292.5))
+            if setting == "overtaker":
 
-                # portside crossing
-                elif COLREG_s == 3:
-                    C_TS_s = dtr(np.random.uniform(67.5, 175))
-
-                # overtaking
-                elif COLREG_s == 4:
-                    C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+                # sample intersection angle
+                C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
                 # determine TS heading (treating absolute bearing towards goal as heading of OS)
                 head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
-                # no speed constraints except in overtaking
-                if COLREG_s in [1, 2, 3]:
-                    VTS = TS.nu[0]
+                # project VOS vector on TS direction
+                VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+                V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
 
-                elif COLREG_s == 4:
+                # sample TS speed
+                VTS = np.random.uniform(0.3, 0.7) * V_max_TS
+                TS.nu[0] = VTS
 
-                    # project VOS vector on TS direction
-                    VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
-                    V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+                # set nps of TS so that it will keep this velocity
+                TS.nps = TS._get_nps_from_u(VTS, psi=head_TS_s)
 
-                    # sample TS speed
-                    VTS = np.random.uniform(0.3, 0.7) * V_max_TS
-                    TS.nu[0] = VTS
+            else:
 
-                    # set nps of TS so that it will keep this velocity
-                    TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
-
-                # backtrace original position of TS
-                E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
-                N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
-
-                # set positional values
-                TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
-                
-                # no TS yet there
-                if len(self.TSs) == 0:
-                    break
-
-                # TS shouldn't spawn too close to other TS
-                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
-                    >= self.min_dist_spawn_TS:
-                    break
-
-            #--------------------------------------- center mode --------------------------------------
-            elif self.spawn_mode == "center":
-
-                # sample either overtaker, head-on, or random angle
-                setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
-
-                if setting == "overtaker":
-                    
-                    # set heading
-                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-5, 5)))
-
-                    # reduce speed
-                    TS.nps = 0.7
-                    TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
-                
-                elif setting == "head-on":
-
-                    # set heading
-                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(175, 185)))
-
+                # sample intersection angle
+                if setting == "head-on":
+                    C_TS_s = dtr(np.random.uniform(175, 185))
                 else:
-                    # sample heading
-                    TS.eta[2] = np.random.uniform(0, 2*math.pi)
-                    
-                # backtrace motion
-                TS.eta[0] = self.CPA_N - TS._get_V() * np.cos(TS.eta[2]) * self.TCPA_crit
-                TS.eta[1] = self.CPA_E - TS._get_V() * np.sin(TS.eta[2]) * self.TCPA_crit
+                    C_TS_s = dtr(np.random.uniform(0, 360))
 
-                break
+                # determine TS heading (treating absolute bearing towards goal as heading of OS)
+                head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)
+
+                # no speed constraints here
+                VTS = TS.nu[0]
+
+            # backtrace original position of TS
+            E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+            N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+
+            # set positional values
+            TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+
+        #--------------------------------------- center mode --------------------------------------
+        elif self.spawn_mode == "center":
+
+            # sample either overtaker, head-on, or random angle
+            setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
+
+            if setting == "overtaker":
+                
+                # set heading
+                TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-5, 5)))
+
+                # reduce speed
+                TS.nps = 0.7
+                TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+            
+            elif setting == "head-on":
+
+                # set heading
+                TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(175, 185)))
+
+            else:
+                # sample heading
+                TS.eta[2] = np.random.uniform(0, 2*math.pi)
+                
+            # backtrace motion
+            TS.eta[0] = self.CPA_N - TS._get_V() * np.cos(TS.eta[2]) * self.TCPA_crit
+            TS.eta[1] = self.CPA_E - TS._get_V() * np.sin(TS.eta[2]) * self.TCPA_crit
 
         return TS
 
@@ -655,7 +644,7 @@ class MMG_Env(gym.Env):
         return d
 
 
-    def plot_traj_fnc(self, ax=None, sit=None, star=False):
+    def plot_traj_fnc(self, ax=None, sit=None, r_dist=None, r_head=None, r_coll=None, r_COLREG=None, star=False):
         """Creates the final trajectory plot."""
         if ax is None:
             _, ax = plt.subplots()
@@ -739,7 +728,15 @@ class MMG_Env(gym.Env):
             ax.grid(linewidth=1.0, alpha=0.425)
 
             if not star:
-                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 8})
+
+                if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG]]):
+                    ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(10.5), r"$r_{\rm head}$: " + format(r_head, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(9.5), r"$r_{\rm coll}$: " + format(r_coll, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(8.5),  r"$r_{\rm COLR}$: " + format(r_COLREG, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(7.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG, '.2f'), fontdict={"fontsize" : 7})
+                
+                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 7})
 
                 if sit not in [18, 19, 20, 21, 22, 23]:
                     ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
@@ -784,10 +781,19 @@ class MMG_Env(gym.Env):
         E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
 
         DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-        if TCPA < 0:
-            return 0.0
+        
+        if self.CR_zero_negTCPA:
+            if TCPA < 0:
+                return 0.0
 
-        return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)])
+            return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)])
+
+        else:
+            if TCPA >= 0:
+                cr = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
+            else:
+                cr = math.exp((DCPA + VR * 5 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
+            return min([1.0, cr])
 
 
     def _get_ship_domain(self, OS, TS, ang=None):

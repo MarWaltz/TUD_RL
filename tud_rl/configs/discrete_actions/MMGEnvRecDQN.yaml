@@ -13,6 +13,7 @@ env:
     w_COLREG: 2.0
     w_comf: 0.0
     spawn_mode : line
+    CR_zero_negTCPA : True
     state_design: RecDQN
     plot_traj: False
     N_TSs_random : True
