@@ -1,3 +1,4 @@
+import csv
 import pickle
 import random
 import time
@@ -6,6 +7,7 @@ import gym
 import gym_minatar
 import gym_pygame
 import numpy as np
+import pandas as pd
 import torch
 import tud_rl.agents.continuous as agents
 from tud_rl.agents.base import _Agent
@@ -265,12 +267,37 @@ def train(c: ConfigFile, agent_name: str):
                                alg     = agent.name,
                                env_str = c.Env.name,
                                info    = c.Env.info)
-
             # save weights
-            torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
-            torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
+            save_weights(agent, eval_ret)
 
             # save input normalizer values
             if c.input_norm:
                 with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
+
+
+def save_weights(agent: _Agent, eval_ret) -> None:
+
+    # check whether this was the best evaluation epoch so far
+    with open(f"{agent.logger.output_dir}/progress.txt") as f:
+        reader = csv.reader(f, delimiter="\t")
+        d = list(reader)
+
+    df = pd.DataFrame(d)
+    df.columns = df.iloc[0]
+    df = df.iloc[1:]
+    df = df.astype(float)
+
+    if np.mean(eval_ret) > max(df["Avg_Eval_ret"]):
+        best_weights = True
+    else:
+        best_weights = False
+
+    # usual save
+    torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_weights.pth")
+    torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_weights.pth")
+
+    # best save
+    if best_weights:
+        torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_best_weights.pth")
+        torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_best_weights.pth")

@@ -1,3 +1,4 @@
+import csv
 import pickle
 import random
 import time
@@ -6,6 +7,7 @@ import gym
 import gym_minatar
 import gym_pygame
 import numpy as np
+import pandas as pd
 import torch
 import tud_rl.agents.discrete as agents
 from tud_rl.agents.base import _Agent
@@ -260,7 +262,7 @@ def train(c: ConfigFile, agent_name: str):
                                env_str = c.Env.name,
                                info    = c.Env.info)
             # save weights
-            save_weights(agent)
+            save_weights(agent, eval_ret)
 
             # save input normalizer values
             if c.input_norm:
@@ -268,21 +270,53 @@ def train(c: ConfigFile, agent_name: str):
                     pickle.dump(agent.inp_normalizer.get_for_save(), f)
 
 
-def save_weights(agent: _Agent) -> None:
+def save_weights(agent: _Agent, eval_ret) -> None:
+
+    # check whether this was the best evaluation epoch so far
+    with open(f"{agent.logger.output_dir}/progress.txt") as f:
+        reader = csv.reader(f, delimiter="\t")
+        d = list(reader)
+
+    df = pd.DataFrame(d)
+    df.columns = df.iloc[0]
+    df = df.iloc[1:]
+    df = df.astype(float)
+
+    if np.mean(eval_ret) > max(df["Avg_Eval_ret"]):
+        best_weights = True
+    else:
+        best_weights = False
 
     # Save weights for agents that require a single net
     if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
+
         torch.save(agent.DQN.state_dict(),
                    f"{agent.logger.output_dir}/{agent.name}_weights.pth")
 
+        if best_weights:
+            torch.save(agent.DQN.state_dict(),
+                       f"{agent.logger.output_dir}/{agent.name}_best_weights.pth")
+
     # Save both nets of the ACCDDQN
     if "ACCDDQN" in agent.name:
+
         torch.save(agent.DQN_A.state_dict(),
                    f"{agent.logger.output_dir}/{agent.name}_A_weights.pth")
         torch.save(agent.DQN_B.state_dict(),
                    f"{agent.logger.output_dir}/{agent.name}_B_weights.pth")
 
+        if best_weights:
+            torch.save(agent.DQN_A.state_dict(),
+                        f"{agent.logger.output_dir}/{agent.name}_A_best_weights.pth")
+            torch.save(agent.DQN_B.state_dict(),
+                        f"{agent.logger.output_dir}/{agent.name}_B_best_weights.pth")
+
     if any(w in agent.name for w in ["Ensemble", "MaxMin"]):
         for idx, net in enumerate(agent.EnsembleDQN):
             torch.save(net.state_dict(),
                        f"{agent.logger.output_dir}/{agent.name}_weights_{idx}.pth")
+
+        if best_weights:
+            for idx, net in enumerate(agent.EnsembleDQN):
+                torch.save(net.state_dict(),
+                        f"{agent.logger.output_dir}/{agent.name}_best_weights_{idx}.pth")
