@@ -229,117 +229,211 @@ class MMG_Env(gym.Env):
         Returns: 
             KVLCC2."""
 
+        while True:
+            TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
+                        E_init   = np.random.uniform(self.E_max / 5, self.E_max), 
+                        psi_init = np.random.uniform(0, 2*math.pi),
+                        u_init   = 0.0,
+                        v_init   = 0.0,
+                        r_init   = 0.0,
+                        delta_t  = self.delta_t,
+                        N_max    = self.N_max,
+                        E_max    = self.E_max,
+                        nps      = np.random.uniform(0.9, 1.1) * self.OS.nps)
 
-        TS = KVLCC2(N_init   = np.random.uniform(self.N_max / 5, self.N_max), 
-                    E_init   = np.random.uniform(self.E_max / 5, self.E_max), 
-                    psi_init = np.random.uniform(0, 2*math.pi),
-                    u_init   = 0.0,
-                    v_init   = 0.0,
-                    r_init   = 0.0,
-                    delta_t  = self.delta_t,
-                    N_max    = self.N_max,
-                    E_max    = self.E_max,
-                    nps      = np.random.uniform(0.9, 1.1) * self.OS.nps)
+            # predict converged speed of sampled TS
+            # Note: if we don't do this, all further calculations are heavily biased
+            TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
 
-        # predict converged speed of sampled TS
-        # Note: if we don't do this, all further calculations are heavily biased
-        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+            #--------------------------------------- line mode --------------------------------------
+            if self.spawn_mode == "line":
 
-        #--------------------------------------- line mode --------------------------------------
-        if self.spawn_mode == "line":
+                # quick access for OS
+                N0, E0, _ = self.OS.eta
+                chiOS = self.OS._get_course()
+                VOS   = self.OS._get_V()
 
-            # quick access for OS
-            N0, E0, _ = self.OS.eta
-            chiOS = self.OS._get_course()
-            VOS   = self.OS._get_V()
+                # sample COLREG situation 
+                # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
+                COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
+                if COLREG_s == 0:
+                    return TS
 
-            # sample situation
-            setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.1, 0.1, 0.8])
+                # determine relative speed of OS towards goal, need absolute bearing first
+                bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
 
-            # determine relative speed of OS towards goal, need absolute bearing first
-            bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+                # project VOS vector on relative velocity direction
+                VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
+                
+                # sample time
+                t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
 
-            # project VOS vector on relative velocity direction
-            VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
-            
-            # sample time
-            t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+                # compute hit point
+                E_hit = E0 + VR_goal_x * t_hit
+                N_hit = N0 + VR_goal_y * t_hit
 
-            # compute hit point
-            E_hit = E0 + VR_goal_x * t_hit
-            N_hit = N0 + VR_goal_y * t_hit
+                # Note: In the following, we only sample the intersection angle and not a relative bearing.
+                #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+                #       and we need only one further information to uniquely determine the origin of its motion.
 
-            # Note: In the following, we only sample the intersection angle and not a relative bearing.
-            #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
-            #       and we need only one further information to uniquely determine the origin of its motion.
+                # head-on
+                if COLREG_s == 1:
+                    C_TS_s = dtr(np.random.uniform(175, 185))
 
-            if setting == "overtaker":
+                # starboard crossing
+                elif COLREG_s == 2:
+                    C_TS_s = dtr(np.random.uniform(185, 292.5))
 
-                # sample intersection angle
-                C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+                # portside crossing
+                elif COLREG_s == 3:
+                    C_TS_s = dtr(np.random.uniform(67.5, 175))
+
+                # overtaking
+                elif COLREG_s == 4:
+                    C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
 
                 # determine TS heading (treating absolute bearing towards goal as heading of OS)
                 head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
-                # project VOS vector on TS direction
-                VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
-                V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+                # no speed constraints except in overtaking
+                if COLREG_s in [1, 2, 3]:
+                    VTS = TS.nu[0]
 
-                # sample TS speed
-                VTS = np.random.uniform(0.3, 0.7) * V_max_TS
-                TS.nu[0] = VTS
+                elif COLREG_s == 4:
 
-                # set nps of TS so that it will keep this velocity
-                TS.nps = TS._get_nps_from_u(VTS, psi=head_TS_s)
+                    # project VOS vector on TS direction
+                    VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+                    V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
 
-            else:
+                    # sample TS speed
+                    VTS = np.random.uniform(0.3, 0.7) * V_max_TS
+                    TS.nu[0] = VTS
 
-                # sample intersection angle
-                if setting == "head-on":
-                    C_TS_s = dtr(np.random.uniform(175, 185))
+                    # set nps of TS so that it will keep this velocity
+                    TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
+
+                # backtrace original position of TS
+                E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+                N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+
+                # set positional values
+                TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+                
+                # no TS yet there
+                if len(self.TSs) == 0:
+                    break
+
+                # TS shouldn't spawn too close to other TS
+                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
+                    >= self.min_dist_spawn_TS:
+                    break
+
+
+            elif self.spawn_mode == "line_v2":
+
+                # quick access for OS
+                N0, E0, _ = self.OS.eta
+                chiOS = self.OS._get_course()
+                VOS   = self.OS._get_V()
+
+                # sample situation
+                setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.1, 0.1, 0.8])
+
+                # determine relative speed of OS towards goal, need absolute bearing first
+                bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
+
+                # project VOS vector on relative velocity direction
+                VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
+                
+                # sample time
+                t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+
+                # compute hit point
+                E_hit = E0 + VR_goal_x * t_hit
+                N_hit = N0 + VR_goal_y * t_hit
+
+                # Note: In the following, we only sample the intersection angle and not a relative bearing.
+                #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+                #       and we need only one further information to uniquely determine the origin of its motion.
+
+                if setting == "overtaker":
+
+                    # sample intersection angle
+                    C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
+                    # determine TS heading (treating absolute bearing towards goal as heading of OS)
+                    head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
+
+                    # project VOS vector on TS direction
+                    VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+                    V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+
+                    # sample TS speed
+                    VTS = np.random.uniform(0.3, 0.7) * V_max_TS
+                    TS.nu[0] = VTS
+
+                    # set nps of TS so that it will keep this velocity
+                    TS.nps = TS._get_nps_from_u(VTS, psi=head_TS_s)
+
                 else:
-                    C_TS_s = dtr(np.random.uniform(0, 360))
 
-                # determine TS heading (treating absolute bearing towards goal as heading of OS)
-                head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)
+                    # sample intersection angle
+                    if setting == "head-on":
+                        C_TS_s = dtr(np.random.uniform(175, 185))
+                    else:
+                        C_TS_s = dtr(np.random.uniform(0, 360))
 
-                # no speed constraints here
-                VTS = TS.nu[0]
+                    # determine TS heading (treating absolute bearing towards goal as heading of OS)
+                    head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)
 
-            # backtrace original position of TS
-            E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
-            N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+                    # no speed constraints here
+                    VTS = TS.nu[0]
 
-            # set positional values
-            TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+                # backtrace original position of TS
+                E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+                N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
 
-        #--------------------------------------- center mode --------------------------------------
-        elif self.spawn_mode == "center":
+                # set positional values
+                TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
 
-            # sample either overtaker, head-on, or random angle
-            setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
+                # no TS yet there
+                if len(self.TSs) == 0:
+                    break
 
-            if setting == "overtaker":
+                # TS shouldn't spawn too close to other TS
+                if min([ED(N0=N_TS, E0=E_TS, N1=TS_there.eta[0], E1=TS_there.eta[1], sqrt=True) for TS_there in self.TSs])\
+                    >= self.min_dist_spawn_TS:
+                    break
+
+            #--------------------------------------- center mode --------------------------------------
+            elif self.spawn_mode == "center":
+
+                # sample either overtaker, head-on, or random angle
+                setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
+
+                if setting == "overtaker":
+                    
+                    # set heading
+                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-5, 5)))
+
+                    # reduce speed
+                    TS.nps = 0.7
+                    TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
                 
-                # set heading
-                TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-5, 5)))
+                elif setting == "head-on":
 
-                # reduce speed
-                TS.nps = 0.7
-                TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
-            
-            elif setting == "head-on":
+                    # set heading
+                    TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(175, 185)))
 
-                # set heading
-                TS.eta[2] = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(175, 185)))
+                else:
+                    # sample heading
+                    TS.eta[2] = np.random.uniform(0, 2*math.pi)
+                    
+                # backtrace motion
+                TS.eta[0] = self.CPA_N - TS._get_V() * np.cos(TS.eta[2]) * self.TCPA_crit
+                TS.eta[1] = self.CPA_E - TS._get_V() * np.sin(TS.eta[2]) * self.TCPA_crit
 
-            else:
-                # sample heading
-                TS.eta[2] = np.random.uniform(0, 2*math.pi)
-                
-            # backtrace motion
-            TS.eta[0] = self.CPA_N - TS._get_V() * np.cos(TS.eta[2]) * self.TCPA_crit
-            TS.eta[1] = self.CPA_E - TS._get_V() * np.sin(TS.eta[2]) * self.TCPA_crit
+                break
 
         return TS
 
@@ -721,6 +815,14 @@ class MMG_Env(gym.Env):
         if not star:
             circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
             ax.add_patch(circ)
+        else:
+            for i in range(len(self.agents)):
+                if i == 0:
+                    col = "black"
+                else:
+                    col = COLREG_COLORS[i-1]
+                circ = patches.Circle((self.goals[i]["E"], self.goals[i]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.4)
+                ax.add_patch(circ)
 
         if show:
             plt.show()

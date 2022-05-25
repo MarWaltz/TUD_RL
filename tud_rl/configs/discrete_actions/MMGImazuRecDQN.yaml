@@ -8,6 +8,7 @@ env:
   env_kwargs:
     situation: 21
     state_design: RecDQN
+    CR_zero_negTCPA : False
     plot_traj: True
   info: ''
 agent:
