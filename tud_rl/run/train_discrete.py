@@ -282,10 +282,13 @@ def save_weights(agent: _Agent, eval_ret) -> None:
     df = df.iloc[1:]
     df = df.astype(float)
 
-    if np.mean(eval_ret) > max(df["Avg_Eval_ret"]) or len(df["Avg_Eval_ret"]) == 1:
+    if len(df["Avg_Eval_ret"]) == 1:
         best_weights = True
     else:
-        best_weights = False
+        if np.mean(eval_ret) > max(df["Avg_Eval_ret"][:-1]):
+            best_weights = True
+        else:
+            best_weights = False
 
     # Save weights for agents that require a single net
     if not any([word in agent.name for word in ["ACCDDQN", "Ensemble", "MaxMin"]]):
