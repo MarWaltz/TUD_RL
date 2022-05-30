@@ -6,10 +6,10 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    situation: 21
+    situation: 12
     state_design: RecDQN
     CR_zero_negTCPA : False
-    plot_traj: True
+    plot_traj: False
   info: ''
 agent:
   DQN: {}

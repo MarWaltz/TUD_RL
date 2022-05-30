@@ -11,7 +11,7 @@ env:
     w_head: 1.5
     w_coll: 1.0
     w_COLREG: 2.0
-    w_comf: 0.0
+    w_comf: 0.05
     spawn_mode : line
     CR_zero_negTCPA : False
     state_design: RecDQN

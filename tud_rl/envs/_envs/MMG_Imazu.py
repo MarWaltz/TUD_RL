@@ -268,6 +268,8 @@ class MMG_Imazu(MMG_Env):
 
         # trajectory storing
         if self.plot_traj:
+            self.OS_traj_rud_angle = [self.OS.rud_angle]
+
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
             self.OS_traj_h = [self.OS.eta[2]]

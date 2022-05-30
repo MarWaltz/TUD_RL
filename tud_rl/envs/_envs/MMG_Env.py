@@ -24,7 +24,7 @@ class MMG_Env(gym.Env):
                  N_TSs_increasing = False,
                  state_design     = "RecDQN", 
                  plot_traj        = True,
-                 CR_zero_negTCPA  = True,
+                 CR_zero_negTCPA  = False,
                  w_dist           = 1.0,
                  w_head           = 1.0,
                  w_coll           = 1.0,
@@ -198,6 +198,8 @@ class MMG_Env(gym.Env):
 
         # trajectory storing
         if self.plot_traj:
+            self.OS_traj_rud_angle = [self.OS.rud_angle]
+
             self.OS_traj_N = [self.OS.eta[0]]
             self.OS_traj_E = [self.OS.eta[1]]
             self.OS_traj_h = [self.OS.eta[2]]
@@ -601,6 +603,7 @@ class MMG_Env(gym.Env):
         if self.plot_traj:
 
             # agent update
+            self.OS_traj_rud_angle.append(self.OS.rud_angle)
             self.OS_traj_N.append(self.OS.eta[0])
             self.OS_traj_E.append(self.OS.eta[1])
             self.OS_traj_h.append(self.OS.eta[2])
@@ -628,7 +631,7 @@ class MMG_Env(gym.Env):
 
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward()
+        self._calculate_reward(a)
         d = self._done()
        
         return self.state, self.r, d, {}
@@ -656,7 +659,7 @@ class MMG_Env(gym.Env):
         return TS, False
 
 
-    def _calculate_reward(self):
+    def _calculate_reward(self, a):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
@@ -698,7 +701,10 @@ class MMG_Env(gym.Env):
                         r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
-        r_comf = -(self.OS.nu[2]/0.1)**2
+        if a == 0:
+            r_comf = 0.0
+        else:
+            r_comf = -1.0
 
         # -------------------------------------- Overall reward --------------------------------------------
         w_sum = self.w_dist + self.w_head + self.w_coll + self.w_COLREG + self.w_comf
@@ -1283,4 +1289,25 @@ class MMG_Env(gym.Env):
                     self.ax2.old_state = self.state
 
                 # ------------------------------ action plot --------------------------------
+                if self.step_cnt == 0:
+                    self.ax3.clear()
+                    self.ax3_twin = self.ax3.twinx()
+                    #self.ax3_twin.clear()
+                    self.ax3.old_time = 0
+                    self.ax3.old_action = 0
+                    self.ax3.old_rud_angle = 0
+                    self.ax3.old_tau_cnt_r = 0
+
+                self.ax3.set_xlim(0, self._max_episode_steps)
+                self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
+                self.ax3.set_yticks(range(self.action_space.n))
+                self.ax3.set_yticklabels(range(self.action_space.n))
+                self.ax3.set_xlabel("Timestep in episode")
+                self.ax3.set_ylabel("Action (discrete)")
+
+                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
+                
+                self.ax3.old_time = self.step_cnt
+                self.ax3.old_action = self.OS.action
+
                 plt.pause(0.001)
