@@ -24,7 +24,6 @@ class MMG_Env(gym.Env):
                  N_TSs_increasing = False,
                  state_design     = "RecDQN", 
                  plot_traj        = True,
-                 CR_zero_negTCPA  = False,
                  w_dist           = 1.0,
                  w_head           = 1.0,
                  w_coll           = 1.0,
@@ -55,7 +54,6 @@ class MMG_Env(gym.Env):
         # CR calculation
         self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
-        self.CR_zero_negTCPA   = CR_zero_negTCPA       # if True: CR is 0 if TCPA is negative, otherwise uses scaled absolute value
 
         # spawning
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
@@ -659,6 +657,143 @@ class MMG_Env(gym.Env):
         return TS, False
 
 
+    def _get_CR(self, OS, TS):
+        """Computes the collision risk metric similar to Chun et al. (2021)."""
+        # quick access
+        N0, E0, _ = OS.eta
+        N1, E1, _ = TS.eta
+        D = self._get_ship_domain(OS, TS)
+        CR_dist = self.CR_dist_multiple * D
+
+        # check if already in ship domain
+        if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
+            return 1.0
+
+        # compute speeds and courses
+        VOS = OS._get_V()
+        VTS = TS._get_V()
+        chiOS = OS._get_course()
+        chiTS = TS._get_course()
+
+        # compute relative speed
+        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
+        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+
+        # compute CPA measures under the assumption that agent is at ship domain border in the direction of the TS
+        bng_absolute = bng_abs(N0=N0, E0=E0, N1=N1, E1=E1)
+        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
+
+        DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+        
+        if TCPA >= 0:
+            cr = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
+        else:
+            cr = math.exp((DCPA + VR * 5.0 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
+        return min([1.0, cr])
+
+
+    def _get_ship_domain(self, OS, TS, ang=None):
+        """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
+        Args:
+            OS: KVLCC2
+            TS: KVLCC2"""
+
+        # relative bearing
+        if ang is None:
+            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
+
+        # ellipsis
+        if 0 <= rtd(ang) < 90:
+            a = self.OS.ship_domain_D
+            b = self.OS.ship_domain_A
+
+        elif 90 <= rtd(ang) < 180:
+            ang = dtr(180) - ang
+            a = self.OS.ship_domain_D
+            b = self.OS.ship_domain_C
+
+        elif 180 <= rtd(ang) < 270:
+            ang = ang - dtr(180)
+            a = self.OS.ship_domain_B
+            b = self.OS.ship_domain_C
+
+        else:
+            ang = dtr(360) - ang
+            a = self.OS.ship_domain_B
+            b = self.OS.ship_domain_A
+
+        return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
+
+
+    def _get_COLREG_situation(self, OS, TS):
+        """Determines the COLREG situation from the perspective of the OS. 
+        Follows Xu et al. (2020, Ocean Engineering; 2022, Neurocomputing).
+
+        Args:
+            OS (CyberShip):    own vessel with attributes eta, nu
+            TS (CyberShip):    target vessel with attributes eta, nu
+
+        Returns:
+            0  -  no conflict situation
+            1  -  head-on
+            2  -  starboard crossing (small)
+            3  -  starboard crossing (large)
+            4  -  portside crossing
+            5  -  overtaking
+        """
+
+        # quick access
+        NOS, EOS, psi_OS = OS.eta
+        NTS, ETS, psi_TS = TS.eta
+        V_OS  = OS._get_V()
+        V_TS  = TS._get_V()
+
+        chiOS = OS._get_course()
+        chiTS = TS._get_course()
+
+        # check whether TS is out of sight
+        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.sight:
+            return 0
+
+        # relative bearing from OS to TS
+        bng_OS = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=psi_OS)
+
+        # relative bearing from TS to OS
+        bng_TS = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=psi_TS)
+
+        # intersection angle
+        C_T = head_inter(head_OS=psi_OS, head_TS=psi_TS)
+
+        # velocity component of OS in direction of TS
+        V_rel_x, V_rel_y = project_vector(VA=V_OS, angleA=chiOS, VB=V_TS, angleB=chiTS)
+        V_rel = polar_from_xy(x=V_rel_x, y=V_rel_y, with_r=True, with_angle=False)[0]
+
+        #-------------------------------------------------------------------------------------------------------
+        # Note: For Head-on, starboard crossing, and portside crossing, we do not care about the sideslip angle.
+        #       The latter comes only into play for checking the overall speed of USVs in overtaking.
+        #-------------------------------------------------------------------------------------------------------
+
+        # COLREG 1: Head-on
+        if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
+            return 1
+        
+        # COLREG 2: Starboard crossing
+        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
+            return 2
+
+        # COLREG 3: Portside crossing
+        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
+            return 3
+
+        # COLREG 4: Overtaking
+        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
+            return 4
+
+        # COLREG 0: nothing
+        return 0
+
+
     def _calculate_reward(self, a):
         """Returns reward of the current state."""
 
@@ -861,148 +996,126 @@ class MMG_Env(gym.Env):
             return ax
 
 
-    def _get_CR(self, OS, TS):
-        """Computes the collision risk metric similar to Chun et al. (2021)."""
-        # quick access
-        N0, E0, _ = OS.eta
-        N1, E1, _ = TS.eta
-        D = self._get_ship_domain(OS, TS)
-        CR_dist = self.CR_dist_multiple * D
+    def step_to_minute(self, t):
+        """Converts a simulation time to real time minutes."""
+        return t * self.delta_t / 60.0
 
-        # check if already in ship domain
-        if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
-            return 1.0
 
-        # compute speeds and courses
-        VOS = OS._get_V()
-        VTS = TS._get_V()
-        chiOS = OS._get_course()
-        chiTS = TS._get_course()
-
-        # compute relative speed
-        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
-        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
-
-        # compute CPA measures under the assumption that agent is at ship domain border in the direction of the TS
-        bng_absolute = bng_abs(N0=N0, E0=E0, N1=N1, E1=E1)
-        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
-
-        DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-        
-        if self.CR_zero_negTCPA:
-            if TCPA < 0:
-                return 0.0
-
-            return min([1.0, math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)])
-
+    def plot_dist(self, ax=None, sit=None):
+        """Creates the final distance plot."""
+        if ax is None:
+            _, ax = plt.subplots()
+            show = True
         else:
-            if TCPA >= 0:
-                cr = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
+            show = False
+
+        # Time axis
+        T_min = math.ceil(self.step_to_minute(2000))
+        ax.set_xlim(0, T_min)
+        ax.set_xticks([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xlabel("Time [min]", fontsize=8)
+
+        # N-axis
+        ax.set_ylim(0, self.N_max + 750)
+        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
+        ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
+        ax.set_ylabel("Distance [NM]", fontsize=8)
+
+        # TS
+        for TS_idx in range(self.N_TSs):
+
+            col = COLREG_COLORS[TS_idx]
+
+            # get TS traj data
+            TS_E_traj = self.TS_traj_E[TS_idx]
+            TS_N_traj = self.TS_traj_N[TS_idx]
+
+            # get distances
+            TS_dists = []
+            for t in range(len(self.OS_traj_E)):
+
+                N0 = self.OS_traj_N[t]
+                E0 = self.OS_traj_E[t]
+                N1 = TS_N_traj[t]
+                E1 = TS_E_traj[t]
+
+                # get relative bearing
+                bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=self.OS_traj_h[t])
+
+                # compute ship domain
+                D = self._get_ship_domain(OS=None, TS=None, ang=bng_rel_TS)
+
+                # get euclidean distance between OS and TS
+                ED_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+
+                TS_dists.append(ED_TS - D)
+            
+            # plot
+            ax.plot(self.step_to_minute(np.arange(len(TS_dists))), TS_dists, color=col)
+
+        if show:
+            plt.show()
+        else:
+            ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 7})
+
+            if sit not in [18, 19, 20, 21, 22, 23]:
+                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
+                ax.set_xlabel("")
             else:
-                cr = math.exp((DCPA + VR * 5 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
-            return min([1.0, cr])
+                ax.tick_params(axis='x', labelsize=8)
+
+            if sit not in [1, 7, 13, 19]:
+                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
+                ax.set_ylabel("")
+            else:
+                ax.tick_params(axis='y', labelsize=8)
+            
+            return ax
 
 
-    def _get_ship_domain(self, OS, TS, ang=None):
-        """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
-        Args:
-            OS: KVLCC2
-            TS: KVLCC2"""
-
-        # relative bearing
-        if ang is None:
-            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
-
-        # ellipsis
-        if 0 <= rtd(ang) < 90:
-            a = self.OS.ship_domain_D
-            b = self.OS.ship_domain_A
-
-        elif 90 <= rtd(ang) < 180:
-            ang = dtr(180) - ang
-            a = self.OS.ship_domain_D
-            b = self.OS.ship_domain_C
-
-        elif 180 <= rtd(ang) < 270:
-            ang = ang - dtr(180)
-            a = self.OS.ship_domain_B
-            b = self.OS.ship_domain_C
-
+    def plot_rudder(self, ax=None, sit=None):
+        """Creates the final rudder angle plot."""
+        if ax is None:
+            _, ax = plt.subplots()
+            show = True
         else:
-            ang = dtr(360) - ang
-            a = self.OS.ship_domain_B
-            b = self.OS.ship_domain_A
+            show = False
 
-        return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
+        # Time axis
+        T_min = math.ceil(self.step_to_minute(2000))
+        ax.set_xlim(0, T_min)
+        ax.set_xticks([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xlabel("Time [min]", fontsize=8)
 
+        # N-axis
+        ax.set_ylim(-rtd(self.OS.rud_angle_max) - 2.0, rtd(self.OS.rud_angle_max) + 2.0)
+        #ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
+        #ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
+        ax.set_ylabel("Rudder angle [°]", fontsize=8)
 
-    def _get_COLREG_situation(self, OS, TS):
-        """Determines the COLREG situation from the perspective of the OS. 
-        Follows Xu et al. (2020, Ocean Engineering; 2022, Neurocomputing).
+        # plot
+        ax.plot(self.step_to_minute(np.arange(len(self.OS_traj_rud_angle))), [rtd(ang) for ang in self.OS_traj_rud_angle], color="black", linewidth=0.75)
 
-        Args:
-            OS (CyberShip):    own vessel with attributes eta, nu
-            TS (CyberShip):    target vessel with attributes eta, nu
+        if show:
+            plt.show()
+        else:
+            ax.text(self.step_to_minute(100), 17.5, f"Case: {sit}", fontdict={"fontsize" : 7})
 
-        Returns:
-            0  -  no conflict situation
-            1  -  head-on
-            2  -  starboard crossing (small)
-            3  -  starboard crossing (large)
-            4  -  portside crossing
-            5  -  overtaking
-        """
+            if sit not in [18, 19, 20, 21, 22, 23]:
+                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
+                ax.set_xlabel("")
+            else:
+                ax.tick_params(axis='x', labelsize=8)
 
-        # quick access
-        NOS, EOS, psi_OS = OS.eta
-        NTS, ETS, psi_TS = TS.eta
-        V_OS  = OS._get_V()
-        V_TS  = TS._get_V()
-
-        chiOS = OS._get_course()
-        chiTS = TS._get_course()
-
-        # check whether TS is out of sight
-        if ED(N0=NOS, E0=EOS, N1=NTS, E1=ETS) > self.sight:
-            return 0
-
-        # relative bearing from OS to TS
-        bng_OS = bng_rel(N0=NOS, E0=EOS, N1=NTS, E1=ETS, head0=psi_OS)
-
-        # relative bearing from TS to OS
-        bng_TS = bng_rel(N0=NTS, E0=ETS, N1=NOS, E1=EOS, head0=psi_TS)
-
-        # intersection angle
-        C_T = head_inter(head_OS=psi_OS, head_TS=psi_TS)
-
-        # velocity component of OS in direction of TS
-        V_rel_x, V_rel_y = project_vector(VA=V_OS, angleA=chiOS, VB=V_TS, angleB=chiTS)
-        V_rel = polar_from_xy(x=V_rel_x, y=V_rel_y, with_r=True, with_angle=False)[0]
-
-        #-------------------------------------------------------------------------------------------------------
-        # Note: For Head-on, starboard crossing, and portside crossing, we do not care about the sideslip angle.
-        #       The latter comes only into play for checking the overall speed of USVs in overtaking.
-        #-------------------------------------------------------------------------------------------------------
-
-        # COLREG 1: Head-on
-        if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
-            return 1
-        
-        # COLREG 2: Starboard crossing
-        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
-            return 2
-
-        # COLREG 3: Portside crossing
-        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
-            return 3
-
-        # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > V_TS:
-            return 4
-
-        # COLREG 0: nothing
-        return 0
+            if sit not in [1, 7, 13, 19]:
+                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
+                ax.set_ylabel("")
+            else:
+                ax.tick_params(axis='y', labelsize=8)
+            
+            return ax
 
 
     def __str__(self) -> str:

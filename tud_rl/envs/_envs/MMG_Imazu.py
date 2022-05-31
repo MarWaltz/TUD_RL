@@ -5,7 +5,7 @@ from tud_rl.envs._envs.VesselFnc import dtr
 class MMG_Imazu(MMG_Env):
     """Implements the 22 ship encounter situations of Imazu (1987) as detailed in Sawada et al. (2021, JMST)."""
 
-    def __init__(self, plot_traj, situation, state_design, CR_zero_negTCPA):
+    def __init__(self, plot_traj, situation, state_design):
         
         if situation in range(5):
             N_TSs = 1
@@ -19,7 +19,7 @@ class MMG_Imazu(MMG_Env):
         elif situation == 23:
             N_TSs = 0
 
-        super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design, CR_zero_negTCPA=CR_zero_negTCPA)
+        super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design)
 
         self.situation = situation
         self.N_TSs = N_TSs
