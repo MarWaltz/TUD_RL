@@ -9,7 +9,7 @@ env:
     situation: 12
     state_design: RecDQN
     CR_zero_negTCPA : False
-    plot_traj: False
+    plot_traj: True
   info: ''
 agent:
   DQN: {}

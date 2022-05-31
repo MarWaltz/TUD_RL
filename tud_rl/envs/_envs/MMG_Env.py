@@ -743,7 +743,7 @@ class MMG_Env(gym.Env):
         return d
 
 
-    def plot_traj_fnc(self, ax=None, sit=None, r_dist=None, r_head=None, r_coll=None, r_COLREG=None, star=False):
+    def plot_traj_fnc(self, ax=None, sit=None, r_dist=None, r_head=None, r_coll=None, r_COLREG=None, r_comf=None, star=False):
         """Creates the final trajectory plot."""
         if ax is None:
             _, ax = plt.subplots()
@@ -836,12 +836,13 @@ class MMG_Env(gym.Env):
 
             if not star:
 
-                if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG]]):
+                if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
                     ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
                     ax.text(NM_to_meter(0.5), NM_to_meter(10.5), r"$r_{\rm head}$: " + format(r_head, '.2f'), fontdict={"fontsize" : 7})
                     ax.text(NM_to_meter(0.5), NM_to_meter(9.5), r"$r_{\rm coll}$: " + format(r_coll, '.2f'), fontdict={"fontsize" : 7})
                     ax.text(NM_to_meter(0.5), NM_to_meter(8.5),  r"$r_{\rm COLR}$: " + format(r_COLREG, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(7.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(7.5),  r"$r_{\rm comf}$: " + format(r_comf, '.2f'), fontdict={"fontsize" : 7})
+                    ax.text(NM_to_meter(0.5), NM_to_meter(6.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG + r_comf, '.2f'), fontdict={"fontsize" : 7})
                 
                 ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 7})
 
