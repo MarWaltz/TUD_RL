@@ -6,6 +6,11 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
+    w_dist: 0.05
+    w_head: 1.5
+    w_coll: 1.0
+    w_COLREG: 2.0
+    w_comf: 0.005
     situation: 12
     state_design: RecDQN
     plot_traj: True
