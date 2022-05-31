@@ -68,7 +68,8 @@ class LSTMDDPGAgent(BaseAgent):
                                                use_past_actions = self.use_past_actions).to(self.device)
 
         # number of parameters for actor and critic
-        self.n_params = self._count_params(self.actor), self._count_params(self.critic)
+        if init_critic:
+            self.n_params = self._count_params(self.actor), self._count_params(self.critic)
 
         # load prior weights if available
         if self.actor_weights is not None and self.critic_weights is not None:
