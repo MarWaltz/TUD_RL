@@ -802,7 +802,7 @@ class MMG_Env(gym.Env):
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
         # Distance reward
         OS_goal_ED       = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        r_dist           = (self.OS_goal_old - OS_goal_ED) / 20.0
+        r_dist           = (self.OS_goal_old - OS_goal_ED) / (20.0) - 1.0
         self.OS_goal_old = OS_goal_ED
 
         # Heading reward
@@ -1033,6 +1033,8 @@ class MMG_Env(gym.Env):
 
             # get distances
             TS_dists = []
+            TS_coll_t = []
+
             for t in range(len(self.OS_traj_E)):
 
                 N0 = self.OS_traj_N[t]
@@ -1050,9 +1052,17 @@ class MMG_Env(gym.Env):
                 ED_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
 
                 TS_dists.append(ED_TS - D)
+
+                # catch collisions
+                if ED_TS - D <= 0:
+                    TS_coll_t.append(t)
             
             # plot
             ax.plot(self.step_to_minute(np.arange(len(TS_dists))), TS_dists, color=col)
+
+            # plot collisions
+            if len(TS_coll_t) > 0:
+                ax.vlines(x=self.step_to_minute(np.array(TS_coll_t)), ymin=0, ymax=self.N_max + 750, color="red", linewidth=1.0)
 
         if show:
             plt.show()
