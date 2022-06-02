@@ -80,7 +80,7 @@ agent:
   LSTMRecDQN:
     history_length: 2
 seed: 12
-timesteps: 100_000_000
+timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 3
 dqn_weights:

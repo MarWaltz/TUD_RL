@@ -254,10 +254,8 @@ class MMG_Env(gym.Env):
                 VOS   = self.OS._get_V()
 
                 # sample COLREG situation 
-                # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
-                COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.1, 0.225, 0.225, 0.225, 0.225])
-                if COLREG_s == 0:
-                    return TS
+                # null = 0, head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
+                COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.2, 0.2, 0.2, 0.2, 0.2])
 
                 # determine relative speed of OS towards goal, need absolute bearing first
                 bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
@@ -276,8 +274,12 @@ class MMG_Env(gym.Env):
                 #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
                 #       and we need only one further information to uniquely determine the origin of its motion.
 
+                # null: TS comes from behind
+                if COLREG_s == 0:
+                     C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
                 # head-on
-                if COLREG_s == 1:
+                elif COLREG_s == 1:
                     C_TS_s = dtr(np.random.uniform(175, 185))
 
                 # starboard crossing
@@ -296,7 +298,7 @@ class MMG_Env(gym.Env):
                 head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
 
                 # no speed constraints except in overtaking
-                if COLREG_s in [1, 2, 3]:
+                if COLREG_s in [0, 1, 2, 3]:
                     VTS = TS.nu[0]
 
                 elif COLREG_s == 4:
