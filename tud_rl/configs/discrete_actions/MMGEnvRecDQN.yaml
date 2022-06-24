@@ -11,7 +11,7 @@ env:
     w_head: 1.5
     w_coll: 1.0
     w_COLREG: 2.0
-    w_comf: 0.02
+    w_comf: 0.005
     spawn_mode : line
     state_design: RecDQN
     plot_traj: False

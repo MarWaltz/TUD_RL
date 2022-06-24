@@ -93,6 +93,22 @@ class ConfigFile:
                 # set attribute for easy access
                 setattr(self, key, val)
 
+            elif hasattr(self.Env, key):
+
+                # overwrite config_dict for logging
+                self.config_dict["env"][key] = val
+
+                # set attribute for easy access
+                setattr(self.Env, key, val)
+
+            elif key in self.Env.env_kwargs.keys():
+
+                # overwrite config_dict for logging
+                self.config_dict["env"]["env_kwargs"][key] = val
+
+                # set attribute for easy access
+                self.Env.env_kwargs[key] = val
+
             else:
                 logger.error(
                     f"Overwrite: `{type(self).__name__}` has "
