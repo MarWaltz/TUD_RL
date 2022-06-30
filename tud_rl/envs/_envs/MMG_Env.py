@@ -174,7 +174,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.5, 0.3, 0.1])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
