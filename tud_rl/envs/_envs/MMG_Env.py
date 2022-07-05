@@ -900,7 +900,8 @@ class MMG_Env(gym.Env):
         ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
         ax.set_ylabel("North [NM]", fontsize=8)
 
-        ax.scatter(self.goal["E"], self.goal["N"])
+        if not star:
+            ax.scatter(self.goal["E"], self.goal["N"])
         
         # OS trajectory
         ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
@@ -973,23 +974,23 @@ class MMG_Env(gym.Env):
 
             if not star:
 
-                if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
-                    ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(10.5), r"$r_{\rm head}$: " + format(r_head, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(9.5), r"$r_{\rm coll}$: " + format(r_coll, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(8.5),  r"$r_{\rm COLR}$: " + format(r_COLREG, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(7.5),  r"$r_{\rm comf}$: " + format(r_comf, '.2f'), fontdict={"fontsize" : 7})
-                    ax.text(NM_to_meter(0.5), NM_to_meter(6.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG + r_comf, '.2f'), fontdict={"fontsize" : 7})
+                #if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(10.5), r"$r_{\rm head}$: " + format(r_head, '.2f'), fontdict={"fontsize" : 7})
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(9.5), r"$r_{\rm coll}$: " + format(r_coll, '.2f'), fontdict={"fontsize" : 7})
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(8.5),  r"$r_{\rm COLR}$: " + format(r_COLREG, '.2f'), fontdict={"fontsize" : 7})
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(7.5),  r"$r_{\rm comf}$: " + format(r_comf, '.2f'), fontdict={"fontsize" : 7})
+                    #ax.text(NM_to_meter(0.5), NM_to_meter(6.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG + r_comf, '.2f'), fontdict={"fontsize" : 7})
                 
-                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 7})
+                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-                if sit not in [18, 19, 20, 21, 22, 23]:
+                if sit not in [19, 20, 21, 22]:
                     ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
                     ax.set_xlabel("")
                 else:
                     ax.tick_params(axis='x', labelsize=8)
 
-                if sit not in [1, 7, 13, 19]:
+                if sit not in [1, 5, 9, 13, 17, 21]:
                     ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
                     ax.set_ylabel("")
                 else:
@@ -1014,15 +1015,18 @@ class MMG_Env(gym.Env):
         # Time axis
         T_min = math.ceil(self.step_to_minute(2000))
         ax.set_xlim(0, T_min)
-        ax.set_xticks([t for t in range(T_min) if (t + 1) % 10 == 1])
-        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
+        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
         ax.set_xlabel("Time [min]", fontsize=8)
 
         # N-axis
-        ax.set_ylim(0, self.N_max + 750)
+        ax.set_ylim(-1000, self.N_max + 750)
         ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
         ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
         ax.set_ylabel("Distance [NM]", fontsize=8)
+
+        # horizontal line at zero distance
+        ax.hlines(y=0, xmin=0, xmax=T_min, colors="grey", linestyles="dashed", linewidth=1.5)
 
         # TS
         for TS_idx in range(self.N_TSs):
@@ -1069,15 +1073,15 @@ class MMG_Env(gym.Env):
         if show:
             plt.show()
         else:
-            ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case: {sit}", fontdict={"fontsize" : 7})
+            ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-            if sit not in [18, 19, 20, 21, 22, 23]:
+            if sit not in [19, 20, 21, 22]:
                 ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
                 ax.set_xlabel("")
             else:
                 ax.tick_params(axis='x', labelsize=8)
 
-            if sit not in [1, 7, 13, 19]:
+            if sit not in [1, 5, 9, 13, 17, 21]:
                 ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
                 ax.set_ylabel("")
             else:
@@ -1097,8 +1101,8 @@ class MMG_Env(gym.Env):
         # Time axis
         T_min = math.ceil(self.step_to_minute(2000))
         ax.set_xlim(0, T_min)
-        ax.set_xticks([t for t in range(T_min) if (t + 1) % 10 == 1])
-        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 10 == 1])
+        ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
+        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
         ax.set_xlabel("Time [min]", fontsize=8)
 
         # N-axis
@@ -1113,15 +1117,15 @@ class MMG_Env(gym.Env):
         if show:
             plt.show()
         else:
-            ax.text(self.step_to_minute(100), 17.5, f"Case: {sit}", fontdict={"fontsize" : 7})
+            ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
 
-            if sit not in [18, 19, 20, 21, 22, 23]:
+            if sit not in [19, 20, 21, 22]:
                 ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
                 ax.set_xlabel("")
             else:
                 ax.tick_params(axis='x', labelsize=8)
 
-            if sit not in [1, 7, 13, 19]:
+            if sit not in [1, 5, 9, 13, 17, 21]:
                 ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
                 ax.set_ylabel("")
             else:
