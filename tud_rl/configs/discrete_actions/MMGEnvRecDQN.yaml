@@ -13,7 +13,7 @@ env:
     w_COLREG: 2.0
     w_comf: 0.3
     spawn_mode : line
-    state_design: maxRisk
+    state_design: RecDQN
     plot_traj: False
     N_TSs_random : True
     N_TSs_increasing : False

@@ -52,7 +52,8 @@ class MMG_Env(gym.Env):
         self.sight             = NM_to_meter(20.0)     # sight of the agent (in m)
 
         # CR calculation
-        self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
+        self.CR_rec_dist       = NM_to_meter(2.0)      # collision risk distance
+        #self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
         self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
 
         # spawning
@@ -171,6 +172,9 @@ class MMG_Env(gym.Env):
         dists = [self._get_ship_domain(OS=None, TS=None, ang=rad) for rad in rads]
         self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
         self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
+
+        self.outer_domain_plot_xs = [(dist + self.CR_rec_dist) * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.outer_domain_plot_ys = [(dist + self.CR_rec_dist) * math.cos(rad) for dist, rad in zip(dists, rads)]
 
         # init other vessels
         if self.N_TSs_random:
@@ -665,7 +669,8 @@ class MMG_Env(gym.Env):
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
         D = self._get_ship_domain(OS, TS)
-        CR_dist = self.CR_dist_multiple * D
+        CR_dist = self.CR_rec_dist
+        #CR_dist = self.CR_dist_multiple * D
 
         # check if already in ship domain
         if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
@@ -1298,11 +1303,16 @@ class MMG_Env(gym.Env):
                     ys = [xy[1] for xy in xys]
                     ax.plot(xs, ys, color="black", alpha=0.7)
 
-                    # collision risk distance
-                    xys = [self._rotate_point(E0 + (1 + self.CR_dist_multiple) * x, N0 + (1 + self.CR_dist_multiple) * y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    xys = [self._rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.outer_domain_plot_xs, self.outer_domain_plot_ys)]
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
-                    ax.plot(xs, ys, color="black", alpha=0.3)
+                    ax.plot(xs, ys, color="black", alpha=0.7)
+
+                    # collision risk distance
+                    #xys = [self._rotate_point(E0 + (1 + self.CR_dist_multiple) * x, N0 + (1 + self.CR_dist_multiple) * y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    #xs = [xy[0] for xy in xys]
+                    #ys = [xy[1] for xy in xys]
+                    #ax.plot(xs, ys, color="black", alpha=0.3)
 
                     # add jets according to COLREGS
                     for COLREG_deg in [5, 355]:
