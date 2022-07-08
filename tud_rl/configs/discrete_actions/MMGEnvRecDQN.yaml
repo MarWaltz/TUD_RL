@@ -9,7 +9,7 @@ env:
     N_TSs_max: 3
     w_dist: 0.05
     w_head: 1.5
-    w_coll: 1.0
+    w_coll: 1.5
     w_COLREG: 2.0
     w_comf: 0.3
     spawn_mode : line
