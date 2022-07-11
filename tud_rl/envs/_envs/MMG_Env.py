@@ -10,9 +10,12 @@ from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (COLREG_COLORS, COLREG_NAMES, ED,
                                          NM_to_meter, angle_to_2pi,
                                          angle_to_pi, bng_abs, bng_rel, cpa,
-                                         dtr, head_inter, meter_to_NM,
-                                         polar_from_xy, project_vector, rtd,
-                                         tcpa, xy_from_polar)
+                                         dtr, get_ship_domain, head_inter,
+                                         meter_to_NM, polar_from_xy,
+                                         project_vector, rtd, tcpa,
+                                         xy_from_polar)
+from tud_rl.envs._envs.VesselPlots import (TrajPlotter, get_rect, plot_jet,
+                                           rotate_point)
 
 
 class MMG_Env(gym.Env):
@@ -23,7 +26,7 @@ class MMG_Env(gym.Env):
                  N_TSs_random     = False, 
                  N_TSs_increasing = False,
                  state_design     = "RecDQN", 
-                 plot_traj        = True,
+                 pdf_traj         = True,
                  w_dist           = 1.0,
                  w_head           = 1.0,
                  w_coll           = 1.0,
@@ -49,17 +52,21 @@ class MMG_Env(gym.Env):
         if self.N_TSs_increasing:
             self.outer_step_cnt = 0
 
-        self.sight             = NM_to_meter(20.0)     # sight of the agent (in m)
+        self.sight = NM_to_meter(20.0)     # sight of the agent (in m)
 
         # CR calculation
-        self.CR_rec_dist       = NM_to_meter(2.0)      # collision risk distance
+        self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
         #self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
-        self.CR_al             = 0.1                   # collision risk metric when TS is at CR_dist of agent
+        self.CR_al = 0.1                   # collision risk metric when TS is at CR_dist of agent
 
         # spawning
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
         self.min_dist_spawn_TS = 5 * 320               # minimum distance of a spawning vessel to other TSs (in m)
 
+        assert spawn_mode in ["center", "line", "line_v2"], "Unknown TS spawning mode."
+        self.spawn_mode = spawn_mode
+
+        # states/observations
         assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
 
@@ -69,12 +76,9 @@ class MMG_Env(gym.Env):
         self.num_obs_OS = 7                               # number of observations for the OS
         self.num_obs_TS = 6                               # number of observations per TS
 
-        self.plot_traj = plot_traj                             # whether to plot trajectory after termination
-        self.plot_every = 5 * 60                                # seconds between markers in trajectory plotting
-        self.plot_every_step = self.plot_every / self.delta_t  # number of timesteps between markers in trajectory plotting
-
-        assert spawn_mode in ["center", "line", "line_v2"], "Unknown TS spawning mode."
-        self.spawn_mode = spawn_mode
+        # plotting
+        self.pdf_traj = pdf_traj   # whether to plot trajectory after termination
+        self.TrajPlotter = TrajPlotter(plot_every=5 * 60, delta_t=self.delta_t)
 
         # gym definitions
         if state_design == "RecDQN":
@@ -112,7 +116,8 @@ class MMG_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # sample setup
-        self.sit_init = np.random.choice([0, 1, 2, 3])
+        #self.sit_init = np.random.choice([0, 1, 2, 3])
+        self.sit_init = 0
 
         # init agent heading
         if self.sit_init == 0:
@@ -169,7 +174,8 @@ class MMG_Env(gym.Env):
 
         # initially compute ship domain for plotting
         rads  = np.linspace(0.0, 2*math.pi, 100)
-        dists = [self._get_ship_domain(OS=None, TS=None, ang=rad) for rad in rads]
+        dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+            OS=None, TS=None, ang=rad) for rad in rads]
         self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
         self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
@@ -199,26 +205,7 @@ class MMG_Env(gym.Env):
         self.state_init = self.state
 
         # trajectory storing
-        if self.plot_traj:
-            self.OS_traj_rud_angle = [self.OS.rud_angle]
-
-            self.OS_traj_N = [self.OS.eta[0]]
-            self.OS_traj_E = [self.OS.eta[1]]
-            self.OS_traj_h = [self.OS.eta[2]]
-
-            self.OS_col_N = []
-            self.OS_col_E = []
-
-            self.TS_traj_N = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_E = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_h = [[] for _ in range(self.N_TSs)]
-
-            self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
- 
-            for TS_idx, TS in enumerate(self.TSs):             
-                self.TS_traj_N[TS_idx].append(TS.eta[0])
-                self.TS_traj_E[TS_idx].append(TS.eta[1])
-                self.TS_traj_h[TS_idx].append(TS.eta[2])
+        self.TrajPlotter.reset(OS=self.OS, TSs=self.TSs, N_TSs=self.N_TSs)
 
         return self.state
 
@@ -336,6 +323,8 @@ class MMG_Env(gym.Env):
 
             elif self.spawn_mode == "line_v2":
 
+                raise Exception("'line_v2' spawning is deprecated in MMG-Env.")
+
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
                 chiOS = self.OS._get_course()
@@ -412,6 +401,8 @@ class MMG_Env(gym.Env):
 
             #--------------------------------------- center mode --------------------------------------
             elif self.spawn_mode == "center":
+
+                raise Exception("'center' spawning is deprecated in MMG-Env.")
 
                 # sample either overtaker, head-on, or random angle
                 setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.15, 0.15, 0.7])
@@ -604,34 +595,7 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt += 1
 
         # trajectory plotting
-        if self.plot_traj:
-
-            # agent update
-            self.OS_traj_rud_angle.append(self.OS.rud_angle)
-            self.OS_traj_N.append(self.OS.eta[0])
-            self.OS_traj_E.append(self.OS.eta[1])
-            self.OS_traj_h.append(self.OS.eta[2])
-
-            if self.N_TSs > 0:
-
-                # check whether we had a collision
-                for TS in self.TSs:
-                    D = self._get_ship_domain(self.OS, TS)
-                    if ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= D:
-                        self.OS_col_N.append(self.OS.eta[0])
-                        self.OS_col_E.append(self.OS.eta[1])
-                        break
-
-                # check TS respawning
-                for TS_idx, flag in enumerate(self.respawn_flags):
-                    if flag:
-                        self.TS_spawn_steps[TS_idx].append(self.step_cnt)
-
-                # TS update
-                for TS_idx, TS in enumerate(self.TSs):
-                    self.TS_traj_N[TS_idx].append(TS.eta[0])
-                    self.TS_traj_E[TS_idx].append(TS.eta[1])
-                    self.TS_traj_h[TS_idx].append(TS.eta[2])
+        self.TrajPlotter.step(OS=self.OS, TSs=self.TSs, respawn_flags=self.respawn_flags, step_cnt=self.step_cnt)
 
         # compute state, reward, done        
         self._set_state()
@@ -668,7 +632,8 @@ class MMG_Env(gym.Env):
         # quick access
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
-        D = self._get_ship_domain(OS, TS)
+        D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, \
+            D=self.OS.ship_domain_D, OS=OS, TS=TS)
         CR_dist = self.CR_rec_dist
         #CR_dist = self.CR_dist_multiple * D
 
@@ -698,39 +663,6 @@ class MMG_Env(gym.Env):
         else:
             cr = math.exp((DCPA + VR * 5.0 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
         return min([1.0, cr])
-
-
-    def _get_ship_domain(self, OS, TS, ang=None):
-        """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
-        Args:
-            OS: KVLCC2
-            TS: KVLCC2"""
-
-        # relative bearing
-        if ang is None:
-            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
-
-        # ellipsis
-        if 0 <= rtd(ang) < 90:
-            a = self.OS.ship_domain_D
-            b = self.OS.ship_domain_A
-
-        elif 90 <= rtd(ang) < 180:
-            ang = dtr(180) - ang
-            a = self.OS.ship_domain_D
-            b = self.OS.ship_domain_C
-
-        elif 180 <= rtd(ang) < 270:
-            ang = ang - dtr(180)
-            a = self.OS.ship_domain_B
-            b = self.OS.ship_domain_C
-
-        else:
-            ang = dtr(360) - ang
-            a = self.OS.ship_domain_B
-            b = self.OS.ship_domain_A
-
-        return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
 
 
     def _get_COLREG_situation(self, OS, TS):
@@ -875,268 +807,12 @@ class MMG_Env(gym.Env):
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
             d = True
-        
-        # plot trajectory
-        if self.plot_traj and d:
 
-            # show the plot for MMG training env, only return axis in Imazu problems
-            if "MMG_Env" == self.__class__.__name__:
-                self.plot_traj_fnc()
+        # create pdf trajectory
+        if d and self.pdf_traj:
+            self.TrajPlotter.plot_traj_fnc(E_max=self.E_max, N_max=self.N_max, goal=self.goal,\
+                goal_reach_dist=self.goal_reach_dist, Lpp=self.OS.Lpp, step_cnt=self.step_cnt)
         return d
-
-
-    def plot_traj_fnc(self, ax=None, sit=None, r_dist=None, r_head=None, r_coll=None, r_COLREG=None, r_comf=None, star=False):
-        """Creates the final trajectory plot."""
-        if ax is None:
-            _, ax = plt.subplots()
-            show = True
-        else:
-            show = False
-
-        # E-axis
-        ax.set_xlim(0, self.E_max)
-        ax.set_xticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
-        ax.set_xticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
-        ax.set_xlabel("East [NM]", fontsize=8)
-
-        # N-axis
-        ax.set_ylim(0, self.N_max)
-        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
-        ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
-        ax.set_ylabel("North [NM]", fontsize=8)
-
-        if not star:
-            ax.scatter(self.goal["E"], self.goal["N"])
-        
-        # OS trajectory
-        ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
-
-        # triangle at beginning
-        rec = self._get_triangle(E = self.OS_traj_E[0], N = self.OS_traj_N[0], l=self.OS.Lpp, heading = self.OS_traj_h[0],\
-                facecolor="white", edgecolor="black", linewidth=1.5, zorder=10)
-        ax.add_patch(rec)
-
-        # OS markers
-        OS_traj_E_m = [ele for idx, ele in enumerate(self.OS_traj_E) if idx % self.plot_every_step == 0]
-        OS_traj_N_m = [ele for idx, ele in enumerate(self.OS_traj_N) if idx % self.plot_every_step == 0]
-        ax.scatter(OS_traj_E_m, OS_traj_N_m, color="black", s=5)
-
-        # OS collision
-        if len(self.OS_col_N) > 0:
-            ax.scatter(self.OS_col_E, self.OS_col_N, color="red", s=5)
-
-        # TS
-        for TS_idx in range(self.N_TSs):
-
-            col = COLREG_COLORS[TS_idx]
-
-            # add final step cnt since we finish here
-            spawn_steps = self.TS_spawn_steps[TS_idx]
-            if spawn_steps[-1] != self.step_cnt:
-                spawn_steps.append(self.step_cnt)
-
-            # trajectories
-            if len(spawn_steps) == 1:
-                ax.plot(self.TS_traj_E[TS_idx], self.TS_traj_N[TS_idx])
-            else:
-                for step_idx in range(len(spawn_steps)-1):
-                    start = spawn_steps[step_idx]
-                    end   = spawn_steps[step_idx+1]
-
-                    E_traj = self.TS_traj_E[TS_idx][start:end]
-                    N_traj = self.TS_traj_N[TS_idx][start:end]
-
-                    # triangle at beginning
-                    rec = self._get_triangle(E = E_traj[0], N = N_traj[0], l=self.OS.Lpp, heading = self.TS_traj_h[TS_idx][start],\
-                         facecolor="white", edgecolor=col, linewidth=1.5, zorder=10)
-                    ax.add_patch(rec)
-
-                    # trajectory
-                    ax.plot(E_traj, N_traj, color=col)
-
-            # markers
-            TS_traj_E_m = [ele for idx, ele in enumerate(self.TS_traj_E[TS_idx]) if idx % self.plot_every_step == 0]
-            TS_traj_N_m = [ele for idx, ele in enumerate(self.TS_traj_N[TS_idx]) if idx % self.plot_every_step == 0]
-            ax.scatter(TS_traj_E_m, TS_traj_N_m, color=col, s=5)
-
-        # goal
-        if not star:
-            circ = patches.Circle((self.goal["E"], self.goal["N"]), radius=self.goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
-            ax.add_patch(circ)
-        else:
-            for i in range(len(self.agents)):
-                if i == 0:
-                    col = "black"
-                else:
-                    col = COLREG_COLORS[i-1]
-                circ = patches.Circle((self.goals[i]["E"], self.goals[i]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.4)
-                ax.add_patch(circ)
-
-        if show:
-            plt.show()
-        else:
-            ax.grid(linewidth=1.0, alpha=0.425)
-
-            if not star:
-
-                #if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(10.5), r"$r_{\rm head}$: " + format(r_head, '.2f'), fontdict={"fontsize" : 7})
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(9.5), r"$r_{\rm coll}$: " + format(r_coll, '.2f'), fontdict={"fontsize" : 7})
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(8.5),  r"$r_{\rm COLR}$: " + format(r_COLREG, '.2f'), fontdict={"fontsize" : 7})
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(7.5),  r"$r_{\rm comf}$: " + format(r_comf, '.2f'), fontdict={"fontsize" : 7})
-                    #ax.text(NM_to_meter(0.5), NM_to_meter(6.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG + r_comf, '.2f'), fontdict={"fontsize" : 7})
-                
-                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
-
-                if sit not in [19, 20, 21, 22]:
-                    ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
-                    ax.set_xlabel("")
-                else:
-                    ax.tick_params(axis='x', labelsize=8)
-
-                if sit not in [1, 5, 9, 13, 17, 21]:
-                    ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
-                    ax.set_ylabel("")
-                else:
-                    ax.tick_params(axis='y', labelsize=8)
-            
-            return ax
-
-
-    def step_to_minute(self, t):
-        """Converts a simulation time to real time minutes."""
-        return t * self.delta_t / 60.0
-
-
-    def plot_dist(self, ax=None, sit=None):
-        """Creates the final distance plot."""
-        if ax is None:
-            _, ax = plt.subplots()
-            show = True
-        else:
-            show = False
-
-        # Time axis
-        T_min = math.ceil(self.step_to_minute(2000))
-        ax.set_xlim(0, T_min)
-        ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
-        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
-        ax.set_xlabel("Time [min]", fontsize=8)
-
-        # N-axis
-        ax.set_ylim(-1000, self.N_max + 750)
-        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
-        ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
-        ax.set_ylabel("Distance [NM]", fontsize=8)
-
-        # horizontal line at zero distance
-        ax.hlines(y=0, xmin=0, xmax=T_min, colors="grey", linestyles="dashed", linewidth=1.5)
-
-        # TS
-        for TS_idx in range(self.N_TSs):
-
-            col = COLREG_COLORS[TS_idx]
-
-            # get TS traj data
-            TS_E_traj = self.TS_traj_E[TS_idx]
-            TS_N_traj = self.TS_traj_N[TS_idx]
-
-            # get distances
-            TS_dists = []
-            TS_coll_t = []
-
-            for t in range(len(self.OS_traj_E)):
-
-                N0 = self.OS_traj_N[t]
-                E0 = self.OS_traj_E[t]
-                N1 = TS_N_traj[t]
-                E1 = TS_E_traj[t]
-
-                # get relative bearing
-                bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=self.OS_traj_h[t])
-
-                # compute ship domain
-                D = self._get_ship_domain(OS=None, TS=None, ang=bng_rel_TS)
-
-                # get euclidean distance between OS and TS
-                ED_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-
-                TS_dists.append(ED_TS - D)
-
-                # catch collisions
-                if ED_TS - D <= 0:
-                    TS_coll_t.append(t)
-            
-            # plot
-            ax.plot(self.step_to_minute(np.arange(len(TS_dists))), TS_dists, color=col)
-
-            # plot collisions
-            if len(TS_coll_t) > 0:
-                ax.vlines(x=self.step_to_minute(np.array(TS_coll_t)), ymin=0, ymax=self.N_max + 750, color="red", linewidth=1.0)
-
-        if show:
-            plt.show()
-        else:
-            ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
-
-            if sit not in [19, 20, 21, 22]:
-                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
-                ax.set_xlabel("")
-            else:
-                ax.tick_params(axis='x', labelsize=8)
-
-            if sit not in [1, 5, 9, 13, 17, 21]:
-                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
-                ax.set_ylabel("")
-            else:
-                ax.tick_params(axis='y', labelsize=8)
-            
-            return ax
-
-
-    def plot_rudder(self, ax=None, sit=None):
-        """Creates the final rudder angle plot."""
-        if ax is None:
-            _, ax = plt.subplots()
-            show = True
-        else:
-            show = False
-
-        # Time axis
-        T_min = math.ceil(self.step_to_minute(2000))
-        ax.set_xlim(0, T_min)
-        ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
-        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
-        ax.set_xlabel("Time [min]", fontsize=8)
-
-        # N-axis
-        ax.set_ylim(-rtd(self.OS.rud_angle_max) - 2.0, rtd(self.OS.rud_angle_max) + 2.0)
-        #ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
-        #ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
-        ax.set_ylabel("Rudder angle [°]", fontsize=8)
-
-        # plot
-        ax.plot(self.step_to_minute(np.arange(len(self.OS_traj_rud_angle))), [rtd(ang) for ang in self.OS_traj_rud_angle], color="black", linewidth=0.75)
-
-        if show:
-            plt.show()
-        else:
-            ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
-
-            if sit not in [19, 20, 21, 22]:
-                ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
-                ax.set_xlabel("")
-            else:
-                ax.tick_params(axis='x', labelsize=8)
-
-            if sit not in [1, 5, 9, 13, 17, 21]:
-                ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
-                ax.set_ylabel("")
-            else:
-                ax.tick_params(axis='y', labelsize=8)
-            
-            return ax
 
 
     def __str__(self) -> str:
@@ -1149,104 +825,11 @@ class MMG_Env(gym.Env):
         return ste + "\n" + pos + "\n" + vel
 
 
-    def _rotate_point(self, x, y, cx, cy, angle):
-        """Rotates a point (x,y) around origin (cx,cy) by an angle (defined counter-clockwise with zero at y-axis)."""
-
-        # translate point to origin
-        tempX = x - cx
-        tempY = y - cy
-
-        # apply rotation
-        rotatedX = tempX * math.cos(angle) - tempY * math.sin(angle)
-        rotatedY = tempX * math.sin(angle) + tempY * math.cos(angle)
-
-        # translate back
-        return rotatedX + cx, rotatedY + cy
-
-    def _get_rect(self, E, N, width, length, heading, **kwargs):
-        """Returns a patches.rectangle object. heading in rad."""
-
-        # quick access
-        x = E - width/2
-        y = N - length/2, 
-        cx = E
-        cy = N
-        heading = -heading   # negate since our heading is defined clockwise, contrary to plt rotations
-
-        E0, N0 = self._rotate_point(x=x, y=y, cx=cx, cy=cy, angle=heading)
-
-        # create rect
-        return patches.Rectangle((E0, N0), width, length, rtd(heading), **kwargs)
-
-
-    def _get_triangle(self, E, N, l, heading, **kwargs):
-        """Returns a patches.polygon object. heading in rad."""
-
-        # quick access 
-        cx = E
-        cy = N
-        heading = -heading   # negate since our heading is defined clockwise, contrary to plt rotations
-
-        topx = cx
-        topy = cy + 2*l
-
-        rightx = cx + l
-        righty = cy - l
-
-        leftx = cx - l
-        lefty = cy - l
-
-        topE, topN     = self._rotate_point(x=topx, y=topy, cx=cx, cy=cy, angle=heading)
-        rightE, rightN = self._rotate_point(x=rightx, y=righty, cx=cx, cy=cy, angle=heading)
-        leftE, leftN   = self._rotate_point(x=leftx, y=lefty, cx=cx, cy=cy, angle=heading)
-
-        # create rect
-        return patches.Polygon(xy=np.array([[topE, topN], [rightE, rightN], [leftE, leftN]]), **kwargs)
-
-
-    def _plot_jet(self, axis, E, N, l, angle, **kwargs):
-        """Adds a line to an axis (plt-object) originating at (E,N), having a given length l, 
-           and following the angle (in rad). Returns the new axis."""
-
-        # transform angle in [0, 2pi)
-        angle = angle_to_2pi(angle)
-
-        # 1. Quadrant
-        if angle <= math.pi/2:
-            E1 = E + math.sin(angle) * l
-            N1 = N + math.cos(angle) * l
-        
-        # 2. Quadrant
-        elif 3/2 *math.pi < angle <= 2*math.pi:
-            angle = 2*math.pi - angle
-
-            E1 = E - math.sin(angle) * l
-            N1 = N + math.cos(angle) * l
-
-        # 3. Quadrant
-        elif math.pi < angle <= 3/2*math.pi:
-            angle -= math.pi
-
-            E1 = E - math.sin(angle) * l
-            N1 = N - math.cos(angle) * l
-
-        # 4. Quadrant
-        elif math.pi/2 < angle <= math.pi:
-            angle = math.pi - angle
-
-            E1 = E + math.sin(angle) * l
-            N1 = N - math.cos(angle) * l
-        
-        # draw on axis
-        axis.plot([E, E1], [N, N1], **kwargs)
-        return axis
-
-
     def render(self, mode=None):
         """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
 
         # plot every nth timestep (except we only want trajectory)
-        if not self.plot_traj:
+        if not self.pdf_traj:
 
             if self.step_cnt % 2 == 0: 
 
@@ -1290,20 +873,20 @@ class MMG_Env(gym.Env):
                     VOS = self.OS._get_V()
 
                     # set OS
-                    rect = self._get_rect(E = E0, N = N0, width = self.OS.B, length = self.OS.Lpp, heading = head0,
-                                        linewidth=1, edgecolor='black', facecolor='none')
+                    rect = get_rect(E = E0, N = N0, width = self.OS.B, length = self.OS.Lpp, heading = head0,
+                                    linewidth=1, edgecolor='black', facecolor='none')
                     ax.add_patch(rect)
                     
                     # step information
                     ax.text(0.05 * self.E_max, 0.9 * self.N_max, self.__str__(), fontsize=8)
 
                     # ship domain
-                    xys = [self._rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
                     ax.plot(xs, ys, color="black", alpha=0.7)
 
-                    xys = [self._rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.outer_domain_plot_xs, self.outer_domain_plot_ys)]
+                    xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.outer_domain_plot_xs, self.outer_domain_plot_ys)]
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
                     ax.plot(xs, ys, color="black", alpha=0.7)
@@ -1316,8 +899,8 @@ class MMG_Env(gym.Env):
 
                     # add jets according to COLREGS
                     for COLREG_deg in [5, 355]:
-                        ax = self._plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
-                                            angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
+                        ax = plot_jet(axis = ax, E=E0, N=N0, l = self.sight, 
+                                      angle = head0 + dtr(COLREG_deg), color='black', alpha=0.3)
 
                     # set goal (stored as NE)
                     ax.scatter(self.goal["E"], self.goal["N"], color="blue")
@@ -1340,21 +923,22 @@ class MMG_Env(gym.Env):
                         col = COLREG_COLORS[COLREG]
 
                         # place TS
-                        rect = self._get_rect(E = E, N = N, width = TS.B, length = TS.Lpp, heading = headTS,
-                                            linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
+                        rect = get_rect(E = E, N = N, width = TS.B, length = TS.Lpp, heading = headTS,
+                                        linewidth=1, edgecolor=col, facecolor='none', label=COLREG_NAMES[COLREG])
                         ax.add_patch(rect)
 
                         # add two jets according to COLREGS
                         for COLREG_deg in [5, 355]:
-                            ax= self._plot_jet(axis = ax, E=E, N=N, l = self.sight, 
-                                            angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
+                            ax= plot_jet(axis = ax, E=E, N=N, l = self.sight, 
+                                         angle = headTS + dtr(COLREG_deg), color=col, alpha=0.3)
 
                         # collision risk                        
                         CR = self._get_CR(OS=self.OS, TS=TS)
                         ax.text(E + 800, N-600, f"CR: {np.round(CR, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
                         
-                        D = self._get_ship_domain(OS=self.OS, TS=TS)
+                        D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, \
+                            D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
                         ax.text(E + 800, N-1000, f"D: {np.round(D, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
 

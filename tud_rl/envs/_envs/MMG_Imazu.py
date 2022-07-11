@@ -5,7 +5,7 @@ from tud_rl.envs._envs.VesselFnc import dtr
 class MMG_Imazu(MMG_Env):
     """Implements the 22 ship encounter situations of Imazu (1987) as detailed in Sawada et al. (2021, JMST)."""
 
-    def __init__(self, plot_traj, situation, state_design, w_dist, w_head, w_coll, w_COLREG, w_comf):
+    def __init__(self, pdf_traj, situation, state_design, w_dist, w_head, w_coll, w_COLREG, w_comf):
         
         if situation in range(5):
             N_TSs = 1
@@ -19,7 +19,7 @@ class MMG_Imazu(MMG_Env):
         elif situation == 23:
             N_TSs = 0
 
-        super().__init__(N_TSs_max=N_TSs, plot_traj=plot_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design,\
+        super().__init__(N_TSs_max=N_TSs, pdf_traj=pdf_traj, N_TSs_random=False, N_TSs_increasing=False, state_design=state_design,\
              w_dist=w_dist, w_head=w_head, w_coll=w_coll, w_COLREG=w_COLREG, w_comf=w_comf)
 
         self.situation = situation
@@ -59,19 +59,41 @@ class MMG_Imazu(MMG_Env):
 
         # initially compute ship domain for plotting
         rads  = np.linspace(0.0, 2*math.pi, 100)
-        dists = [self._get_ship_domain(OS=None, TS=None, ang=rad) for rad in rads]
+        dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+            OS=None, TS=None, ang=rad) for rad in rads]
         self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
         self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
-        #--------------------------- Goal spawn --------------------------------
+        self.outer_domain_plot_xs = [(dist + self.CR_rec_dist) * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.outer_domain_plot_ys = [(dist + self.CR_rec_dist) * math.cos(rad) for dist, rad in zip(dists, rads)]
+
+        # goal spawn
         self.goal = {"N" : CPA_N + abs(CPA_N - self.OS.eta[0]), "E" : self.OS.eta[1]}
         self.OS_goal_init = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=self.goal["N"], E1=self.goal["E"])
         self.OS_goal_old  = self.OS_goal_init
 
-        #--------------------------- TS spawn --------------------------------
-        
-        # TS should be after 'TCPA' at point (0,0)
-        # since we have speed and heading, we can uniquely determine origin of the motion
+        # TS spawn
+        self._spawn_TS(CPA_N=CPA_N, CPA_E=CPA_E, TCPA=TCPA)
+
+        # determine current COLREG situations
+        self.TS_COLREGs = [0] * self.N_TSs_max
+        self._set_COLREGs()
+
+        # init state
+        self._set_state()
+        self.state_init = self.state
+
+        # trajectory storing
+        self.TrajPlotter.reset(OS=self.OS, TSs=self.TSs, N_TSs=self.N_TSs)
+
+        return self.state
+
+    def _handle_respawn(self, TS):
+        return TS, False
+
+    def _spawn_TS(self, CPA_N, CPA_E, TCPA):
+        """TS should be after 'TCPA' at point (CPA_N, CPA_E).
+        Since we have speed and heading, we can uniquely determine origin of the motion."""
 
         # construct ship with dummy N, E, heading
         TS1 = KVLCC2(N_init   = 0.0, 
@@ -258,38 +280,3 @@ class MMG_Imazu(MMG_Env):
 
         elif self.situation == 23:
             self.TSs = []
-
-        # determine current COLREG situations
-        self.TS_COLREGs = [0] * self.N_TSs_max
-        self._set_COLREGs()
-
-        # init state
-        self._set_state()
-        self.state_init = self.state
-
-        # trajectory storing
-        if self.plot_traj:
-            self.OS_traj_rud_angle = [self.OS.rud_angle]
-
-            self.OS_traj_N = [self.OS.eta[0]]
-            self.OS_traj_E = [self.OS.eta[1]]
-            self.OS_traj_h = [self.OS.eta[2]]
-
-            self.OS_col_N = []
-            self.OS_col_E = []
-
-            self.TS_traj_N = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_E = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_h = [[] for _ in range(self.N_TSs)]
-
-            self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
- 
-            for TS_idx, TS in enumerate(self.TSs):             
-                self.TS_traj_N[TS_idx].append(TS.eta[0])
-                self.TS_traj_E[TS_idx].append(TS.eta[1])
-                self.TS_traj_h[TS_idx].append(TS.eta[2])
-
-        return self.state
-
-    def _handle_respawn(self, TS):
-        return TS, False

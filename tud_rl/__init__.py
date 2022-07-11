@@ -42,6 +42,10 @@ gym.register(
     id="MMGImazu-v0",
     entry_point=loc + "MMG_Imazu"
 )
+gym.register(
+    id="MMGSEval-v0",
+    entry_point=loc + "MMG_SEval"
+)
 
 # Initialize logger
 logger = logging.getLogger(__name__)

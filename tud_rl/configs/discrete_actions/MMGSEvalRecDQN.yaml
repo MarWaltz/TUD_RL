@@ -1,6 +1,6 @@
 ---
 env:
-  name: MMGImazu-v0
+  name: MMGSEval-v0
   max_episode_steps: 10_000
   state_type: feature
   wrappers: []
@@ -11,7 +11,7 @@ env:
     w_coll: 1.0
     w_COLREG: 2.0
     w_comf: 0.3
-    situation: 6
+    eval_situation: 6
     state_design: RecDQN
     pdf_traj: False
   info: ''

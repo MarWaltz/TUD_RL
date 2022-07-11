@@ -21,7 +21,7 @@ class KVLCC2:
         # KVLCC2 parameters
         self.kvlcc2_full = {
             "C_b":          0.810,          # Block Coefficient
-            "Lpp":          320.0,          # Length over pependiculars (m)
+            "Lpp":          320.0,          # Length over perpendiculars (m)
             "B":            58.,            # Overall width
             "m":            312_600*1020,   # Mass of ship as calculated by ▽*rho (displacement * water density)
             "w_P0":         0.35,           # Assumed wake fraction coefficient

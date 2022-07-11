@@ -1,4 +1,5 @@
 import math
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -11,7 +12,6 @@ COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in r
 
 
 #------------------- Helper functions with angles, mainly following Benjamin (2017) ----------------
-
 def dtr(angle):
     """Takes angle in degree an transforms it to radiant."""
     return angle * np.pi / 180
@@ -60,7 +60,6 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
     Returns:
         r, angle as a tuple of floats."""
 
-    #------------ radius ---------------
     r = math.sqrt(x**2 + y**2) if with_r else None
     angle = angle_to_2pi(math.atan2(x, y)) if with_angle else None
     return r, angle
@@ -155,6 +154,40 @@ def project_vector(VA, angleA, VB, angleB):
 
     # x,y components of projection
     return xy_from_polar(r=v_proj, angle=angleB)
+
+
+def get_ship_domain(A, B, C, D, OS, TS, ang=None):
+    """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
+    Args:
+        A/B/C/D: int, domain lengths
+        OS: KVLCC2
+        TS: KVLCC2"""
+
+    # relative bearing
+    if ang is None:
+        ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
+
+    # ellipsis
+    if 0 <= rtd(ang) < 90:
+        a = D
+        b = A
+
+    elif 90 <= rtd(ang) < 180:
+        ang = dtr(180) - ang
+        a = D
+        b = C
+
+    elif 180 <= rtd(ang) < 270:
+        ang = ang - dtr(180)
+        a = B
+        b = C
+
+    else:
+        ang = dtr(360) - ang
+        a = B
+        b = A
+
+    return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
 
 
 def NM_to_meter(NM):
