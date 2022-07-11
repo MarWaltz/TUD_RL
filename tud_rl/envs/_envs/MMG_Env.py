@@ -469,9 +469,8 @@ class MMG_Env(gym.Env):
         N0, E0, head0 = self.OS.eta
 
         #-------------------------------- OS related ---------------------------------
-        cmp1 = self.OS.nu / np.array([5.0, 0.5, 0.002])
-        cmp2 = np.array([#angle_to_pi(head0) / (math.pi),               # heading
-                         self.OS.nu_dot[2],                            # r_dot
+        cmp1 = self.OS.nu / np.array([7.0, 0.7, 0.004])
+        cmp2 = np.array([self.OS.nu_dot[2] / (8e-5),                   # r_dot
                          self.OS.rud_angle / self.OS.rud_angle_max])   # rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
 
@@ -950,6 +949,12 @@ class MMG_Env(gym.Env):
                                     horizontalalignment='center', verticalalignment='center', color=col)
                         ax.text(E + 800, N-200, f"DCPA: {np.round(DCPA_TS, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
+
+                        # ship domain
+                        xys = [rotate_point(E + x, N + y, cx=E, cy=N, angle=-headTS) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                        xs = [xy[0] for xy in xys]
+                        ys = [xy[1] for xy in xys]
+                        ax.plot(xs, ys, color=col, alpha=0.7)
 
                     # set legend for COLREGS
                     ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,
