@@ -32,7 +32,7 @@ class MMG_Env(gym.Env):
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
-                 spawn_mode       = "line"):
+                 spawn_mode       = "line_v2"):
         super().__init__()
 
         # simulation settings
@@ -184,7 +184,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3, 4], p=[0.1, 0.2, 0.2, 0.25, 0.25])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
@@ -238,6 +238,8 @@ class MMG_Env(gym.Env):
 
             #--------------------------------------- line mode --------------------------------------
             if self.spawn_mode == "line":
+
+                raise Exception("'line' spawning is deprecated in MMG-Env.")
 
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
@@ -323,15 +325,13 @@ class MMG_Env(gym.Env):
 
             elif self.spawn_mode == "line_v2":
 
-                raise Exception("'line_v2' spawning is deprecated in MMG-Env.")
-
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
                 chiOS = self.OS._get_course()
                 VOS   = self.OS._get_V()
 
                 # sample situation
-                setting = np.random.choice(["overtaker", "head-on", "random"], p=[0.1, 0.1, 0.8])
+                setting = np.random.choice(["overtaker", "random"], p=[0.05, 0.95])
 
                 # determine relative speed of OS towards goal, need absolute bearing first
                 bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
@@ -372,10 +372,7 @@ class MMG_Env(gym.Env):
                 else:
 
                     # sample intersection angle
-                    if setting == "head-on":
-                        C_TS_s = dtr(np.random.uniform(175, 185))
-                    else:
-                        C_TS_s = dtr(np.random.uniform(0, 360))
+                    C_TS_s = dtr(np.random.uniform(0, 360))
 
                     # determine TS heading (treating absolute bearing towards goal as heading of OS)
                     head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)

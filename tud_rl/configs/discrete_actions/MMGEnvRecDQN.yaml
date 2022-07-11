@@ -6,13 +6,13 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_TSs_max: 3
+    N_TSs_max: 4
     w_dist: 0.05
     w_head: 1.5
-    w_coll: 1.5
+    w_coll: 5.0
     w_COLREG: 2.0
     w_comf: 0.3
-    spawn_mode : line
+    spawn_mode : line_v2
     state_design: RecDQN
     pdf_traj: False
     N_TSs_random : True
