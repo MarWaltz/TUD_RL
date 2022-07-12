@@ -195,6 +195,7 @@ class MMG_Env(gym.Env):
         self.TSs = []
         for _ in range(self.N_TSs):
             self.TSs.append(self._get_TS())
+        self.respawn_flags = [True for _ in self.TSs]
 
         # determine current COLREG situations
         self.TS_COLREGs = [0] * self.N_TSs
@@ -626,7 +627,6 @@ class MMG_Env(gym.Env):
 
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
-        # quick access
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
         D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, \
