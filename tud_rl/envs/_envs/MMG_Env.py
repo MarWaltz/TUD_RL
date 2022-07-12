@@ -565,7 +565,7 @@ class MMG_Env(gym.Env):
 
     def step(self, a):
         """Takes an action and performs one step in the environment.
-        Returns reward, new_state, done, {}."""
+        Returns new_state, r, done, {}."""
 
         # perform control action
         self.OS._control(a)
@@ -591,7 +591,8 @@ class MMG_Env(gym.Env):
             self.outer_step_cnt += 1
 
         # trajectory plotting
-        self.TrajPlotter.step(OS=self.OS, TSs=self.TSs, respawn_flags=self.respawn_flags, step_cnt=self.step_cnt)
+        self.TrajPlotter.step(OS=self.OS, TSs=self.TSs, respawn_flags=self.respawn_flags if self.N_TSs > 0 else None, \
+            step_cnt=self.step_cnt)
 
         # compute state, reward, done        
         self._set_state()
