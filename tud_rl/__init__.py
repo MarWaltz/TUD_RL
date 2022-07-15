@@ -46,6 +46,11 @@ gym.register(
     id="MMGSEval-v0",
     entry_point=loc + "MMG_SEval"
 )
+gym.register(
+    id="HHOS-v0",
+    entry_point=loc + "HHOS_Env"
+)
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)
