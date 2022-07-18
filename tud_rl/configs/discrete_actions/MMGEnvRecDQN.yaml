@@ -9,7 +9,7 @@ env:
     N_TSs_max: 4
     w_dist: 0.05
     w_head: 1.5
-    w_coll: 3.0
+    w_coll: 1.5
     w_COLREG: 2.0
     w_comf: 0.3
     spawn_mode : line_v2
@@ -78,9 +78,10 @@ agent:
     N_to_update: 1
   RecDQN: {}
   LSTMRecDQN:
+    double: false
     history_length: 2
 seed: 12
-timesteps: 10_000_000
+timesteps: 5_000_000
 epoch_length: 5000
 eval_episodes: 10
 dqn_weights:

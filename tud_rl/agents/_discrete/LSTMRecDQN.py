@@ -27,6 +27,7 @@ class LSTMRecDQNAgent(BaseAgent):
         self.tgt_update_freq = c.tgt_update_freq
         self.net_struc       = c.net_struc
         self.history_length  = getattr(c.Agent, agent_name)["history_length"]
+        self.double          = getattr(c.Agent, agent_name)["double"]
 
         # checks
         assert not (self.mode == "test" and (self.dqn_weights is None)), "Need prior weights in test mode."
@@ -139,11 +140,15 @@ class LSTMRecDQNAgent(BaseAgent):
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
         with torch.no_grad():
-            Q_next_main = self.DQN(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
-            a2 = torch.argmax(Q_next_main, dim=1).reshape(self.batch_size, 1)
-
             Q_next_tgt = self.target_DQN(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
-            Q_next = torch.gather(input=Q_next_tgt, dim=1, index=a2)
+
+            if self.double:
+                Q_next_main = self.DQN(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
+                a2 = torch.argmax(Q_next_main, dim=1).reshape(self.batch_size, 1)
+                Q_next = torch.gather(input=Q_next_tgt, dim=1, index=a2)
+            else:
+                Q_next = torch.max(Q_next_tgt, dim=1).values.reshape(self.batch_size, 1)
+            
             y = r + self.gamma * Q_next * (1 - d)
         return y
 
