@@ -20,12 +20,14 @@ class HHOS_Env(gym.Env):
         # simulation settings
         self.delta_t = 3.0      # simulation time interval (in s)
 
-        # depth data
+        # data loading
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
+        self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.5    
+        self.show_lon_lat = 2.0
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
+        self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["cellsize"])
 
         # custom inits
         self.r = 0
@@ -46,14 +48,20 @@ class HHOS_Env(gym.Env):
         self.con_ticklabels[0] = 0
         self.clev = np.arange(0, self.log_Depth.max(), .1)
 
+
+    def _load_wind_data(self, path_to_wind_data):
+        with open(f"{path_to_wind_data}/WindData_2019_04_05.pickle", "rb") as f:
+            self.WindData = pickle.load(f)
+
+
     def reset(self):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = 55.0
-        lon_init = 8.0
+        lat_init = 54.1
+        lon_init = 7.88
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init   = N_init, 
@@ -124,18 +132,19 @@ class HHOS_Env(gym.Env):
         # get position of OS in lat/lon
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
 
-        # get relevant depth indices
-        cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
-        cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
-
-        lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
-        upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
-
-        lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
-        upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
-
         for ax in [self.ax]:
             ax.clear()
+
+            #--------------- depth plot ---------------------
+            cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
+            cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
+
+            lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
+            upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
+
+            lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
+            upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
+            
             ax.set_xlim(cnt_lon - self.show_lon_lat/2, cnt_lon + self.show_lon_lat/2)
             ax.set_ylim(cnt_lat - self.show_lon_lat/2, cnt_lat + self.show_lon_lat/2)
 
@@ -143,15 +152,41 @@ class HHOS_Env(gym.Env):
             ax.set_ylabel("Latitude [°]", fontsize=10)
 
             # contour plot from depth data
-            con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],\
-                self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], self.clev, cmap=cm.ocean)
+            con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                              self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                              self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                              self.clev, cmap=cm.ocean)
 
             # colorbar as legend
             if self.step_cnt == 0:
                 cbar = self.f.colorbar(con, ticks=self.con_ticks)
                 cbar.ax.set_yticklabels(self.con_ticklabels)
 
-            #------ set OS -----
+            #--------------- wind plot ---------------------
+            # no barb plot if there is no wind data
+            if any([OS_lat < min(self.WindData["lat"]),
+                    OS_lat > max(self.WindData["lat"]),
+                    OS_lon < min(self.WindData["lon"]),
+                    OS_lon > max(self.WindData["lon"])]):
+                pass
+            else:
+                _, cnt_lat_idx = find_nearest(array=self.WindData["lat"], value=OS_lat)
+                _, cnt_lon_idx = find_nearest(array=self.WindData["lon"], value=OS_lon)
+
+                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wind_idx, 0]))
+                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wind_idx, len(self.WindData["lat"]) - 1]))
+
+                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
+                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
+
+                # swapaxes necessary in barbs-plots
+                ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                         self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
+                         self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                         self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                         length=4, barbcolor="goldenrod")
+
+            #------------------ set OS ------------------------
             # midship
             #ax.plot(OS_lon, OS_lat, marker="o", color="red")
             

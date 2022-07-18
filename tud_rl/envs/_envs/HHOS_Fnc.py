@@ -44,3 +44,12 @@ def find_nearest(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return array[idx], int(idx)
+
+
+def mps_to_knots(mps):
+    """Transform m/s in knots."""
+    return mps * 1.943844
+
+def knots_to_mps(knots):
+    """Transforms knots in m/s."""
+    return knots / 1.943844
