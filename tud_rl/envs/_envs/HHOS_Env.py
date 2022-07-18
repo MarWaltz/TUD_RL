@@ -5,9 +5,10 @@ import gym
 import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from tud_rl.envs._envs.HHOS_Fnc import find_nearest, to_latlon, to_utm
+from tud_rl.envs._envs.HHOS_Fnc import (Z_at_latlon, find_nearest,
+                                        find_nearest_two, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import dtr
+from tud_rl.envs._envs.VesselFnc import NM_to_meter, dtr
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -18,16 +19,17 @@ class HHOS_Env(gym.Env):
         super().__init__()
 
         # simulation settings
-        self.delta_t = 3.0      # simulation time interval (in s)
+        self.delta_t = 3.0                    # simulation time interval (in s)
+        self.lidar_range = NM_to_meter(1.0)   # range of LiDAR sensoring
 
         # data loading
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 2.0
+        self.show_lon_lat = 3
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
-        self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["cellsize"])
+        self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
 
         # custom inits
         self.r = 0
@@ -48,10 +50,19 @@ class HHOS_Env(gym.Env):
         self.con_ticklabels[0] = 0
         self.clev = np.arange(0, self.log_Depth.max(), .1)
 
+        print(self._depth_at_latlon(lon_q=8.0, lat_q=54.0))
+        exit()
+
 
     def _load_wind_data(self, path_to_wind_data):
-        with open(f"{path_to_wind_data}/WindData_2019_04_05.pickle", "rb") as f:
+        with open(f"{path_to_wind_data}/WindData_latlon.pickle", "rb") as f:
             self.WindData = pickle.load(f)
+
+
+    def _depth_at_latlon(self, lat_q, lon_q):
+        """Computes the water depth at a (queried) longitude-latitude position based on linear interpolation."""
+        return Z_at_latlon(Z=self.DepthData["data"], lat_array=self.DepthData["lat"], lon_array=self.DepthData["lon"],
+                           lat_q=lat_q, lon_q=lon_q)
 
 
     def reset(self):
