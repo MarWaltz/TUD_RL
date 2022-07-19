@@ -78,7 +78,7 @@ agent:
     N_to_update: 1
   RecDQN: {}
   LSTMRecDQN:
-    double: false
+    double: true
     history_length: 2
 seed: 12
 timesteps: 5_000_000

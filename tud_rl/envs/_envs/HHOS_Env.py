@@ -37,7 +37,7 @@ class HHOS_Env(gym.Env):
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 10.5
+        self.show_lon_lat = 0.5
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
 
@@ -54,6 +54,16 @@ class HHOS_Env(gym.Env):
     def _load_desired_path(self, path_to_desired_path):
         with open(f"{path_to_desired_path}/Path_latlon.pickle", "rb") as f:
             self.DesiredPath = pickle.load(f)
+        
+        # add utm coordinates
+        path_n = np.zeros_like(self.DesiredPath["lat"])
+        path_e = np.zeros_like(self.DesiredPath["lon"])
+
+        for idx in range(len(path_n)):
+            path_n[idx], path_e[idx], _ = to_utm(lat=self.DesiredPath["lat"][idx], lon=self.DesiredPath["lon"][idx])
+        
+        self.DesiredPath["north"] = path_n
+        self.DesiredPath["east"] = path_e
 
 
     def _load_depth_data(self, path_to_depth_data):
@@ -325,7 +335,7 @@ class HHOS_Env(gym.Env):
 
             #--------------------- Desired path ------------------------
             if self.plot_path:
-                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], color="salmon", linewidth=2.0)
+                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], color="salmon", linewidth=1.0)
 
             #--------------------- LiDAR sensing ------------------------
             if self.plot_lidar:

@@ -56,8 +56,8 @@ class MMG_Env(gym.Env):
 
         # CR calculation
         self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
-        #self.CR_dist_multiple  = 4                     # collision risk distance = multiple * ship_domain (in m)
-        self.CR_al = 0.1                   # collision risk metric when TS is at CR_dist of agent
+        #self.CR_dist_multiple  = 4              # collision risk distance = multiple * ship_domain (in m)
+        self.CR_al = 0.2                         # collision risk metric when TS is at CR_dist of agent
 
         # spawning
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
@@ -116,21 +116,11 @@ class MMG_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # sample setup
-        #self.sit_init = np.random.choice([0, 1, 2, 3])
-        self.sit_init = 0
+        self.sit_init = np.random.choice([0, 1, 2, 3])
+        #self.sit_init = 0
 
         # init agent heading
-        if self.sit_init == 0:
-            head = 0.0
-        
-        elif self.sit_init == 1:
-            head = 1/2 * math.pi
-
-        elif self.sit_init == 2:
-            head = math.pi
-
-        elif self.sit_init == 3:
-            head = 3/2 * math.pi
+        head = [0.0, 1/2 * math.pi, math.pi, 3/2 * math.pi][self.sit_init]
 
         # init agent (OS for 'Own Ship'), so that CPA_N, CPA_E will be reached in 25 [min]
         self.OS = KVLCC2(N_init   = 0.0, 
@@ -611,6 +601,7 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
+        return TS, False
         if self.spawn_mode == "center":
             return TS, False
 
