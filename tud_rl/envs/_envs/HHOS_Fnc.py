@@ -73,7 +73,7 @@ def find_nearest_two(array, value):
 
 
 def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
-    """Computes the (linearly) interpolated value (e.g. water depth, wind) at a (queried) longitude-latitude position.
+    """Computes the linearly interpolated value (e.g. water depth, wind) at a (queried) longitude-latitude position.
     Args:
         Z[np.array(M, N)]:        data over grid
         lat_array[np.array(M,)]:  latitude points

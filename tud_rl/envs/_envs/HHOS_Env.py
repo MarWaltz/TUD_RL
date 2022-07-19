@@ -1,4 +1,5 @@
 import copy
+import math
 import pickle
 
 import gym
@@ -6,9 +7,10 @@ import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from tud_rl.envs._envs.HHOS_Fnc import (Z_at_latlon, find_nearest,
-                                        find_nearest_two, to_latlon, to_utm)
+                                        mps_to_knots, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import NM_to_meter, dtr
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, dtr, rtd,
+                                         xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -19,21 +21,40 @@ class HHOS_Env(gym.Env):
         super().__init__()
 
         # simulation settings
-        self.delta_t = 3.0                    # simulation time interval (in s)
-        self.lidar_range = NM_to_meter(1.0)   # range of LiDAR sensoring
+        self.delta_t = 3.0   # simulation time interval (in s)
+
+        # LiDAR
+        self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
+        self.lidar_n_beams     = 25                                                              # number of beams
+        self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
+        self.n_dots_per_beam   = 20                                                              # number of subpoints per beam
+        self.d_dots_per_beam   = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
+        self.sense_depth       = 15  # water depth at which LiDAR recognizes an obstacle
 
         # data loading
+        self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 3
+        self.show_lon_lat = 10.5
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
+
+        # visualization
+        self.plot_wind  = False
+        self.plot_path  = True
+        self.plot_lidar = False
 
         # custom inits
         self.r = 0
         self._max_episode_steps = np.infty
+
+
+    def _load_desired_path(self, path_to_desired_path):
+        with open(f"{path_to_desired_path}/Path_latlon.pickle", "rb") as f:
+            self.DesiredPath = pickle.load(f)
+
 
     def _load_depth_data(self, path_to_depth_data):
         with open(f"{path_to_depth_data}/DepthData.pickle", "rb") as f:
@@ -50,9 +71,6 @@ class HHOS_Env(gym.Env):
         self.con_ticklabels[0] = 0
         self.clev = np.arange(0, self.log_Depth.max(), .1)
 
-        print(self._depth_at_latlon(lon_q=8.0, lat_q=54.0))
-        exit()
-
 
     def _load_wind_data(self, path_to_wind_data):
         with open(f"{path_to_wind_data}/WindData_latlon.pickle", "rb") as f:
@@ -65,19 +83,78 @@ class HHOS_Env(gym.Env):
                            lat_q=lat_q, lon_q=lon_q)
 
 
+    def _wind_at_latlon(self, lat_q, lon_q):
+        """Computes the wind speed and angle at a (queried) longitude-latitude position based on linear interpolation.
+        Returns: (speed, angle)"""
+        speed = Z_at_latlon(Z=self.WindData["speed_mps"], lat_array=self.WindData["lat"], lon_array=self.WindData["lon"],
+                            lat_q=lat_q, lon_q=lon_q)
+        angle = angle_to_2pi(Z_at_latlon(Z=self.WindData["angle"], lat_array=self.WindData["lat"], 
+                                         lon_array=self.WindData["lon"], lat_q=lat_q, lon_q=lon_q))
+        return speed, angle
+
+
+    def _get_closeness_from_lidar(self, dists):
+        """Computes the closeness following Heiberg et al. (2022, Neural Networks) from given LiDAR distance measurements."""
+        return np.clip(1 - np.log(dists+1)/np.log(self.lidar_range+1), 0, 1)
+
+
+    def _sense_LiDAR(self):
+        """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
+        The first beam is defined in direction of the heading of the OS. Each beam consists of 'n_dots_per_beam' sub-points, which are sequentially considered. 
+        Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
+        Furthermore, it returns the endpoints in lat-lon of each (truncated) beam.
+        Returns (as tuple):
+            dists as a np.array(lidar_n_beams,)
+            endpoints in lat-lon as list of lat-lon-tuples
+        """
+        # UTM coordinates of OS
+        N0, E0, head0 = self.OS.eta
+
+        # setup output
+        out_dists = np.ones(self.lidar_n_beams) * self.lidar_range
+        out_lat_lon = []
+        
+        for out_idx, angle in enumerate(self.lidar_beam_angles):
+
+            # current angle under consideration of the heading
+            angle = angle_to_2pi(angle + head0)
+            
+            for dist in self.d_dots_per_beam:
+
+                # compute N-E coordinates of dot
+                delta_E_dot, delta_N_dot = xy_from_polar(r=dist, angle=angle)
+                N_dot = N0 + delta_N_dot
+                E_dot = E0 + delta_E_dot
+
+                # transform to LatLon
+                lat_dot, lon_dot = to_latlon(north=N_dot, east=E_dot, number=self.OS.utm_number)
+
+                # check water depth at that point
+                depth_dot = self._depth_at_latlon(lat_q=lat_dot, lon_q=lon_dot)
+
+                if depth_dot <= self.sense_depth:
+                    out_dists[out_idx] = dist
+                    out_lat_lon.append((lat_dot, lon_dot))
+                    break
+                if dist == self.lidar_range:
+                    out_lat_lon.append((lat_dot, lon_dot))
+
+        return out_dists, out_lat_lon
+
+
     def reset(self):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = 54.1
+        lat_init = 54.125
         lon_init = 7.88
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init   = N_init, 
                          E_init   = E_init, 
-                         psi_init = dtr(330),
+                         psi_init = dtr(355),
                          u_init   = 0.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
@@ -121,6 +198,19 @@ class HHOS_Env(gym.Env):
         d = self._done()
         return self.state, self.r, d, {}
 
+    def __str__(self, OS_lat, OS_lon) -> str:
+        u, v, r = self.OS.nu
+
+        ste = f"Step: {self.step_cnt}"
+        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"
+        vel = f"u [m/s]: {u:.2f}, v [m/s]: {v:.2f}, r [m/s]: {r:.2f}"
+        
+        depth = f"Water depth [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
+        wind_speed, wind_angle = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+
+        wind = f"Wind speed [kn]: {mps_to_knots(wind_speed):.2f}, Wind direction [°]: {rtd(wind_angle):.2f}"
+        return ste + "\n" + pos + "\n" + vel + "\n" + depth + ", " + wind
+
     def _calculate_reward(self):
         return 0.0
 
@@ -156,8 +246,10 @@ class HHOS_Env(gym.Env):
             lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
             upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
             
-            ax.set_xlim(cnt_lon - self.show_lon_lat/2, cnt_lon + self.show_lon_lat/2)
-            ax.set_ylim(cnt_lat - self.show_lon_lat/2, cnt_lat + self.show_lon_lat/2)
+            ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
+                        min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
+            ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
+                        min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
 
             ax.set_xlabel("Longitude [°]", fontsize=10)
             ax.set_ylabel("Latitude [°]", fontsize=10)
@@ -174,32 +266,34 @@ class HHOS_Env(gym.Env):
                 cbar.ax.set_yticklabels(self.con_ticklabels)
 
             #--------------- wind plot ---------------------
-            # no barb plot if there is no wind data
-            if any([OS_lat < min(self.WindData["lat"]),
-                    OS_lat > max(self.WindData["lat"]),
-                    OS_lon < min(self.WindData["lon"]),
-                    OS_lon > max(self.WindData["lon"])]):
-                pass
-            else:
-                _, cnt_lat_idx = find_nearest(array=self.WindData["lat"], value=OS_lat)
-                _, cnt_lon_idx = find_nearest(array=self.WindData["lon"], value=OS_lon)
+            if self.plot_wind:
+                # no barb plot if there is no wind data
+                if any([OS_lat < min(self.WindData["lat"]),
+                        OS_lat > max(self.WindData["lat"]),
+                        OS_lon < min(self.WindData["lon"]),
+                        OS_lon > max(self.WindData["lon"])]):
+                    pass
+                else:
+                    _, cnt_lat_idx = find_nearest(array=self.WindData["lat"], value=OS_lat)
+                    _, cnt_lon_idx = find_nearest(array=self.WindData["lon"], value=OS_lon)
 
-                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wind_idx, 0]))
-                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wind_idx, len(self.WindData["lat"]) - 1]))
+                    lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wind_idx, 0]))
+                    upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wind_idx, len(self.WindData["lat"]) - 1]))
 
-                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
-                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
+                    lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
+                    upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
 
-                # swapaxes necessary in barbs-plots
-                ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                         self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
-                         self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                         self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                         length=4, barbcolor="goldenrod")
+                    # swapaxes necessary in barbs-plots
+                    ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                            self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
+                            self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                            self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                            length=4, barbcolor="goldenrod")
 
             #------------------ set OS ------------------------
             # midship
             #ax.plot(OS_lon, OS_lat, marker="o", color="red")
+            ax.text(0.125, 0.9, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
             
             # quick access
             N0, E0, head0 = self.OS.eta
@@ -228,5 +322,16 @@ class HHOS_Env(gym.Env):
             lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
             lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
             ax.plot(lons, lats, color="red", linewidth=2.0)
+
+            #--------------------- Desired path ------------------------
+            if self.plot_path:
+                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], color="salmon", linewidth=2.0)
+
+            #--------------------- LiDAR sensing ------------------------
+            if self.plot_lidar:
+                _, lidar_lat_lon = self._sense_LiDAR()
+
+                for _, latlon in enumerate(lidar_lat_lon):
+                    ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
 
         plt.pause(0.001)
