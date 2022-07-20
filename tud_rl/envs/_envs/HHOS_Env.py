@@ -37,7 +37,7 @@ class HHOS_Env(gym.Env):
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.5
+        self.show_lon_lat = 10
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
 

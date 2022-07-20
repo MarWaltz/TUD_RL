@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 import utm
-
+from tud_rl.envs._envs.VesselFnc import bng_abs
 
 def get_utm_zone_number(lat, lon):
     """Computes the UTM zone number (not the letter) for given latitude and longitude.
@@ -127,6 +127,39 @@ def mps_to_knots(mps):
     """Transform m/s in knots."""
     return mps * 1.943844
 
+
 def knots_to_mps(knots):
     """Transforms knots in m/s."""
     return knots / 1.943844
+
+
+def cte(N1, E1, N2, E2, NA, EA, pi_path=None):
+    """Computes the cross-track error following p.350 of Fossen (2021). The waypoints are (N1, E1) and (N2, E2), while
+    the agent is at (NA, EA). The angle of the path relative to the NED-frame can optionally be specified."""
+    if pi_path is None:
+        pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
+    return -np.sin(pi_path)*(NA - N1) + np.cos(pi_path)*(EA - E1)
+
+
+def ate(N1, E1, N2, E2, NA, EA, pi_path=None):
+    """Computes the along-track error following p.350 of Fossen (2021). The waypoints are (N1, E1) and (N2, E2), while
+    the agent is at (NA, EA). The angle of the path relative to the NED-frame can optionally be specified."""
+    if pi_path is None:
+        pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
+    return np.cos(pi_path)*(NA - N1) + np.sin(pi_path)*(EA - E1)
+
+
+def desired_course_VFG(N1, E1, N2, E2, NA, EA, K):
+    """Computes the desired course based on the vector field guidance method following pp.354-55 of Fossen (2021).
+    The waypoints are (N1, E1) and (N2, E2), while the agent is at (NA, EA). K is the convergence rate of the vector field."""
+
+    assert K > 0, "K of VFG must be larger zero."
+
+    # get path angle
+    pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
+
+    # get CTE
+    ye = cte(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path)
+
+    # get desired course, which is rotated back to NED
+    return pi_path - math.atan(ye * K)
