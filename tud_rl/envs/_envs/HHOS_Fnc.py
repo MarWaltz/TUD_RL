@@ -2,7 +2,8 @@ import math
 
 import numpy as np
 import utm
-from tud_rl.envs._envs.VesselFnc import bng_abs
+from tud_rl.envs._envs.VesselFnc import ED, angle_to_pi, bng_abs, bng_rel, rtd
+
 
 def get_utm_zone_number(lat, lon):
     """Computes the UTM zone number (not the letter) for given latitude and longitude.
@@ -163,3 +164,66 @@ def desired_course_VFG(N1, E1, N2, E2, NA, EA, K):
 
     # get desired course, which is rotated back to NED
     return pi_path - math.atan(ye * K)
+
+
+def get_init_two_wp(lat_array, lon_array, a_n, a_e):
+    """Returns for a given set of waypoints and an agent position the coordinates of the first two waypoints.
+
+    Args:
+        lon_array (np.array): array of lon-coordinates of waypoints
+        lat_array (np.array): array of lat-coordinates of waypoints
+        a_n (float): agent N position
+        a_e (float): agent E position
+    Returns:
+        wp1_idx, wp1_N, wp1_E, wp2_idx, wp2_N, wp2_E
+    """
+    # transform everything in utm
+    ne_tups = [to_utm(lat=lat_array[idx], lon=lon_array[idx])[0:2] for idx in range(len(lat_array))]
+
+    # compute the smallest euclidean distance
+    EDs = [ED(N0=a_n, E0=a_e, N1=wp_n, E1=wp_e, sqrt=False) for (wp_n, wp_e) in ne_tups]
+    min_idx = np.argmin(EDs)
+
+    # limit cases
+    if min_idx == len(lat_array)-1:
+        raise ValueError("The agent spawned already at the goal!")
+    if min_idx == 0:
+        idx1 = min_idx
+        idx2 = min_idx + 1
+
+    # the second wp is constituted by the smaller ED of the surrounding wps surrounding the min-ED wp
+    if EDs[min_idx-1] < EDs[min_idx+1]:
+        idx1 = min_idx - 1
+        idx2 = min_idx
+    else:
+        idx1 = min_idx
+        idx2 = min_idx + 1
+    
+    # return both wps
+    wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
+    wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+
+    return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
+
+
+def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
+    """Decides whether we should move on to the next pair of waypoints. Returns a boolean, True if we should switch.
+
+    Args:
+        wp1_N (float): N of first wp
+        wp1_E (float): E of first wp
+        wp2_N (float): N of second wp
+        wp2_E (float): E of second wp
+        a_N (float): agent N
+        a_E (float): agent E
+    """
+    # path angle
+    pi_path = bng_abs(N0=wp1_N, E0=wp1_E, N1=wp2_N, E1=wp2_E)
+
+    # check relative bearing
+    bng_rel_p = angle_to_pi(bng_rel(N0=a_N, E0=a_E, N1=wp2_N, E1=wp2_E, head0=pi_path))
+
+    if abs(rtd(bng_rel_p)) > 90:
+        return True
+    else:
+        return False

@@ -7,10 +7,11 @@ import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from tud_rl.envs._envs.HHOS_Fnc import (Z_at_latlon, find_nearest,
-                                        mps_to_knots, to_latlon, to_utm)
+                                        get_init_two_wp, mps_to_knots,
+                                        switch_wp, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, dtr, rtd,
-                                         xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, bng_abs,
+                                         dtr, rtd, xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -44,9 +45,10 @@ class HHOS_Env(gym.Env):
         self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
 
         # visualization
+        self.plot_depth = False
         self.plot_path = True
-        self.plot_wind = True
-        self.plot_current = True
+        self.plot_wind = False
+        self.plot_current = False
         self.plot_lidar = False
 
         # custom inits
@@ -99,6 +101,16 @@ class HHOS_Env(gym.Env):
         """Computes the water depth at a (queried) longitude-latitude position based on linear interpolation."""
         return Z_at_latlon(Z=self.DepthData["data"], lat_array=self.DepthData["lat"], lon_array=self.DepthData["lon"],
                            lat_q=lat_q, lon_q=lon_q)
+
+
+    def _current_at_latlon(self, lat_q, lon_q):
+        """Computes the current speed and angle at a (queried) longitude-latitude position based on linear interpolation.
+        Returns: (speed, angle)"""
+        speed = Z_at_latlon(Z=self.CurrentData["speed_mps"], lat_array=self.CurrentData["lat"], lon_array=self.CurrentData["lon"],
+                            lat_q=lat_q, lon_q=lon_q)
+        angle = angle_to_2pi(Z_at_latlon(Z=self.CurrentData["angle"], lat_array=self.CurrentData["lat"], 
+                                         lon_array=self.CurrentData["lon"], lat_q=lat_q, lon_q=lon_q))
+        return speed, angle
 
 
     def _wind_at_latlon(self, lat_q, lon_q):
@@ -166,13 +178,13 @@ class HHOS_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = 54.125
-        lon_init = 7.88
+        lat_init = 53.6
+        lon_init = 9.7
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init   = N_init, 
                          E_init   = E_init, 
-                         psi_init = dtr(355),
+                         psi_init = dtr(315),
                          u_init   = 0.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
@@ -188,6 +200,10 @@ class HHOS_Env(gym.Env):
         # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
 
+        # initialize waypoints
+        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
+            lon_array=self.DesiredPath["lon"], a_n=N_init, a_e=E_init)
+
         # init state
         self._set_state()
         self.state_init = self.state
@@ -195,6 +211,22 @@ class HHOS_Env(gym.Env):
 
     def _set_state(self):
         self.state = None
+
+    def _update_wps(self):
+        """Updates the waypoints for following the desired path."""
+        # check whether we need to switch wps
+        switch = switch_wp(wp1_N=self.wp1_N, wp1_E=self.wp1_E, wp2_N=self.wp2_N, wp2_E=self.wp2_E, a_N=self.OS.eta[0], a_E=self.OS.eta[1])
+
+        if switch and (self.wp2_idx != len(self.DesiredPath["lon"]) - 1):
+            # update waypoint 1
+            self.wp1_idx += 1
+            self.wp1_N = self.wp2_N
+            self.wp1_E = self.wp2_E
+
+            # update waypoint 2
+            self.wp2_idx += 1
+            self.wp2_N, self.wp2_E, _ = to_utm(lat=self.DesiredPath["lat"][self.wp2_idx], lon=self.DesiredPath["lon"][self.wp2_idx])
+
 
     def step(self, a):
         """Takes an action and performs one step in the environment.
@@ -205,6 +237,9 @@ class HHOS_Env(gym.Env):
 
         # update agent dynamics
         self.OS._upd_dynamics()
+
+        # update waypoints of path
+        self._update_wps()
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -224,10 +259,13 @@ class HHOS_Env(gym.Env):
         vel = f"u [m/s]: {u:.2f}, v [m/s]: {v:.2f}, r [m/s]: {r:.2f}"
         
         depth = f"Water depth [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
-        wind_speed, wind_angle = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
 
+        wind_speed, wind_angle = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         wind = f"Wind speed [kn]: {mps_to_knots(wind_speed):.2f}, Wind direction [°]: {rtd(wind_angle):.2f}"
-        return ste + "\n" + pos + "\n" + vel + "\n" + depth + ", " + wind
+
+        current_speed, current_angle = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        current = f"Current speed [m/s]: {current_speed:.2f}, Current direction [°]: {rtd(current_angle):.2f}"
+        return ste + "\n" + pos + "\n" + vel + "\n" + depth + ", " + wind + "\n" + current
 
     def _calculate_reward(self):
         return 0.0
@@ -253,35 +291,35 @@ class HHOS_Env(gym.Env):
 
         for ax in [self.ax]:
             ax.clear()
-
-            #--------------- depth plot ---------------------
-            cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
-            cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
-
-            lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
-            upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
-
-            lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
-            upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
-            
-            ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
-                        min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
-            ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
-                        min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
-
             ax.set_xlabel("Longitude [°]", fontsize=10)
             ax.set_ylabel("Latitude [°]", fontsize=10)
 
-            # contour plot from depth data
-            con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                              self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                              self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                              self.clev, cmap=cm.ocean)
+            #--------------- depth plot ---------------------
+            if self.plot_depth:
+                cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
+                cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
 
-            # colorbar as legend
-            if self.step_cnt == 0:
-                cbar = self.f.colorbar(con, ticks=self.con_ticks)
-                cbar.ax.set_yticklabels(self.con_ticklabels)
+                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
+                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
+
+                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
+                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
+                
+                ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
+                            min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
+                ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
+                            min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
+
+                # contour plot from depth data
+                con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                                self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                                self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                                self.clev, cmap=cm.ocean)
+
+                # colorbar as legend
+                if self.step_cnt == 0:
+                    cbar = self.f.colorbar(con, ticks=self.con_ticks)
+                    cbar.ax.set_yticklabels(self.con_ticklabels)
 
             #--------------- wind plot ---------------------
             if self.plot_wind:
@@ -343,8 +381,18 @@ class HHOS_Env(gym.Env):
 
             #--------------------- Desired path ------------------------
             if self.plot_path:
-                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], color="salmon", linewidth=1.0)
+                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
+                # current waypoints
+                wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
+                wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
+                ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
+
+                # wp switching line
+                #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
+                #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_path + dtr(90.0))
+                #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
+                #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
 
             #--------------------- Current data ------------------------
             if self.plot_current:
