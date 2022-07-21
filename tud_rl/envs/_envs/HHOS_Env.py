@@ -6,7 +6,7 @@ import gym
 import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from tud_rl.envs._envs.HHOS_Fnc import (Z_at_latlon, find_nearest,
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, cte, find_nearest,
                                         get_init_two_wp, mps_to_knots,
                                         switch_wp, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
@@ -32,6 +32,9 @@ class HHOS_Env(gym.Env):
         self.d_dots_per_beam   = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
         self.sense_depth       = 15  # water depth at which LiDAR recognizes an obstacle
 
+        # vector field guidance
+        self.VFG_K = 0.02
+
         # data loading
         self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
@@ -39,13 +42,13 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 3
+        self.show_lon_lat = 5
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
         self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
 
         # visualization
-        self.plot_depth = False
+        self.plot_depth = True
         self.plot_path = True
         self.plot_wind = False
         self.plot_current = False
@@ -178,13 +181,13 @@ class HHOS_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = 53.6
-        lon_init = 9.7
+        lat_init = 56.635
+        lon_init = 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init   = N_init, 
                          E_init   = E_init, 
-                         psi_init = dtr(315),
+                         psi_init = dtr(45),
                          u_init   = 0.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
@@ -265,7 +268,10 @@ class HHOS_Env(gym.Env):
 
         current_speed, current_angle = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         current = f"Current speed [m/s]: {current_speed:.2f}, Current direction [°]: {rtd(current_angle):.2f}"
-        return ste + "\n" + pos + "\n" + vel + "\n" + depth + ", " + wind + "\n" + current
+
+        ye, desired_course = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
+        path_info = f"CTE [m]: {ye:.2f}, Course error [°]: {rtd(desired_course - self.OS._get_course()):.2f}"
+        return ste + "\n" + pos + ", " + vel + "\n" + depth + ", " + wind + "\n" + current + "\n" + path_info
 
     def _calculate_reward(self):
         return 0.0
