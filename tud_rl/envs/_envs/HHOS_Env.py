@@ -35,15 +35,18 @@ class HHOS_Env(gym.Env):
         self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
+        self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 10
+        self.show_lon_lat = 3
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
-        self.half_num_wind_idx  = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
+        self.half_num_wind_idx = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
+        self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
 
         # visualization
-        self.plot_wind  = False
-        self.plot_path  = True
+        self.plot_path = True
+        self.plot_wind = True
+        self.plot_current = True
         self.plot_lidar = False
 
         # custom inits
@@ -85,6 +88,11 @@ class HHOS_Env(gym.Env):
     def _load_wind_data(self, path_to_wind_data):
         with open(f"{path_to_wind_data}/WindData_latlon.pickle", "rb") as f:
             self.WindData = pickle.load(f)
+
+
+    def _load_current_data(self, path_to_current_data):
+        with open(f"{path_to_current_data}/CurrentData_latlon.pickle", "rb") as f:
+            self.CurrentData = pickle.load(f)
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -336,6 +344,25 @@ class HHOS_Env(gym.Env):
             #--------------------- Desired path ------------------------
             if self.plot_path:
                 ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], color="salmon", linewidth=1.0)
+
+
+            #--------------------- Current data ------------------------
+            if self.plot_current:
+
+                _, cnt_lat_idx = find_nearest(array=self.CurrentData["lat"], value=OS_lat)
+                _, cnt_lon_idx = find_nearest(array=self.CurrentData["lon"], value=OS_lon)
+
+                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_current_idx, 0]))
+                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_current_idx, len(self.CurrentData["lat"]) - 1]))
+
+                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_current_idx, 0]))
+                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_current_idx, len(self.CurrentData["lon"]) - 1]))
+                
+                ax.quiver(self.CurrentData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                          self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                          self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                          self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                          headwidth=2.0, color="whitesmoke", scale=5)
 
             #--------------------- LiDAR sensing ------------------------
             if self.plot_lidar:
