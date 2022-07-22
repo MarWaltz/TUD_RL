@@ -151,11 +151,11 @@ def ate(N1, E1, N2, E2, NA, EA, pi_path=None):
 
 
 def VFG(N1, E1, N2, E2, NA, EA, K):
-    """Computes the desired course and cte based on the vector field guidance method following pp.354-55 of Fossen (2021).
+    """Computes the cte, desired course, and path angle based on the vector field guidance method following pp.354-55 of Fossen (2021).
     The waypoints are (N1, E1) and (N2, E2), while the agent is at (NA, EA). K is the convergence rate of the vector field.
     
     Returns:
-        cte (float), desired_course (float)"""
+        cte (float), desired_course (float, in radiant), path_angle (float, in radiant)"""
 
     assert K > 0, "K of VFG must be larger zero."
 
@@ -166,7 +166,7 @@ def VFG(N1, E1, N2, E2, NA, EA, K):
     ye = cte(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path)
 
     # get desired course, which is rotated back to NED
-    return ye, pi_path - math.atan(ye * K)
+    return ye, pi_path - math.atan(ye * K), pi_path
 
 
 def get_init_two_wp(lat_array, lon_array, a_n, a_e):

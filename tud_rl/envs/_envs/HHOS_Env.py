@@ -25,7 +25,7 @@ class HHOS_Env(gym.Env):
         self.delta_t = 3.0   # simulation time interval (in s)
 
         # LiDAR
-        self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
+        self.lidar_range       = NM_to_meter(3.0)                                                # range of LiDAR sensoring in m
         self.lidar_n_beams     = 25                                                              # number of beams
         self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
         self.n_dots_per_beam   = 20                                                              # number of subpoints per beam
@@ -33,7 +33,7 @@ class HHOS_Env(gym.Env):
         self.sense_depth       = 15  # water depth at which LiDAR recognizes an obstacle
 
         # vector field guidance
-        self.VFG_K = 0.02
+        self.VFG_K = 0.001
 
         # data loading
         self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
@@ -42,17 +42,32 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 5
+        self.show_lon_lat = 25
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
         self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
 
         # visualization
+        self.plot_in_latlon = False          # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
         self.plot_wind = False
         self.plot_current = False
         self.plot_lidar = False
+
+        # data range
+        self.lon_lims = [4.83, 14.33]
+        self.lat_lims = [51.83, 60.5]
+
+        if not self.plot_in_latlon:
+            self.UTM_bl = to_utm(lat=self.lat_lims[0], lon=self.lon_lims[0])[0:2]
+            self.UTM_br = to_utm(lat=self.lat_lims[0], lon=self.lon_lims[1])[0:2]
+            self.UTM_ul = to_utm(lat=self.lat_lims[1], lon=self.lon_lims[0])[0:2]
+            self.UTM_ur = to_utm(lat=self.lat_lims[1], lon=self.lon_lims[1])[0:2]
+            self.UTM_viz_range_E = abs(to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims))[1] - \
+                to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims) + self.show_lon_lat/2)[1])
+            self.UTM_viz_range_N = abs(to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims))[0] - \
+                to_utm(lat=np.mean(self.lat_lims) + self.show_lon_lat/2, lon=np.mean(self.lon_lims))[0])
 
         # custom inits
         self.r = 0
@@ -63,6 +78,9 @@ class HHOS_Env(gym.Env):
         with open(f"{path_to_desired_path}/Path_latlon.pickle", "rb") as f:
             self.DesiredPath = pickle.load(f)
         
+        # store number of waypoints
+        self.DesiredPath["n_wps"] = len(self.DesiredPath["lat"])
+
         # add utm coordinates
         path_n = np.zeros_like(self.DesiredPath["lat"])
         path_e = np.zeros_like(self.DesiredPath["lon"])
@@ -212,15 +230,17 @@ class HHOS_Env(gym.Env):
         self.state_init = self.state
         return self.state
 
+
     def _set_state(self):
         self.state = None
+
 
     def _update_wps(self):
         """Updates the waypoints for following the desired path."""
         # check whether we need to switch wps
         switch = switch_wp(wp1_N=self.wp1_N, wp1_E=self.wp1_E, wp2_N=self.wp2_N, wp2_E=self.wp2_E, a_N=self.OS.eta[0], a_E=self.OS.eta[1])
 
-        if switch and (self.wp2_idx != len(self.DesiredPath["lon"]) - 1):
+        if switch and (self.wp2_idx != (self.DesiredPath["n_wps"]-1)):
             # update waypoint 1
             self.wp1_idx += 1
             self.wp1_N = self.wp2_N
@@ -228,7 +248,8 @@ class HHOS_Env(gym.Env):
 
             # update waypoint 2
             self.wp2_idx += 1
-            self.wp2_N, self.wp2_E, _ = to_utm(lat=self.DesiredPath["lat"][self.wp2_idx], lon=self.DesiredPath["lon"][self.wp2_idx])
+            self.wp2_N = self.DesiredPath["north"][self.wp2_idx]
+            self.wp2_E = self.DesiredPath["east"][self.wp2_idx]
 
 
     def step(self, a):
@@ -254,6 +275,7 @@ class HHOS_Env(gym.Env):
         d = self._done()
         return self.state, self.r, d, {}
 
+
     def __str__(self, OS_lat, OS_lon) -> str:
         u, v, r = self.OS.nu
 
@@ -269,8 +291,8 @@ class HHOS_Env(gym.Env):
         current_speed, current_angle = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         current = f"Current speed [m/s]: {current_speed:.2f}, Current direction [°]: {rtd(current_angle):.2f}"
 
-        ye, desired_course = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
-        path_info = f"CTE [m]: {ye:.2f}, Course error [°]: {rtd(desired_course - self.OS._get_course()):.2f}"
+        ye, desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
+        path_info = f"CTE [m]: {ye:.2f}, Desired course [°]: {rtd(desired_course):.2f}, Course error [°]: {rtd(desired_course - self.OS._get_course()):.2f}"
         return ste + "\n" + pos + ", " + vel + "\n" + depth + ", " + wind + "\n" + current + "\n" + path_info
 
     def _calculate_reward(self):
@@ -293,15 +315,30 @@ class HHOS_Env(gym.Env):
 
         # ------------------------------ ship movement --------------------------------
         # get position of OS in lat/lon
-        OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
+        N0, E0, head0 = self.OS.eta
+        OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=self.OS.utm_number)
 
         for ax in [self.ax]:
             ax.clear()
-            ax.set_xlabel("Longitude [°]", fontsize=10)
-            ax.set_ylabel("Latitude [°]", fontsize=10)
+
+            # general information
+            ax.text(0.125, 0.8675, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
+
+            if self.plot_in_latlon:
+                ax.set_xlabel("Longitude [°]", fontsize=10)
+                ax.set_ylabel("Latitude [°]", fontsize=10)
+
+                ax.set_xlim(max([self.lon_lims[0], OS_lon - self.show_lon_lat/2]), min([self.lon_lims[1], OS_lon + self.show_lon_lat/2]))
+                ax.set_ylim(max([self.lat_lims[0], OS_lat - self.show_lon_lat/2]), min([self.lat_lims[1], OS_lat + self.show_lon_lat/2]))
+            else:
+                ax.set_xlabel("UTM-E [m]", fontsize=10)
+                ax.set_ylabel("UTM-N [m]", fontsize=10)
+
+                ax.set_xlim(max([self.UTM_bl[1], E0 - self.UTM_viz_range_E]), min([self.UTM_br[1], E0 + self.UTM_viz_range_E]))
+                ax.set_ylim(max([self.UTM_ul[0], N0 - self.UTM_viz_range_N]), min([self.UTM_ur[0], N0 + self.UTM_viz_range_N]))
 
             #--------------- depth plot ---------------------
-            if self.plot_depth:
+            if self.plot_depth and self.plot_in_latlon:
                 cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
                 cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
 
@@ -311,10 +348,10 @@ class HHOS_Env(gym.Env):
                 lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
                 upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
                 
-                ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
-                            min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
-                ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
-                            min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
+                #ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
+                #            min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
+                #ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
+                #            min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
 
                 # contour plot from depth data
                 con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
@@ -328,7 +365,8 @@ class HHOS_Env(gym.Env):
                     cbar.ax.set_yticklabels(self.con_ticklabels)
 
             #--------------- wind plot ---------------------
-            if self.plot_wind:
+            if self.plot_wind and self.plot_in_latlon:
+
                 # no barb plot if there is no wind data
                 if any([OS_lat < min(self.WindData["lat"]),
                         OS_lat > max(self.WindData["lat"]),
@@ -345,7 +383,6 @@ class HHOS_Env(gym.Env):
                     lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
                     upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
 
-                    # swapaxes necessary in barbs-plots
                     ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
                             self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
                             self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
@@ -355,10 +392,8 @@ class HHOS_Env(gym.Env):
             #------------------ set OS ------------------------
             # midship
             #ax.plot(OS_lon, OS_lat, marker="o", color="red")
-            ax.text(0.125, 0.9, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
             
             # quick access
-            N0, E0, head0 = self.OS.eta
             l = self.OS.Lpp/2
             b = self.OS.B/2
 
@@ -368,40 +403,92 @@ class HHOS_Env(gym.Env):
             C = (E0 - b, N0 - l)
             D = (E0 + b, N0 - l)
 
-            # rotate them according to heading
-            A = rotate_point(x=A[0], y=A[1], cx=E0, cy=N0, angle=-head0)
-            B = rotate_point(x=B[0], y=B[1], cx=E0, cy=N0, angle=-head0)
-            C = rotate_point(x=C[0], y=C[1], cx=E0, cy=N0, angle=-head0)
-            D = rotate_point(x=D[0], y=D[1], cx=E0, cy=N0, angle=-head0)
+            if self.plot_in_latlon:
 
-            # convert them to lat/lon
-            A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=self.OS.utm_number)
-            B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=self.OS.utm_number)
-            C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=self.OS.utm_number)
-            D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=self.OS.utm_number)
+                # rotate them according to heading
+                A = rotate_point(x=A[0], y=A[1], cx=E0, cy=N0, angle=-head0)
+                B = rotate_point(x=B[0], y=B[1], cx=E0, cy=N0, angle=-head0)
+                C = rotate_point(x=C[0], y=C[1], cx=E0, cy=N0, angle=-head0)
+                D = rotate_point(x=D[0], y=D[1], cx=E0, cy=N0, angle=-head0)
 
-            # draw the polygon (A is included twice to create a closed shape)
-            lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
-            lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
-            ax.plot(lons, lats, color="red", linewidth=2.0)
+                # convert them to lat/lon
+                A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=self.OS.utm_number)
+                B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=self.OS.utm_number)
+                C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=self.OS.utm_number)
+                D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=self.OS.utm_number)
+
+                # draw the polygon (A is included twice to create a closed shape)
+                lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
+                lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
+                ax.plot(lons, lats, color="red", linewidth=2.0)
+            else:
+                ax.plot([A[0], B[0], C[0], D[0], A[0]], [A[1], B[1], C[1], D[1], A[1]], color="red", linewidth=2.0)
 
             #--------------------- Desired path ------------------------
             if self.plot_path:
-                ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
-                # current waypoints
-                wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
-                wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
-                ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
+                if self.plot_in_latlon:
+                    ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
-                # wp switching line
-                #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
-                #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_path + dtr(90.0))
-                #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
-                #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
+                    # current waypoints
+                    wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
+                    wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
+                    ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
+
+                    # wp switching line
+                    #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
+                    #pi_lot = angle_to_2pi(pi_path + dtr(90.0))
+                    #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_lot)
+                    #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
+                    #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
+
+                    # desired course
+                    ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                    dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                    plt.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
+                            width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+
+                    # actual course
+                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                    ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                    plt.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
+                            width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+
+                    # cross-track error
+                    if ye < 0:
+                        dE, dN = xy_from_polar(r=abs(ye), angle=angle_to_2pi(pi_path + dtr(90.0)))
+                    else:
+                        dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
+                    yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                    plt.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
+
+                else:
+                    ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+
+                    # current waypoints
+                    ax.plot([self.wp1_E, self.wp2_E], [self.wp1_N, self.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
+
+                    # desired course
+                    ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                    plt.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                            width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+
+                    # actual course
+                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                    plt.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                            width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+
+                    # cross-track error
+                    if ye < 0:
+                        dE, dN = xy_from_polar(r=abs(ye), angle=angle_to_2pi(pi_path + dtr(90.0)))
+                    else:
+                        dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
+                    plt.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
 
             #--------------------- Current data ------------------------
-            if self.plot_current:
+            if self.plot_current and self.plot_in_latlon:
 
                 _, cnt_lat_idx = find_nearest(array=self.CurrentData["lat"], value=OS_lat)
                 _, cnt_lon_idx = find_nearest(array=self.CurrentData["lon"], value=OS_lon)
@@ -419,10 +506,12 @@ class HHOS_Env(gym.Env):
                           headwidth=2.0, color="whitesmoke", scale=5)
 
             #--------------------- LiDAR sensing ------------------------
-            if self.plot_lidar:
+            if self.plot_lidar and self.plot_in_latlon:
                 _, lidar_lat_lon = self._sense_LiDAR()
 
                 for _, latlon in enumerate(lidar_lat_lon):
                     ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
-
+        
+        if self.plot_in_latlon:
+            plt.gca().set_aspect('equal')
         plt.pause(0.001)
