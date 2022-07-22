@@ -42,17 +42,17 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 25
+        self.show_lon_lat = 0.25
         self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
         self.half_num_wind_idx = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
         self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
 
         # visualization
-        self.plot_in_latlon = False          # if false, plots in UTM coordinates
+        self.plot_in_latlon = True         # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
-        self.plot_wind = False
-        self.plot_current = False
+        self.plot_wind = True
+        self.plot_current = True
         self.plot_lidar = False
 
         # data range
@@ -60,14 +60,9 @@ class HHOS_Env(gym.Env):
         self.lat_lims = [51.83, 60.5]
 
         if not self.plot_in_latlon:
-            self.UTM_bl = to_utm(lat=self.lat_lims[0], lon=self.lon_lims[0])[0:2]
-            self.UTM_br = to_utm(lat=self.lat_lims[0], lon=self.lon_lims[1])[0:2]
-            self.UTM_ul = to_utm(lat=self.lat_lims[1], lon=self.lon_lims[0])[0:2]
-            self.UTM_ur = to_utm(lat=self.lat_lims[1], lon=self.lon_lims[1])[0:2]
-            self.UTM_viz_range_E = abs(to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims))[1] - \
-                to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims) + self.show_lon_lat/2)[1])
-            self.UTM_viz_range_N = abs(to_utm(lat=np.mean(self.lat_lims), lon=np.mean(self.lon_lims))[0] - \
-                to_utm(lat=np.mean(self.lat_lims) + self.show_lon_lat/2, lon=np.mean(self.lon_lims))[0])
+            self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
+            self.UTM_viz_range_E = abs(to_utm(lat=52.0, lon=6.0001)[1] - to_utm(lat=52.0, lon=6.0001+self.show_lon_lat/2)[1])
+            self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # custom inits
         self.r = 0
@@ -334,8 +329,9 @@ class HHOS_Env(gym.Env):
                 ax.set_xlabel("UTM-E [m]", fontsize=10)
                 ax.set_ylabel("UTM-N [m]", fontsize=10)
 
-                ax.set_xlim(max([self.UTM_bl[1], E0 - self.UTM_viz_range_E]), min([self.UTM_br[1], E0 + self.UTM_viz_range_E]))
-                ax.set_ylim(max([self.UTM_ul[0], N0 - self.UTM_viz_range_N]), min([self.UTM_ur[0], N0 + self.UTM_viz_range_N]))
+                # reverse xaxis in UTM
+                ax.set_xlim(E0 - self.UTM_viz_range_E, E0 + self.UTM_viz_range_E)
+                ax.set_ylim(N0 - self.UTM_viz_range_N, N0 + self.UTM_viz_range_N)
 
             #--------------- depth plot ---------------------
             if self.plot_depth and self.plot_in_latlon:
@@ -403,13 +399,13 @@ class HHOS_Env(gym.Env):
             C = (E0 - b, N0 - l)
             D = (E0 + b, N0 - l)
 
-            if self.plot_in_latlon:
+            # rotate them according to heading
+            A = rotate_point(x=A[0], y=A[1], cx=E0, cy=N0, angle=-head0)
+            B = rotate_point(x=B[0], y=B[1], cx=E0, cy=N0, angle=-head0)
+            C = rotate_point(x=C[0], y=C[1], cx=E0, cy=N0, angle=-head0)
+            D = rotate_point(x=D[0], y=D[1], cx=E0, cy=N0, angle=-head0)
 
-                # rotate them according to heading
-                A = rotate_point(x=A[0], y=A[1], cx=E0, cy=N0, angle=-head0)
-                B = rotate_point(x=B[0], y=B[1], cx=E0, cy=N0, angle=-head0)
-                C = rotate_point(x=C[0], y=C[1], cx=E0, cy=N0, angle=-head0)
-                D = rotate_point(x=D[0], y=D[1], cx=E0, cy=N0, angle=-head0)
+            if self.plot_in_latlon:
 
                 # convert them to lat/lon
                 A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=self.OS.utm_number)
@@ -422,7 +418,7 @@ class HHOS_Env(gym.Env):
                 lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
                 ax.plot(lons, lats, color="red", linewidth=2.0)
             else:
-                ax.plot([A[0], B[0], C[0], D[0], A[0]], [A[1], B[1], C[1], D[1], A[1]], color="red", linewidth=2.0)
+                ax.plot([A[0], B[0], D[0], C[0], A[0]], [A[1], B[1], D[1], C[1], A[1]], color="red", linewidth=2.0)
 
             #--------------------- Desired path ------------------------
             if self.plot_path:
@@ -512,6 +508,5 @@ class HHOS_Env(gym.Env):
                 for _, latlon in enumerate(lidar_lat_lon):
                     ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
         
-        if self.plot_in_latlon:
-            plt.gca().set_aspect('equal')
+        plt.gca().set_aspect('equal')
         plt.pause(0.001)
