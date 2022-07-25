@@ -42,13 +42,13 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.25
-        self.half_num_depth_idx = int((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"])
-        self.half_num_wind_idx = int((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"])
-        self.half_num_current_idx = int((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"])))
+        self.show_lon_lat = 0.05
+        self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
+        self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
+        self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
 
         # visualization
-        self.plot_in_latlon = True         # if false, plots in UTM coordinates
+        self.plot_in_latlon = False         # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
         self.plot_wind = True
@@ -198,23 +198,24 @@ class HHOS_Env(gym.Env):
         lon_init = 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
-        self.OS = KVLCC2(N_init   = N_init, 
-                         E_init   = E_init, 
-                         psi_init = dtr(45),
-                         u_init   = 0.0,
-                         v_init   = 0.0,
-                         r_init   = 0.0,
-                         delta_t  = self.delta_t,
-                         N_max    = np.infty,
-                         E_max    = np.infty,
-                         nps      = 1.8)
+        self.OS = KVLCC2(N_init    = N_init, 
+                         E_init    = E_init, 
+                         psi_init  = dtr(0.0),
+                         u_init    = 0.0,
+                         v_init    = 0.0,
+                         r_init    = 0.0,
+                         delta_t   = self.delta_t,
+                         N_max     = np.infty,
+                         E_max     = np.infty,
+                         nps       = 5.0,
+                         full_ship = False)
 
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
 
         # set u-speed to near-convergence
-        # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
+        fl_vel, fl_psi = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], fl_vel=fl_vel, fl_psi=fl_psi)
 
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
@@ -255,7 +256,9 @@ class HHOS_Env(gym.Env):
         self.OS._control(a)
 
         # update agent dynamics
-        self.OS._upd_dynamics()
+        OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
+        fl_vel, fl_psi = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.OS._upd_dynamics(fl_vel=fl_vel, fl_psi=fl_psi)
 
         # update waypoints of path
         self._update_wps()
@@ -276,7 +279,7 @@ class HHOS_Env(gym.Env):
 
         ste = f"Step: {self.step_cnt}"
         pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"
-        vel = f"u [m/s]: {u:.2f}, v [m/s]: {v:.2f}, r [m/s]: {r:.2f}"
+        vel = f"u [m/s]: {u:.2f}, v [m/s]: {v:.2f}, r [rad/s]: {r:.2f}"
         
         depth = f"Water depth [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
 

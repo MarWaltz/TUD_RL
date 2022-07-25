@@ -2,13 +2,14 @@ import math
 
 import numpy as np
 from scipy.optimize import newton
-from tud_rl.envs._envs.VesselFnc import angle_to_2pi, dtr, polar_from_xy
+from tud_rl.envs._envs.VesselFnc import (angle_to_2pi, angle_to_pi, dtr,
+                                         polar_from_xy)
 
 
 class KVLCC2:
     """This class provides a KVLCC2 tanker behaving according to the MMG standard model of Yasukawa, Yoshimura (2015)."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
@@ -19,62 +20,123 @@ class KVLCC2:
         self.action  = 0
 
         # KVLCC2 parameters
-        self.kvlcc2_full = {
-            "C_b":          0.810,          # Block Coefficient
-            "Lpp":          320.0,          # Length over perpendiculars (m)
-            "B":            58.,            # Overall width
-            "m":            312_600*1020,   # Mass of ship as calculated by ▽*rho (displacement * water density)
-            "w_P0":         0.35,           # Assumed wake fraction coefficient
-            "J_int":        0.4,            # Intercept for the calculation of K_T (https://doi.org/10.1615/ICHMT.2012.ProcSevIntSympTurbHeatTransfPal.500)
-            "J_slo":       -0.5,            # Slope for the calculation of K_T
-            "x_G":          11.2,           # X-Coordinate of the center of gravity (m)
-            "x_P":         -160.0,          # X-Coordinate of the propeller (-0.5*Lpp)
-            "D_p":          9.86,           # Diameter of propeller (m)
-            "k_0":          0.2931,         # Same value as "J_int" | Propeller open water coefficients. 
-            "k_1":         -0.2753,
-            "k_2":         -0.1359,    
-            "C_1":          2.0,
-            "C_2_plus":     1.6,
-            "C_2_minus":    1.1,
-            "l_R":         -0.710,          # correction of flow straightening factor to yaw-rate
-            "gamma_R":      None,      
-            "gamma_R_plus": 0.640,          # Flow straightening coefficient for positive rudder angles
-            "gamma_R_minus":0.395,          # Flow straightening coefficient for negative rudder angles
-            "eta_param":    0.626,          # Ratio of propeller diameter to rudder span
-            "kappa":        0.50,           # An experimental constant for expressing "u_R"
-            "A_R":          112.5,          # Moveable rudder area
-            "epsilon":      1.09,           # Ratio of wake fraction at propeller and rudder positions ((1 - w_R) / (1 - w_P))
-            "A_R_Ld_em":    1/46.8,         # Fraction of moveable Rudder area to length*draft
-            "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
-            "rho":          1020,           # Water density of seawater
-            "t_R":          0.387,          # Steering resistance deduction factor
-            "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
-            "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
-            "d":            20.8,           # Ship draft (Tiefgang)
-            "m_x_dash":     0.022,          # Non dimensionalized added masses coefficient in x direction
-            "m_y_dash":     0.223,          # Non dimensionalized added masses coefficient in y direction
-            "R_0_dash":     0.022,          # frictional resistance coefficient TODO Estimate this via Schoenherr's formula
-            "X_vv_dash":   -0.040,          # Hull derivatives
-            "X_vr_dash":    0.002,          # Hull derivatives
-            "X_rr_dash":    0.011,          # Hull derivatives
-            "X_vvvv_dash":  0.771,          # Hull derivatives
-            "Y_v_dash":    -0.315,          # Hull derivatives
-            "Y_r_dash":     0.083,          # Hull derivatives
-            "Y_vvv_dash":  -1.607,          # Hull derivatives
-            "Y_vvr_dash":   0.379,          # Hull derivatives
-            "Y_vrr_dash":  -0.391,          # Hull derivatives
-            "Y_rrr_dash":   0.008,          # Hull derivatives
-            "N_v_dash":    -0.137,          # Hull derivatives
-            "N_r_dash":    -0.049,          # Hull derivatives
-            "N_vvv_dash":  -0.030,          # Hull derivatives
-            "N_vvr_dash":  -0.294,          # Hull derivatives
-            "N_vrr_dash":   0.055,          # Hull derivatives
-            "N_rrr_dash":  -0.013,          # Hull derivatives
-            "I_zG":         2e12,           # Moment of inertia of ship around center of gravity (m*(0.25*Lpp)**2) (Point mass Inertia)
-            "J_z_dash":     0.011,          # Added moment of inertia coefficient
-            "a_H":          0.312           # Rudder force increase factor
-        }
-        for key, value in self.kvlcc2_full.items():
+        if full_ship:
+
+            self.kvlcc2 = {
+                "C_b":          0.810,          # Block Coefficient
+                "Lpp":          320.0,          # Length over perpendiculars (m)
+                "B":            58.,            # Overall width
+                "m":            312_600*1020,   # Mass of ship as calculated by ▽*rho (displacement * water density)
+                "w_P0":         0.35,           # Assumed wake fraction coefficient
+                "J_int":        0.4,            # Intercept for the calculation of K_T (https://doi.org/10.1615/ICHMT.2012.ProcSevIntSympTurbHeatTransfPal.500)
+                "J_slo":       -0.5,            # Slope for the calculation of K_T
+                "x_G":          11.2,           # X-Coordinate of the center of gravity (m)
+                "x_P":         -160.0,          # X-Coordinate of the propeller (-0.5*Lpp)
+                "D_p":          9.86,           # Diameter of propeller (m)
+                "k_0":          0.2931,         # Same value as "J_int" | Propeller open water coefficients. 
+                "k_1":         -0.2753,
+                "k_2":         -0.1359,    
+                "C_1":          2.0,
+                "C_2_plus":     1.6,
+                "C_2_minus":    1.1,
+                "l_R":         -0.710,          # correction of flow straightening factor to yaw-rate
+                "gamma_R":      None,      
+                "gamma_R_plus": 0.640,          # Flow straightening coefficient for positive rudder angles
+                "gamma_R_minus":0.395,          # Flow straightening coefficient for negative rudder angles
+                "eta_param":    0.626,          # Ratio of propeller diameter to rudder span
+                "kappa":        0.50,           # An experimental constant for expressing "u_R"
+                "A_R":          112.5,          # Moveable rudder area
+                "epsilon":      1.09,           # Ratio of wake fraction at propeller and rudder positions ((1 - w_R) / (1 - w_P))
+                "A_R_Ld_em":    1/46.8,         # Fraction of moveable Rudder area to length*draft
+                "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
+                "rho":          1020,           # Water density of seawater
+                "t_R":          0.387,          # Steering resistance deduction factor
+                "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
+                "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
+                "d":            20.8,           # Ship draft (Tiefgang)
+                "m_x_dash":     0.022,          # Non dimensionalized added masses coefficient in x direction
+                "m_y_dash":     0.223,          # Non dimensionalized added masses coefficient in y direction
+                "R_0_dash":     0.022,          # frictional resistance coefficient TODO Estimate this via Schoenherr's formula
+                "X_vv_dash":   -0.040,          # Hull derivatives
+                "X_vr_dash":    0.002,          # Hull derivatives
+                "X_rr_dash":    0.011,          # Hull derivatives
+                "X_vvvv_dash":  0.771,          # Hull derivatives
+                "Y_v_dash":    -0.315,          # Hull derivatives
+                "Y_r_dash":     0.083,          # Hull derivatives
+                "Y_vvv_dash":  -1.607,          # Hull derivatives
+                "Y_vvr_dash":   0.379,          # Hull derivatives
+                "Y_vrr_dash":  -0.391,          # Hull derivatives
+                "Y_rrr_dash":   0.008,          # Hull derivatives
+                "N_v_dash":    -0.137,          # Hull derivatives
+                "N_r_dash":    -0.049,          # Hull derivatives
+                "N_vvv_dash":  -0.030,          # Hull derivatives
+                "N_vvr_dash":  -0.294,          # Hull derivatives
+                "N_vrr_dash":   0.055,          # Hull derivatives
+                "N_rrr_dash":  -0.013,          # Hull derivatives
+                "I_zG":         2e12,           # Moment of inertia of ship around center of gravity (m*(0.25*Lpp)**2) (Point mass Inertia)
+                "J_z_dash":     0.011,          # Added moment of inertia coefficient
+                "a_H":          0.312           # Rudder force increase factor
+            }
+
+        else:
+            # scale 1:5 replica of the original tanker
+            self.kvlcc2 = {
+                "C_b":          0.810,          # Block Coeffiient
+                "Lpp":          64,             # Length over pependiculars (m)
+                "B":            11.6,           # Overall width
+                "displ":        2500.8,         # Displacement in [m³]
+                "w_P0":         0.35,           # Assumed wake fraction coefficient
+                "J_int":        0.4,            # Intercept for the calculation of K_T (https://doi.org/10.1615/ICHMT.2012.ProcSevIntSympTurbHeatTransfPal.500)
+                "J_slo":       -0.5,            # Slope for the calculation of K_T
+                "x_G":          2.24,           # X-Coordinate of the center of gravity (m)
+                "x_P":         -32.0,           # X-Coordinate of the propeller (-0.5*Lpp)
+                "D_p":          1.972,          # Diameter of propeller (m)
+                "k_0":          0.2931,         # Same value as "J_int" | Propeller open water coefficients. 
+                "k_1":         -0.2753,
+                "k_2":         -0.1359,
+                "C_1":          2.0,
+                "C_2_plus":     1.6,
+                "C_2_minus":    1.1,
+                "l_R":         -0.710,          # correction of flow straightening factor to yaw-rate
+                "gamma_R":      None,
+                "gamma_R_plus": 0.640,          # Flow straightening coefficient for positive rudder angles
+                "gamma_R_minus":0.395,          # Flow straightening coefficient for negative rudder angles
+                "eta_param":    0.626,          # Ratio of propeller diameter to rudder span
+                "kappa":        0.50,           # An experimental constant for expressing "u_R"
+                "A_R":          4.5,            # Moveable rudder area
+                "epsilon":      1.09,           # Ratio of wake fraction at propeller and rudder positions ((1 - w_R) / (1 - w_P))
+                "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
+                "rho":          1020,           # Water density of seawater
+                "t_R":          0.387,          # Steering resistance deduction factor
+                "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
+                "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
+                "d":            4.16,           # Ship draft (Tiefgang)
+                "m_x_dash":     0.022,          # Non dimensionalized added masses coefficient in x direction
+                "m_y_dash":     0.223,          # Non dimensionalized added masses coefficient in y direction
+                "R_0_dash":     0.022,          # frictional resistance coefficient TODO Estimate this via Schoenherr's formula
+                "X_vv_dash":   -0.040,          # Hull derivatives
+                "X_vr_dash":    0.002,          # Hull derivatives
+                "X_rr_dash":    0.011,          # Hull derivatives
+                "X_vvvv_dash":  0.771,          # Hull derivatives
+                "Y_v_dash":    -0.315,          # Hull derivatives
+                "Y_r_dash":     0.083,          # Hull derivatives
+                "Y_vvv_dash":  -1.607,          # Hull derivatives
+                "Y_vvr_dash":   0.379,          # Hull derivatives
+                "Y_vrr_dash":  -0.391,          # Hull derivatives
+                "Y_rrr_dash":   0.008,          # Hull derivatives
+                "N_v_dash":    -0.137,          # Hull derivatives
+                "N_r_dash":    -0.049,          # Hull derivatives
+                "N_vvv_dash":  -0.030,          # Hull derivatives
+                "N_vvr_dash":  -0.294,          # Hull derivatives
+                "N_vrr_dash":   0.055,          # Hull derivatives
+                "N_rrr_dash":  -0.013,          # Hull derivatives
+                "J_z_dash":     0.011,          # Added moment of inertia coefficient
+                "a_H":          0.312           # Rudder force increase factor
+            }
+            self.kvlcc2["m"] = self.kvlcc2["displ"] * self.kvlcc2["rho"]
+            self.kvlcc2["I_zG"] = self.kvlcc2["m"] * (0.25* self.kvlcc2["Lpp"])**2
+
+        for key, value in self.kvlcc2.items():
             setattr(self, key, value)
 
         # in [m]
@@ -106,7 +168,7 @@ class KVLCC2:
                          [math.sin(psi),  math.cos(psi), 0.],
                          [0., 0., 1.]])
 
-    def _C_X(g_rc: float) -> float:
+    def _C_X(self, g_rc: float) -> float:
         return (-0.0665*g_rc**5 + 
                 0.5228*g_rc**4 - 
                 1.4365*g_rc**3 + 
@@ -114,22 +176,24 @@ class KVLCC2:
                 0.2967*g_rc - 
                 0.4691)
 
-    def _C_Y(g_rc: float) -> float:
-        return (0.05930686*g_rc**4 -
-                0.37522028*g_rc**3 +
-                0.46812233*g_rc**2 +
-                0.39114522*g_rc -
-                0.00273578)
+    def _C_Y(self, g_rc: float) -> float:
+        #return (0.1273*g_rc**4 -
+        #        0.802*g_rc**3 +
+        #        1.3216*g_rc**2 -
+        #        0.1799*g_rc)
+        return 0.05930686*g_rc**4 - 0.37522028*g_rc**3 + 0.46812233*g_rc**2 + 0.39114522*g_rc - 0.00273578
 
-    def _C_N(g_rc: float) -> float:
+    def _C_N(self, g_rc: float) -> float:
         return (-0.0140*g_rc**5 + 
                 0.1131*g_rc**4 -
                 0.2757*g_rc**3 + 
                 0.1617*g_rc**2 + 
                 0.0728*g_rc)
-
+ 
     def _mmg_dynamics(self, nu, psi, rud_angle, nps, fl_psi, fl_vel) -> np.ndarray:
-        """System of ODEs after Yasukawa, H., Yoshimura, Y. (2015) for the MMG standard model. Returns nu_dot."""
+        """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
+        Current forces are taken from Fossen (2021) and Budak & Beji (2020, Ocean Engineering). Returns nu_dot."""          
+
         #----------------------------- preparation ------------------------------
         # unpack values
         u, vm, r = nu
@@ -179,7 +243,7 @@ class KVLCC2:
         # redefine
         beta_P = beta - (self.x_P/self.Lpp) * r_dash
 
-        if all([key in self.kvlcc2_full.keys() for key in ["C_1","C_2_plus","C_2_minus"]]):
+        if all([key in self.kvlcc2.keys() for key in ["C_1","C_2_plus","C_2_minus"]]):
             C_2 = self.C_2_plus if beta_P >= 0 else self.C_2_minus
 
             tmp = 1-math.exp(-self.C_1*abs(beta_P))*(C_2-1)
@@ -192,7 +256,7 @@ class KVLCC2:
         else:
             J = (1 - w_P) * u / (nps * self.D_p)  # propeller advance ratio
 
-        if all([key in self.kvlcc2_full.keys() for key in ["k_0", "k_1", "k_2"]]):
+        if all([key in self.kvlcc2.keys() for key in ["k_0", "k_1", "k_2"]]):
             # propeller thrust open water characteristic
             K_T = self.k_0 + (self.k_1 * J) + (self.k_2 * J**2)
         else:
@@ -246,34 +310,32 @@ class KVLCC2:
         # yaw moment around midship by steering
         N_R = -(-0.5 + self.a_H * x_H) * F_N * math.cos(rud_angle)
 
-
         #------------------------- forces related to currents --------------------------
         if fl_vel is not None and fl_vel != 0.:
-            
-            # longitudinal velocity of current dependent on ship heading
+
+            # Longitudinal velocity of current dependent on ship heading
             u_c = -fl_vel * math.cos(fl_psi - psi)
             u_rc = u - u_c
 
-            # lateral velocity of current dependent on ship heading
+            # Lateral velocity of current dependent on ship heading
             v_c = fl_vel * math.sin(fl_psi - psi)
             v_rc = vm - v_c
 
             g_rc = abs(-math.atan2(v_rc,u_rc))
 
-            # longitudinal current force
+            # Longitudinal current force
             A_Fc = self.B * self.d * self.C_b
             X_C = 0.5 * self.rho * A_Fc * self._C_X(g_rc) * abs(u_rc) * u_rc
 
-            # lateral current force
+            # Lateral current force
             A_Lc = self.Lpp * self.d * self.C_b
             Y_C = 0.5 * self.rho * A_Lc * self._C_Y(g_rc) * abs(v_rc) * v_rc
 
-            # current moment
+            # Current Moment
             N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc) * abs(v_rc) * v_rc
 
         else:
             X_C, Y_C, N_C = 0.0, 0.0, 0.0
-
 
         #-------------------------- Equation solving ----------------------------
         # added masses and added moment of inertia
@@ -303,7 +365,7 @@ class KVLCC2:
         return np.array([d_u, d_vm, d_r])
 
 
-    def _upd_dynamics(self):
+    def _upd_dynamics(self, fl_psi=0.0, fl_vel=0.0):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
@@ -314,8 +376,8 @@ class KVLCC2:
                                          psi       = self.eta[2],
                                          rud_angle = self.rud_angle,
                                          nps       = self.nps, 
-                                         fl_psi    = 0.0, 
-                                         fl_vel    = 0.0)
+                                         fl_psi    = fl_psi, 
+                                         fl_vel    = fl_vel)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation
@@ -377,23 +439,22 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, psi=0.0):
-        """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0.
-        Note: Heading (psi) is irrelevant since we do not consider currents."""
+    def _get_u_from_nps(self, nps, psi=0.0, fl_vel=0.0, fl_psi=0.0):
+        """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=0.0, fl_vel=0.0)[0]
+            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=fl_psi, fl_vel=fl_vel)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, psi=0.0):
+    def _get_nps_from_u(self, u, psi=0.0, fl_vel=0.0, fl_psi=0.0):
         """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0.
         Note: Heading (psi) is irrelevant since we do not consider currents."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=0.0, fl_vel=0.0)[0]
+            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=fl_psi, fl_vel=fl_vel)[0]
 
         return newton(func=to_find_root_of, x0=2.0)
