@@ -32,7 +32,7 @@ class MMG_Env(gym.Env):
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
-                 spawn_mode       = "line_v2"):
+                 spawn_mode       = "line"):
         super().__init__()
 
         # simulation settings
@@ -57,7 +57,7 @@ class MMG_Env(gym.Env):
         # CR calculation
         self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
         #self.CR_dist_multiple  = 4              # collision risk distance = multiple * ship_domain (in m)
-        self.CR_al = 0.2                         # collision risk metric when TS is at CR_dist of agent
+        self.CR_al = 0.1                         # collision risk metric when TS is at CR_dist of agent
 
         # spawning
         self.TCPA_crit         = 25 * 60               # critical TCPA (in s), relevant for state and spawning of TSs
@@ -174,7 +174,7 @@ class MMG_Env(gym.Env):
 
         # init other vessels
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(a=[0, 1, 2, 3, 4], p=[0.1, 0.2, 0.2, 0.25, 0.25])
+            self.N_TSs = np.random.choice(a=[0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
 
         elif self.N_TSs_increasing:
             raise NotImplementedError()
@@ -230,7 +230,7 @@ class MMG_Env(gym.Env):
             #--------------------------------------- line mode --------------------------------------
             if self.spawn_mode == "line":
 
-                raise Exception("'line' spawning is deprecated in MMG-Env.")
+                #raise Exception("'line' spawning is deprecated in MMG-Env.")
 
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
@@ -315,6 +315,8 @@ class MMG_Env(gym.Env):
                     break
 
             elif self.spawn_mode == "line_v2":
+
+                raise Exception("'line_v2' spawning is deprecated in MMG-Env.")
 
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
@@ -601,7 +603,6 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
-        return TS, False
         if self.spawn_mode == "center":
             return TS, False
 
