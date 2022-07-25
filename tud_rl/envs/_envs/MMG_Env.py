@@ -496,7 +496,7 @@ class MMG_Env(gym.Env):
                 C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (math.pi)
 
                 # speed
-                V_TS = TS._get_V()
+                V_TS = TS._get_V() / 7.0
 
                 # COLREG mode
                 sigma_TS = self.TS_COLREGs[TS_idx]
