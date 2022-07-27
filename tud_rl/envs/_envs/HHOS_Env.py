@@ -42,7 +42,7 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.10
         self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
@@ -207,15 +207,15 @@ class HHOS_Env(gym.Env):
                          delta_t   = self.delta_t,
                          N_max     = np.infty,
                          E_max     = np.infty,
-                         nps       = 5.0,
-                         full_ship = False)
+                         nps       = 1.8,
+                         full_ship = True)
 
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
 
         # set u-speed to near-convergence
-        fl_vel, fl_psi = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], fl_vel=fl_vel, fl_psi=fl_psi)
+        V_c, beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=0.0, beta_c=0.0)
 
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
@@ -257,8 +257,8 @@ class HHOS_Env(gym.Env):
 
         # update agent dynamics
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
-        fl_vel, fl_psi = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        self.OS._upd_dynamics(fl_vel=fl_vel, fl_psi=fl_psi)
+        V_c, beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.OS._upd_dynamics(V_c=0.5, beta_c=dtr(0.0))
 
         # update waypoints of path
         self._update_wps()
@@ -279,7 +279,7 @@ class HHOS_Env(gym.Env):
 
         ste = f"Step: {self.step_cnt}"
         pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"
-        vel = f"u [m/s]: {u:.2f}, v [m/s]: {v:.2f}, r [rad/s]: {r:.2f}"
+        vel = f"u [m/s]: {u:.3f}, v [m/s]: {v:.3f}, r [rad/s]: {r:.3f}"
         
         depth = f"Water depth [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
 

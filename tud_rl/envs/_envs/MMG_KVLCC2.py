@@ -3,7 +3,7 @@ import math
 import numpy as np
 from scipy.optimize import newton
 from tud_rl.envs._envs.VesselFnc import (angle_to_2pi, angle_to_pi, dtr,
-                                         polar_from_xy)
+                                         polar_from_xy, xy_from_polar)
 
 
 class KVLCC2:
@@ -168,31 +168,10 @@ class KVLCC2:
                          [math.sin(psi),  math.cos(psi), 0.],
                          [0., 0., 1.]])
 
-    def _C_X(self, g_rc: float) -> float:
-        return (-0.0665*g_rc**5 + 
-                0.5228*g_rc**4 - 
-                1.4365*g_rc**3 + 
-                1.6024*g_rc**2 - 
-                0.2967*g_rc - 
-                0.4691)
-
-    def _C_Y(self, g_rc: float) -> float:
-        #return (0.1273*g_rc**4 -
-        #        0.802*g_rc**3 +
-        #        1.3216*g_rc**2 -
-        #        0.1799*g_rc)
-        return 0.05930686*g_rc**4 - 0.37522028*g_rc**3 + 0.46812233*g_rc**2 + 0.39114522*g_rc - 0.00273578
-
-    def _C_N(self, g_rc: float) -> float:
-        return (-0.0140*g_rc**5 + 
-                0.1131*g_rc**4 -
-                0.2757*g_rc**3 + 
-                0.1617*g_rc**2 + 
-                0.0728*g_rc)
- 
-    def _mmg_dynamics(self, nu, psi, rud_angle, nps, fl_psi, fl_vel) -> np.ndarray:
+    def _mmg_dynamics(self, nu, psi, rud_angle, nps, beta_c, V_c) -> np.ndarray:
         """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Current forces are taken from Fossen (2021) and Budak & Beji (2020, Ocean Engineering). Returns nu_dot."""          
+        Current forces are taken from Fossen (2021) and Budak & Beji (2020, Ocean Engineering). See also Chen et al. (2013, Ocean Engineering).
+        Returns nu_dot."""          
 
         #----------------------------- preparation ------------------------------
         # unpack values
@@ -311,28 +290,29 @@ class KVLCC2:
         N_R = -(-0.5 + self.a_H * x_H) * F_N * math.cos(rud_angle)
 
         #------------------------- forces related to currents --------------------------
-        if fl_vel is not None and fl_vel != 0.:
+        if V_c is not None and V_c != 0.:
 
             # Longitudinal velocity of current dependent on ship heading
-            u_c = -fl_vel * math.cos(fl_psi - psi)
+            u_c = V_c * math.cos(angle_to_2pi(beta_c - psi))
             u_rc = u - u_c
 
             # Lateral velocity of current dependent on ship heading
-            v_c = fl_vel * math.sin(fl_psi - psi)
+            v_c = V_c * math.sin(angle_to_2pi(beta_c - psi))
             v_rc = vm - v_c
 
-            g_rc = abs(-math.atan2(v_rc,u_rc))
+            V_rc_sq = u_rc**2 + v_rc**2
+            g_rc = -math.atan2(v_rc,u_rc)
 
             # Longitudinal current force
             A_Fc = self.B * self.d * self.C_b
-            X_C = 0.5 * self.rho * A_Fc * self._C_X(g_rc) * abs(u_rc) * u_rc
+            X_C = 0.5 * self.rho * A_Fc * self._C_X(g_rc) * V_rc_sq
 
             # Lateral current force
             A_Lc = self.Lpp * self.d * self.C_b
-            Y_C = 0.5 * self.rho * A_Lc * self._C_Y(g_rc) * abs(v_rc) * v_rc
+            Y_C = 0.5 * self.rho * A_Lc * self._C_Y(g_rc) * V_rc_sq
 
             # Current Moment
-            N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc) * abs(v_rc) * v_rc
+            N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc)* V_rc_sq
 
         else:
             X_C, Y_C, N_C = 0.0, 0.0, 0.0
@@ -365,7 +345,46 @@ class KVLCC2:
         return np.array([d_u, d_vm, d_r])
 
 
-    def _upd_dynamics(self, fl_psi=0.0, fl_vel=0.0):
+    def _C_X(self, g_rc: float) -> float:
+        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
+
+        return (
+        -0.0665*g_rc**5 + 
+            0.5228*g_rc**4 - 
+            1.4365*g_rc**3 + 
+            1.6024*g_rc**2 - 
+            0.2967*g_rc - 
+            0.4691)
+
+
+    def _C_Y(self, g_rc: float) -> float:
+        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
+
+        # return (
+        #     0.1273*g_rc**4 - 
+        #     0.8020*g_rc**3 + 
+        #     1.3216*g_rc**2 - 
+        #     0.1799*g_rc)
+        return (
+        0.05930686*g_rc**4 -
+        0.37522028*g_rc**3 +
+        0.46812233*g_rc**2 +
+        0.39114522*g_rc -
+        0.00273578
+        )
+
+    def _C_N(self, g_rc: float) -> float:
+        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
+
+        return (
+        -0.0140*g_rc**5 + 
+            0.1131*g_rc**4 -
+            0.2757*g_rc**3 + 
+            0.1617*g_rc**2 + 
+            0.0728*g_rc)
+
+
+    def _upd_dynamics(self, beta_c=0.0, V_c=0.0):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
@@ -376,8 +395,8 @@ class KVLCC2:
                                          psi       = self.eta[2],
                                          rud_angle = self.rud_angle,
                                          nps       = self.nps, 
-                                         fl_psi    = fl_psi, 
-                                         fl_vel    = fl_vel)
+                                         beta_c    = beta_c, 
+                                         V_c       = V_c)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation
@@ -439,22 +458,22 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, psi=0.0, fl_vel=0.0, fl_psi=0.0):
+    def _get_u_from_nps(self, nps, psi=0.0, V_c=0.0, beta_c=0.0):
         """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=fl_psi, fl_vel=fl_vel)[0]
+            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, beta_c=beta_c, V_c=V_c)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, psi=0.0, fl_vel=0.0, fl_psi=0.0):
+    def _get_nps_from_u(self, u, psi=0.0, V_c=0.0, beta_c=0.0):
         """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0.
         Note: Heading (psi) is irrelevant since we do not consider currents."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, fl_psi=fl_psi, fl_vel=fl_vel)[0]
+            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, beta_c=beta_c, V_c=V_c)[0]
 
         return newton(func=to_find_root_of, x0=2.0)
