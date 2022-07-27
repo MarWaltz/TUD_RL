@@ -177,6 +177,13 @@ class KVLCC2:
         # unpack values
         u, vm, r = nu
 
+        # current adjustments
+        u_c = V_c * math.cos(angle_to_2pi(beta_c - psi - math.pi))
+        v_c = V_c * math.sin(angle_to_2pi(beta_c - psi - math.pi))
+
+        u -= u_c
+        vm -= v_c
+
         U = math.sqrt(u**2 + vm**2)
 
         if U == 0.0:
@@ -314,6 +321,9 @@ class KVLCC2:
             # Current Moment
             N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc)* V_rc_sq
 
+            #--- not considered at the moment ---
+            X_C, Y_C, N_C = 0.0, 0.0, 0.0
+
         else:
             X_C, Y_C, N_C = 0.0, 0.0, 0.0
 
@@ -342,7 +352,7 @@ class KVLCC2:
         # yaw rate acceleration
         d_r = (N_M - self.x_G * m * (d_vm + u * r)) / f
 
-        return np.array([d_u, d_vm, d_r])
+        return np.array([r*v_c + d_u, -r*u_c + d_vm, d_r])
 
 
     def _C_X(self, g_rc: float) -> float:
