@@ -145,6 +145,19 @@ class KVLCC2:
         self.ship_domain_C = 1 * self.Lpp + 0.5 * self.Lpp
         self.ship_domain_D = 3 * self.Lpp + 0.5 * self.B
 
+        #---------------------------- Dynamic inits ----------------------------------------
+        self.m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
+        self.m_y = self.m_y_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
+        self.J_z = self.J_z_dash * (0.5 * self.rho * (self.Lpp**4) * self.d)
+        
+        self.M_RB = np.array([[self.m, 0.0, 0.0],
+                              [0.0, self.m, self.m * self.x_G],
+                              [0.0, self.m * self.x_G, self.I_zG]])
+        self.M_A = np.array([[self.m_x, 0.0, 0.0],
+                             [0.0, self.m_y, 0.0],
+                             [0.0, 0.0, self.J_z + (self.x_G**2) * self.m]])
+        self.M_inv = np.linalg.inv(self.M_RB + self.M_A)
+
         #------------------------- Motion Initialization -----------------------------------
         # Propeller revolutions [s⁻¹]
         self.nps = nps
@@ -168,22 +181,39 @@ class KVLCC2:
                          [math.sin(psi),  math.cos(psi), 0.],
                          [0., 0., 1.]])
 
-    def _mmg_dynamics(self, nu, psi, rud_angle, nps, beta_c, V_c) -> np.ndarray:
-        """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Current forces are taken from Fossen (2021) and Budak & Beji (2020, Ocean Engineering). See also Chen et al. (2013, Ocean Engineering).
-        Returns nu_dot."""          
+    def _C_RB(self, r):
+        return np.array([[0.0, -self.m * r, -self.m * self.x_G * r],
+                         [self.m * r, 0.0, 0.0],
+                         [self.m * self.x_G * r, 0.0, 0.0]])
 
-        #----------------------------- preparation ------------------------------
+    def _C_A(self, u, vm):
+        return np.array([[0.0, 0.0, -self.m_y * vm],
+                         [0.0, 0.0, self.m_x * u],
+                         [0.0, 0.0, 0.0]])
+
+    def _mmg_dynamics(self, nu, psi, rud_angle, nps, beta_c=0.0, V_c=0.0) -> np.ndarray:
+        """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
+        Current are considered following Fossen (2021). Returns nu_dot."""          
+
+        #----------------------------- currents ------------------------------
         # unpack values
         u, vm, r = nu
 
-        # current adjustments
-        u_c = V_c * math.cos(angle_to_2pi(beta_c - psi - math.pi))
-        v_c = V_c * math.sin(angle_to_2pi(beta_c - psi - math.pi))
+        # current velocities in ship's body frame
+        #u_c = V_c * math.cos(angle_to_2pi(beta_c - psi - math.pi))
+        #v_c = V_c * math.sin(angle_to_2pi(beta_c - psi - math.pi))
 
-        u -= u_c
-        vm -= v_c
+        # relative velocities
+        #u_r = u - u_c
+        #v_r = vm - v_c
 
+        # whether to calculate with relative velocities
+        #u_pure = u
+        #vm_pure = vm
+        #u = u_r
+        #vm = v_r
+
+        #----------------------------- preparation ------------------------------
         U = math.sqrt(u**2 + vm**2)
 
         if U == 0.0:
@@ -296,102 +326,17 @@ class KVLCC2:
         # yaw moment around midship by steering
         N_R = -(-0.5 + self.a_H * x_H) * F_N * math.cos(rud_angle)
 
-        #------------------------- forces related to currents --------------------------
-        if V_c is not None and V_c != 0.:
-
-            # Longitudinal velocity of current dependent on ship heading
-            u_c = V_c * math.cos(angle_to_2pi(beta_c - psi))
-            u_rc = u - u_c
-
-            # Lateral velocity of current dependent on ship heading
-            v_c = V_c * math.sin(angle_to_2pi(beta_c - psi))
-            v_rc = vm - v_c
-
-            V_rc_sq = u_rc**2 + v_rc**2
-            g_rc = -math.atan2(v_rc,u_rc)
-
-            # Longitudinal current force
-            A_Fc = self.B * self.d * self.C_b
-            X_C = 0.5 * self.rho * A_Fc * self._C_X(g_rc) * V_rc_sq
-
-            # Lateral current force
-            A_Lc = self.Lpp * self.d * self.C_b
-            Y_C = 0.5 * self.rho * A_Lc * self._C_Y(g_rc) * V_rc_sq
-
-            # Current Moment
-            N_C = 0.5 * self.rho * A_Lc * self.Lpp * self._C_N(g_rc)* V_rc_sq
-
-            #--- not considered at the moment ---
-            X_C, Y_C, N_C = 0.0, 0.0, 0.0
-
-        else:
-            X_C, Y_C, N_C = 0.0, 0.0, 0.0
-
         #-------------------------- Equation solving ----------------------------
-        # added masses and added moment of inertia
-        m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
-        m_y = self.m_y_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
-        J_z = self.J_z_dash * (0.5 * self.rho * (self.Lpp**4) * self.d)
-        m = self.m
-        I_zG = self.I_zG
+        X = X_H + X_R + X_P
+        Y = Y_H + Y_R
+        N_M = N_H + N_R
 
-        X = X_H + X_R + X_P + X_C
-        Y = Y_H + Y_R + Y_C
-        N_M = N_H + N_R + N_C
-
-        # longitudinal acceleration
-        d_u = (X + (m + m_y) * vm * r + self.x_G * m * (r**2)) / (m + m_x)
-
-        # lateral acceleration
-        f = I_zG + J_z + (self.x_G**2) * m
-
-        d_vm_nom = Y - (m + m_x)*u*r - self.x_G * m * N_M/f + self.x_G**2 * m**2 * u * r/f
-        d_vm_den = m + m_y - (self.x_G**2 * m**2)/f
-        d_vm = d_vm_nom / d_vm_den
-
-        # yaw rate acceleration
-        d_r = (N_M - self.x_G * m * (d_vm + u * r)) / f
-
-        return np.array([r*v_c + d_u, -r*u_c + d_vm, d_r])
-
-
-    def _C_X(self, g_rc: float) -> float:
-        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
-
-        return (
-        -0.0665*g_rc**5 + 
-            0.5228*g_rc**4 - 
-            1.4365*g_rc**3 + 
-            1.6024*g_rc**2 - 
-            0.2967*g_rc - 
-            0.4691)
-
-
-    def _C_Y(self, g_rc: float) -> float:
-        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
-
-        # return (
-        #     0.1273*g_rc**4 - 
-        #     0.8020*g_rc**3 + 
-        #     1.3216*g_rc**2 - 
-        #     0.1799*g_rc)
-        return (
-        0.05930686*g_rc**4 -
-        0.37522028*g_rc**3 +
-        0.46812233*g_rc**2 +
-        0.39114522*g_rc -
-        0.00273578
-        )
-
-    def _C_N(self, g_rc: float) -> float:
-        """Polynomial fit of Budak & Beji (2020, Ocean Engineering)."""
-
-        return (
-        -0.0140*g_rc**5 + 
-            0.1131*g_rc**4 -
-            0.2757*g_rc**3 + 
-            0.1617*g_rc**2 + 
-            0.0728*g_rc)
+        F = np.array([X, Y, N_M])
+        return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))# + np.array([r*v_c, -r*u_c, 0.0])
+        #nu_c_dot = np.array([v_c*r, -u_c*r, 0.0])
+        #return np.dot(self.M_inv, F - np.dot(self._C_RB(r), np.array([u_pure, vm_pure, r]))     
+        #                            - np.dot(self._C_A(u_r, v_r), np.array([u_r, v_r, r])  
+        #                            + np.dot(self.M_A, nu_c_dot)))
 
 
     def _upd_dynamics(self, beta_c=0.0, V_c=0.0):
