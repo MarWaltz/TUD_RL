@@ -2,8 +2,7 @@ import math
 
 import numpy as np
 from scipy.optimize import newton
-from tud_rl.envs._envs.VesselFnc import (angle_to_2pi, angle_to_pi, dtr,
-                                         polar_from_xy, xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import angle_to_2pi, dtr
 
 
 class KVLCC2:
@@ -50,6 +49,11 @@ class KVLCC2:
                 "A_R_Ld_em":    1/46.8,         # Fraction of moveable Rudder area to length*draft
                 "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
                 "rho":          1020,           # Water density of seawater
+                "rho_air":      1.269,          # Air density at 5°C
+                "A_Fw":         1200,           # Frontal wind area [m²]
+                "A_Lw":         3600,           # Lateral wind area [m²]
+                "A_Fc":         977.184,        # Frontal current area [m²]
+                "A_Lc":         5391.36,        # Lateral current area [m²]
                 "t_R":          0.387,          # Steering resistance deduction factor
                 "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
                 "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
@@ -107,6 +111,11 @@ class KVLCC2:
                 "epsilon":      1.09,           # Ratio of wake fraction at propeller and rudder positions ((1 - w_R) / (1 - w_P))
                 "f_alpha":      2.747,          # Rudder lift gradient coefficient (assumed rudder aspect ratio = 2)
                 "rho":          1020,           # Water density of seawater
+                "rho_air":      1.269,          # Air density at 5°C
+                "A_Fw":         240,            # Frontal wind area [m²]
+                "A_Lw":         720,            # Lateral wind area [m²]
+                "A_Fc":         39.08736,       # Frontal current area [m²]
+                "A_Lc":         215.6544,       # Lateral current area [m²]
                 "t_R":          0.387,          # Steering resistance deduction factor
                 "t_P":          0.220,          # Thrust deduction factor. TODO give this more than an arbitrary value
                 "x_H_dash":    -0.464,          # Longitudinal coordinate of acting point of the additional lateral force
@@ -191,29 +200,12 @@ class KVLCC2:
                          [0.0, 0.0, self.m_x * u],
                          [0.0, 0.0, 0.0]])
 
-    def _mmg_dynamics(self, nu, psi, rud_angle, nps, beta_c=0.0, V_c=0.0) -> np.ndarray:
+    def _mmg_dynamics(self, nu, rud_angle, nps) -> np.ndarray:
         """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Current are considered following Fossen (2021). Returns nu_dot."""          
-
-        #----------------------------- currents ------------------------------
+        No environmental disturbances are considered. Returns nu_dot."""
+        #----------------------------- preparation ------------------------------
         # unpack values
         u, vm, r = nu
-
-        # current velocities in ship's body frame
-        #u_c = V_c * math.cos(angle_to_2pi(beta_c - psi - math.pi))
-        #v_c = V_c * math.sin(angle_to_2pi(beta_c - psi - math.pi))
-
-        # relative velocities
-        #u_r = u - u_c
-        #v_r = vm - v_c
-
-        # whether to calculate with relative velocities
-        #u_pure = u
-        #vm_pure = vm
-        #u = u_r
-        #vm = v_r
-
-        #----------------------------- preparation ------------------------------
         U = math.sqrt(u**2 + vm**2)
 
         if U == 0.0:
@@ -332,26 +324,19 @@ class KVLCC2:
         N_M = N_H + N_R
 
         F = np.array([X, Y, N_M])
-        return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))# + np.array([r*v_c, -r*u_c, 0.0])
-        #nu_c_dot = np.array([v_c*r, -u_c*r, 0.0])
-        #return np.dot(self.M_inv, F - np.dot(self._C_RB(r), np.array([u_pure, vm_pure, r]))     
-        #                            - np.dot(self._C_A(u_r, v_r), np.array([u_r, v_r, r])  
-        #                            + np.dot(self.M_A, nu_c_dot)))
+        return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
 
 
-    def _upd_dynamics(self, beta_c=0.0, V_c=0.0):
+    def _upd_dynamics(self):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
         eta_dot_old = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
         # euler update of velocities
-        self.nu_dot = self._mmg_dynamics(nu        = self.nu, 
-                                         psi       = self.eta[2],
+        self.nu_dot = self._mmg_dynamics(nu        = self.nu,
                                          rud_angle = self.rud_angle,
-                                         nps       = self.nps, 
-                                         beta_c    = beta_c, 
-                                         V_c       = V_c)
+                                         nps       = self.nps)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation
@@ -413,22 +398,21 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, psi=0.0, V_c=0.0, beta_c=0.0):
+    def _get_u_from_nps(self, nps, psi=0.0):
         """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, beta_c=beta_c, V_c=V_c)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, psi=0.0, V_c=0.0, beta_c=0.0):
-        """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0.
-        Note: Heading (psi) is irrelevant since we do not consider currents."""
+    def _get_nps_from_u(self, u, psi=0.0):
+        """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, psi=psi, rud_angle=0.0, nps=nps, beta_c=beta_c, V_c=V_c)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps)[0]
 
         return newton(func=to_find_root_of, x0=2.0)
