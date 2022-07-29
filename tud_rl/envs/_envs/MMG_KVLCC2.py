@@ -209,9 +209,29 @@ class KVLCC2:
     def _C_N_wind(self, g_w, cn=0.20):
         return cn*math.sin(2*g_w)
 
-    def _mmg_dynamics(self, nu, rud_angle, nps, psi, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0) -> np.ndarray:
+    def _mmg_dynamics(self, nu, rud_angle, nps, psi, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None) -> np.ndarray:
         """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Wind and currents follow Fossen (2021), where wind (or current) angle = 0.0 means, that wind (current) flows from N to E. Returns nu_dot."""
+        Wind and currents follow Fossen (2021), where wind (or current) angle = 0.0 means, that wind (current) flows from N to E.
+        Shallow water is considered by specifying the water depth. 
+
+        Args:
+            nu: np.array of u, v, r
+            rud_angle:   rudder angle in radiant (float)
+            nps:         revolutions per seconds (float)
+            psi:         heading in radiant (float)
+            V_w:         wind speed in m/s (float)
+            beta_w:      wind angle in radiant (float)
+            V_c:         current speed in m/s (float)
+            beta_c:      current angle in radiant (float)
+            H:           water depth in meter (float)
+        Returns:
+            np.array with nu_dot"""
+
+        # shallow water
+        X_vv_dash, X_vr_dash, X_rr_dash, X_vvvv_dash,\
+             Y_v_dash, Y_r_dash, Y_vvv_dash, Y_vvr_dash, Y_vrr_dash, Y_rrr_dash,\
+                 N_v_dash, N_r_dash, N_vvv_dash, N_vvr_dash, N_vrr_dash, N_rrr_dash, \
+                    w_P0, t_P, gamma_R_minus, gamma_R_plus = self._shallow_water(H=H)
 
         # unpack values
         u, vm, r = nu
@@ -245,30 +265,30 @@ class KVLCC2:
         #---------------- hydrodynamic forces acting on ship hull ----------------
         X_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
             - self.R_0_dash
-            + self.X_vv_dash * (v_dash**2)
-            + self.X_vr_dash * v_dash * r_dash
-            + self.X_rr_dash * (r_dash**2)
-            + self.X_vvvv_dash * (v_dash**4)
+            + X_vv_dash * (v_dash**2)
+            + X_vr_dash * v_dash * r_dash
+            + X_rr_dash * (r_dash**2)
+            + X_vvvv_dash * (v_dash**4)
         )
         )
 
         Y_H = (0.5 * self.rho * self.Lpp * self.d * (U**2) * (
-            self.Y_v_dash * v_dash
-            + self.Y_r_dash * r_dash
-            + self.Y_vvv_dash * (v_dash**3)
-            + self.Y_vvr_dash * (v_dash**2) * r_dash
-            + self.Y_vrr_dash * v_dash * (r_dash**2)
-            + self.Y_rrr_dash * (r_dash**3)
+            Y_v_dash * v_dash
+            + Y_r_dash * r_dash
+            + Y_vvv_dash * (v_dash**3)
+            + Y_vvr_dash * (v_dash**2) * r_dash
+            + Y_vrr_dash * v_dash * (r_dash**2)
+            + Y_rrr_dash * (r_dash**3)
         )
         )
 
         N_H = (0.5 * self.rho * (self.Lpp**2) * self.d * (U**2) * (
-            self.N_v_dash * v_dash
-            + self.N_r_dash * r_dash
-            + self.N_vvv_dash * (v_dash**3)
-            + self.N_vvr_dash * (v_dash**2) * r_dash
-            + self.N_vrr_dash * v_dash * (r_dash**2)
-            + self.N_rrr_dash * (r_dash**3)
+            N_v_dash * v_dash
+            + N_r_dash * r_dash
+            + N_vvv_dash * (v_dash**3)
+            + N_vvr_dash * (v_dash**2) * r_dash
+            + N_vrr_dash * v_dash * (r_dash**2)
+            + N_rrr_dash * (r_dash**3)
         )
         )
 
@@ -280,9 +300,9 @@ class KVLCC2:
             C_2 = self.C_2_plus if beta_P >= 0 else self.C_2_minus
 
             tmp = 1-math.exp(-self.C_1*abs(beta_P))*(C_2-1)
-            w_P = 1-(1-self.w_P0)*(1+tmp)
+            w_P = 1-(1-w_P0)*(1+tmp)
         else:
-            w_P = self.w_P0 * math.exp(-4.0 * (beta_P)**2)
+            w_P = w_P0 * math.exp(-4.0 * (beta_P)**2)
 
         if nps == 0.0:  # no propeller movement, no advance ratio
             J = 0.0
@@ -296,7 +316,7 @@ class KVLCC2:
             # inferred slope + intercept dependent on J (empirical)
             K_T = self.J_slo * J + self.J_int
 
-        X_P = (1 - self.t_P) * self.rho * K_T * nps**2 * self.D_p**4
+        X_P = (1 - t_P) * self.rho * K_T * nps**2 * self.D_p**4
 
         #--------------------- hydrodynamic forces by steering ----------------------
         # effective inflow angle to rudder in maneuvering motions
@@ -307,9 +327,9 @@ class KVLCC2:
             gamma_R = self.gamma_R
         else:
             if beta_R < 0.0:
-                gamma_R = self.gamma_R_minus
+                gamma_R = gamma_R_minus
             else:
-                gamma_R = self.gamma_R_plus
+                gamma_R = gamma_R_plus
 
         # lateral inflow velocity components to rudder
         v_R = U * gamma_R * beta_R
@@ -384,7 +404,7 @@ class KVLCC2:
             return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
 
 
-    def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0):
+    def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
@@ -398,7 +418,8 @@ class KVLCC2:
                                          V_w       = V_w,
                                          beta_w    = beta_w,
                                          V_c       = V_c,
-                                         beta_c    = beta_c)
+                                         beta_c    = beta_c,
+                                         H         = H)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation
@@ -409,6 +430,88 @@ class KVLCC2:
 
         # transform heading to [0, 2pi)
         self.eta[2] = angle_to_2pi(self.eta[2])
+
+    def _shallow_water(self, H=None):
+        """Updates hydrodynamic derivatives and further coefficients depending on the water depth. 
+        Follows Taimuri et al. (2020, Ocean Engineering)."""
+
+        if H is None:
+            return (
+                self.X_vv_dash, self.X_vr_dash, self.X_rr_dash, self.X_vvvv_dash,\
+                self.Y_v_dash, self.Y_r_dash, self.Y_vvv_dash, self.Y_vvr_dash, self.Y_vrr_dash, self.Y_rrr_dash,\
+                self.N_v_dash, self.N_r_dash, self.N_vvv_dash, self.N_vvr_dash, self.N_vrr_dash, self.N_rrr_dash,\
+                self.w_P0, self.t_P, self.gamma_R_minus, self.gamma_R_plus
+            )
+        else:
+            # preparation
+            frac = lambda x,y: x/y
+            L, B, T, Cb = self.Lpp, self.B, self.d, self.C_b
+
+            HT = H/T -1
+            TH = T/H
+            K0 = 1+frac(0.0775,HT**2)-frac(0.011,HT**3)+frac(0.000068,HT**5)
+            K1 = -frac(0.0643,HT)+frac(0.0724,HT**2)-frac(0.0113,HT**3)+frac(0.0000767,HT**5)
+            K2 = frac(0.0342,HT) if B/T <= 4 else frac(0.137*B,HT*T)
+            B1 = Cb*B*(1+frac(B,L))**2
+
+            A1Yr = -5.5*(frac(Cb*B,T))**2+26*frac(Cb*B,T)-31.5
+            A2Yr = 37*frac(Cb*B,T)**2-185*frac(Cb*B,T)+230
+            A3Yr = -38*frac(Cb*B,T)**2+197*frac(Cb*B,T)-250
+
+            A1Nvvr = 91*Cb*frac(T,B)-25
+            A2Nvvr = -515*Cb*frac(T,B)+144
+            A3Nvvr = 508*Cb*frac(T,B)-143
+
+            A1Nvrr = 40*Cb*frac(B,T)-88
+            A2Nvrr = -295*Cb*frac(B,T)+645
+            A3Nvrr = 312*Cb*frac(B,T)-678
+
+            gnr = K0+frac(8,15)*K1*frac(B1,T)+frac(40,105)*K2*(frac(B1,T))**2
+            fyr = K0+frac(2,5)*K1*frac(B1,T)+frac(24,105)*K2*(frac(B1,T))**2
+            fnr = K0+frac(1,2)*K1*frac(B1,T)+frac(1,3)*K2*(frac(B1,T))**2
+            fyv = 1.5*fnr-0.5
+            fnv = K0+K1*frac(B1,T)+K2*frac(B1,T)**2
+
+            # corrections for hydrodynamic derivatives
+            X_vv_dash = fyv * self.X_vv_dash
+            X_vr_dash = fyr * self.X_vr_dash
+            X_rr_dash = fnr * self.X_rr_dash
+            X_vvvv_dash = fyv * self.X_vvvv_dash
+
+            Y_v_dash = (-TH+frac(1,(1-TH)**(frac(0.4*Cb*B,T)))) * self.Y_v_dash
+            Y_r_dash = (1+A1Yr*TH+A2Yr*TH**2+A3Yr*TH**3) * self.Y_r_dash
+            Y_vvv_dash = fyv * self.Y_vvv_dash
+            Y_vvr_dash = fyv * self.Y_vvr_dash
+            Y_vrr_dash = fyv * self.Y_vrr_dash
+            Y_rrr_dash = gnr * self.Y_rrr_dash
+
+            N_v_dash = fnv * self.N_v_dash
+            N_r_dash = (-TH+frac(1,(1-TH)**(frac(-14.28*T,L)+1.5))) * self.N_r_dash
+            N_vvv_dash = fyv * self.N_vvv_dash
+            N_vvr_dash = (1+A1Nvvr*TH+A2Nvvr*TH**2+A3Nvvr*TH**3) * self.N_vvr_dash
+            N_vrr_dash = (1+A1Nvrr*TH+A2Nvrr*TH**2+A3Nvrr*TH**3) * self.N_vrr_dash
+            N_rrr_dash = gnr * self.N_rrr_dash
+
+            # corrections for wake fraction, thrust deduction, and flow-straightening coefficients
+            w_P0 = (1+(-4.932+0.6425*frac(Cb*L,T)-0.0165*(frac(Cb*L,T)**2))*TH**1.655) * self.w_P0
+            ctp = 1+((29.495-14.089*frac(Cb*L,B)+1.6486*frac(Cb*L,B)**2)*(frac(1,250)-frac(7*TH,200)-frac(13*TH**2,125)))
+            t_P = 1-ctp*(1-self.t_P)
+
+            cgr1 = 1+((frac(-5129,500)+178.207*frac(Cb*B,L)-frac(2745,4)*frac(Cb*B,L)**2)*(frac(-1927,500)+frac(2733*TH,200)-frac(2617*TH**2,250)))
+            cgr2 = 1+(frac(-541,4)+2432.95*frac(Cb*B,L)-10137.7*frac(Cb*B,L)**2)*TH**4.81
+            if TH <= (-0.332*frac(T,B)+0.581):
+                gamma_R_minus = cgr2 * self.gamma_R_minus 
+                gamma_R_plus = cgr2 * self.gamma_R_plus
+            else:
+                gamma_R_minus = cgr1 * self.gamma_R_minus
+                gamma_R_plus = cgr1 * self.gamma_R_plus
+
+            return (
+                X_vv_dash, X_vr_dash, X_rr_dash, X_vvvv_dash,\
+                Y_v_dash, Y_r_dash, Y_vvv_dash, Y_vvr_dash, Y_vrr_dash, Y_rrr_dash,\
+                N_v_dash, N_r_dash, N_vvv_dash, N_vvr_dash, N_vrr_dash, N_rrr_dash,\
+                w_P0, t_P, gamma_R_minus, gamma_R_plus
+                )
 
 
     def _control(self, a):
@@ -460,21 +563,21 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, psi=0.0):
+    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0):
         """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, psi=0.0):
+    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0):
         """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi)[0]
 
         return newton(func=to_find_root_of, x0=2.0)

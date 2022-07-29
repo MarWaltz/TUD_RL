@@ -42,7 +42,7 @@ class HHOS_Env(gym.Env):
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.10
+        self.show_lon_lat = 0.20
         self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
@@ -215,7 +215,10 @@ class HHOS_Env(gym.Env):
 
         # set u-speed to near-convergence
         V_c, beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=0.0, beta_c=0.0)
+        V_w, beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
+
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=V_c, beta_c=beta_c, V_w=V_w, beta_w=beta_w, H=H)
 
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
@@ -257,8 +260,12 @@ class HHOS_Env(gym.Env):
 
         # update agent dynamics
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
+
         V_c, beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        self.OS._upd_dynamics(V_c=0.5, beta_c=dtr(0.0))
+        V_w, beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+
+        self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H)
 
         # update waypoints of path
         self._update_wps()
@@ -306,7 +313,7 @@ class HHOS_Env(gym.Env):
 
         # check whether figure has been initialized
         if len(plt.get_fignums()) == 0:
-            self.f, self.ax = plt.subplots(1, 1, figsize=(10, 10))
+            self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
 
             plt.ion()
             plt.show()
@@ -316,19 +323,21 @@ class HHOS_Env(gym.Env):
         N0, E0, head0 = self.OS.eta
         OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=self.OS.utm_number)
 
-        for ax in [self.ax]:
+        for ax in [self.ax1]:
             ax.clear()
 
             # general information
-            ax.text(0.125, 0.8675, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
-
             if self.plot_in_latlon:
+                ax.text(0.125, 0.90, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
+
                 ax.set_xlabel("Longitude [°]", fontsize=10)
                 ax.set_ylabel("Latitude [°]", fontsize=10)
 
                 ax.set_xlim(max([self.lon_lims[0], OS_lon - self.show_lon_lat/2]), min([self.lon_lims[1], OS_lon + self.show_lon_lat/2]))
                 ax.set_ylim(max([self.lat_lims[0], OS_lat - self.show_lon_lat/2]), min([self.lat_lims[1], OS_lat + self.show_lon_lat/2]))
             else:
+                ax.text(0.125, 0.8675, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
+
                 ax.set_xlabel("UTM-E [m]", fontsize=10)
                 ax.set_ylabel("UTM-N [m]", fontsize=10)
 
@@ -445,13 +454,13 @@ class HHOS_Env(gym.Env):
                     ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
                     dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
                     dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    plt.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
+                    ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
                             width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
 
                     # actual course
                     dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
                     ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    plt.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
+                    ax.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
                             width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
                     # cross-track error
@@ -460,7 +469,7 @@ class HHOS_Env(gym.Env):
                     else:
                         dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
                     yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    plt.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
+                    ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
 
                 else:
                     ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
@@ -471,12 +480,12 @@ class HHOS_Env(gym.Env):
                     # desired course
                     ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
                     dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
-                    plt.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                    ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
                             width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
 
                     # actual course
                     dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
-                    plt.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                    ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
                             width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
                     # cross-track error
@@ -484,7 +493,7 @@ class HHOS_Env(gym.Env):
                         dE, dN = xy_from_polar(r=abs(ye), angle=angle_to_2pi(pi_path + dtr(90.0)))
                     else:
                         dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
-                    plt.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
+                    ax.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
 
             #--------------------- Current data ------------------------
             if self.plot_current and self.plot_in_latlon:
@@ -511,5 +520,5 @@ class HHOS_Env(gym.Env):
                 for _, latlon in enumerate(lidar_lat_lon):
                     ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
         
-        plt.gca().set_aspect('equal')
+        #plt.gca().set_aspect('equal')
         plt.pause(0.001)
