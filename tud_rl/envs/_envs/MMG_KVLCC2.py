@@ -209,12 +209,28 @@ class KVLCC2:
     def _C_N_wind(self, g_w, cn=0.20):
         return cn*math.sin(2*g_w)
 
-    def _mmg_dynamics(self, nu, rud_angle, nps, psi, beta_w=0.0, V_w=0.0) -> np.ndarray:
+    def _mmg_dynamics(self, nu, rud_angle, nps, psi, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0) -> np.ndarray:
         """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Wind follows Fossen (2021), where wind angle beta_w = 0.0 means, that wind flows from N to E. Returns nu_dot."""
-        #----------------------------- preparation ------------------------------
+        Wind and currents follow Fossen (2021), where wind (or current) angle = 0.0 means, that wind (current) flows from N to E. Returns nu_dot."""
+
         # unpack values
         u, vm, r = nu
+
+        if V_c != 0.0:
+            # current velocities in ship's body frame
+            u_c = V_c * math.cos(angle_to_2pi(beta_c - psi - math.pi))
+            v_c = V_c * math.sin(angle_to_2pi(beta_c - psi - math.pi))
+
+            # relative velocities
+            u_r = u - u_c
+            v_r = vm - v_c
+
+            # calculate hydrodynamic forces with relative velocities
+            u_pure = u
+            vm_pure = vm
+            u = u_r
+            vm = v_r
+
         U = math.sqrt(u**2 + vm**2)
 
         if U == 0.0:
@@ -333,8 +349,13 @@ class KVLCC2:
             beta_w -= math.pi   # wind flows in the opposite direction
             u_w = V_w * math.cos(angle_to_2pi(beta_w - psi))
             v_w = V_w * math.sin(angle_to_2pi(beta_w - psi))
-            u_rw = u - u_w
-            v_rw = vm - v_w
+
+            if V_c != 0.0:
+                u_rw = u_pure - u_w
+                v_rw = vm_pure - v_w
+            else:
+                u_rw = u - u_w
+                v_rw = vm - v_w
 
             V_rw_sq = u_rw**2 + v_rw**2
             g_rw = -math.atan2(v_rw, u_rw)
@@ -353,10 +374,17 @@ class KVLCC2:
         N_M = N_H + N_R + N_W
 
         F = np.array([X, Y, N_M])
-        return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
+
+        if V_c != 0.0:
+            nu_c_dot = np.array([v_c*r, -u_c*r, 0.0])
+            return np.dot(self.M_inv, F - np.dot(self._C_RB(r), np.array([u_pure, vm_pure, r]))     
+                                        - np.dot(self._C_A(u_r, v_r), np.array([u_r, v_r, r])  
+                                        + np.dot(self.M_A, nu_c_dot)))
+        else:
+            return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
 
 
-    def _upd_dynamics(self, V_w=0.0, beta_w=0.0):
+    def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
@@ -368,7 +396,9 @@ class KVLCC2:
                                          nps       = self.nps,
                                          psi       = self.eta[2],
                                          V_w       = V_w,
-                                         beta_w    = beta_w)
+                                         beta_w    = beta_w,
+                                         V_c       = V_c,
+                                         beta_c    = beta_c)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation
@@ -430,21 +460,21 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, psi=0.0):
+    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, psi=0.0):
         """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, psi=psi)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, psi=0.0):
+    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, psi=0.0):
         """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, psi=psi)[0]
 
         return newton(func=to_find_root_of, x0=2.0)

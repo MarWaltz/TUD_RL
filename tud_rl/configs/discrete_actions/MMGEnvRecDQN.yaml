@@ -78,10 +78,10 @@ agent:
     N_to_update: 1
   RecDQN: {}
   LSTMRecDQN:
-    double: true
+    double: false
     history_length: 2
 seed: 12
-timesteps: 10_000_000
+timesteps: 5_000_000
 epoch_length: 5000
 eval_episodes: 10
 dqn_weights:
