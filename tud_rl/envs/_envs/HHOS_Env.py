@@ -48,7 +48,7 @@ class HHOS_Env(gym.Env):
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
 
         # visualization
-        self.plot_in_latlon = False         # if false, plots in UTM coordinates
+        self.plot_in_latlon = True         # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
         self.plot_wind = True
@@ -231,7 +231,22 @@ class HHOS_Env(gym.Env):
 
 
     def _set_state(self):
-        self.state = None
+        N0, E0, _ = self.OS.eta
+
+        # OS information
+        cmp1 = self.OS.nu / np.array([7.0, 0.7, 0.004])                # u, v, r
+        cmp2 = np.array([self.OS.nu_dot[2] / (8e-5),                   # r_dot
+                         self.OS.rud_angle / self.OS.rud_angle_max])   # rudder angle
+        state_OS = np.concatenate([cmp1, cmp2])
+
+        # path information
+        ye, desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=N0, EA=E0, K=self.VFG_K)
+        state_path = np.array([ye / self.OS.Lpp, desired_course / math.pi])
+
+        # LiDAR
+        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
+
+        self.state = np.concatenate([state_OS, state_path, state_LiDAR])
 
 
     def _update_wps(self):
