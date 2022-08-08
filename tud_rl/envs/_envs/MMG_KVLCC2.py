@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 from scipy.optimize import newton
+from tud_rl.envs._envs.HHOS_Fnc import Hull, get_wave_XYN
 from tud_rl.envs._envs.VesselFnc import angle_to_2pi, dtr
 
 
@@ -148,6 +149,9 @@ class KVLCC2:
         for key, value in self.kvlcc2.items():
             setattr(self, key, value)
 
+        # construct ship hull
+        self.hull = Hull(Lpp=self.Lpp, B=self.B)
+
         # in [m]
         self.ship_domain_A = 3 * self.Lpp + 0.5 * self.Lpp
         self.ship_domain_B = 1 * self.Lpp + 0.5 * self.B   
@@ -209,13 +213,15 @@ class KVLCC2:
     def _C_N_wind(self, g_w, cn=0.20):
         return cn*math.sin(2*g_w)
 
-    def _mmg_dynamics(self, nu, rud_angle, nps, psi, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None) -> np.ndarray:
+    def _mmg_dynamics(self, nu, rud_angle, nps, psi, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, 
+                      beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None) -> np.ndarray:
         """System of ODEs after Yasukawa & Yoshimura (2015, Journal of Marine Science and Technology) for the MMG standard model. 
-        Wind and currents follow Fossen (2021), where wind (or current) angle = 0.0 means, that wind (current) flows from N to E.
+        Wind and currents follow Fossen (2021), short waves follow Taimuri et al. (2020).
+        Wind, wave or current angle = 0.0 means that wind, waves or currents flow from N to E.
         Shallow water is considered by specifying the water depth. 
 
         Args:
-            nu: np.array of u, v, r
+            nu:          np.array of u, v, r
             rud_angle:   rudder angle in radiant (float)
             nps:         revolutions per seconds (float)
             psi:         heading in radiant (float)
@@ -224,6 +230,11 @@ class KVLCC2:
             V_c:         current speed in m/s (float)
             beta_c:      current angle in radiant (float)
             H:           water depth in meter (float)
+            beta_wave:   incident wave angle in rad (float)
+            eta_wave:    incident wave amplitude in m (float)
+            T_0_wave:    modal period of waves in s (float)
+            lambda_wave: wave length in m (float)
+
         Returns:
             np.array with nu_dot"""
 
@@ -388,10 +399,18 @@ class KVLCC2:
         else:
             X_W, Y_W, N_W = 0.0, 0.0, 0.0
 
-        #-------------------------- Equation solving ----------------------------
-        X = X_H + X_R + X_P + X_W
-        Y = Y_H + Y_R + Y_W
-        N_M = N_H + N_R + N_W
+        #-------------------------------- Short waves ---------------------------------
+        if all([ele is not None for ele in (beta_wave, eta_wave, T_0_wave, lambda_wave)]):
+            X_SW, Y_SW, N_SW = get_wave_XYN(U=U, psi=psi, T=self.d, C_b=self.C_b, alpha_WL=0.0, Lpp=self.Lpp,
+                                            beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave, 
+                                            rho=self.rho, hull=self.hull)
+        else:
+            X_SW, Y_SW, N_SW = 0.0, 0.0, 0.0
+        
+        #------------------------------ Equation solving ------------------------------
+        X = X_H + X_R + X_P + X_W + X_SW
+        Y = Y_H + Y_R + Y_W + Y_SW
+        N_M = N_H + N_R + N_W + N_SW
 
         F = np.array([X, Y, N_M])
 
@@ -404,22 +423,26 @@ class KVLCC2:
             return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
 
 
-    def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None):
+    def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
 
         # store current values
         eta_dot_old = np.dot(self._T_of_psi(self.eta[2]), self.nu)
 
         # euler update of velocities
-        self.nu_dot = self._mmg_dynamics(nu        = self.nu,
-                                         rud_angle = self.rud_angle,
-                                         nps       = self.nps,
-                                         psi       = self.eta[2],
-                                         V_w       = V_w,
-                                         beta_w    = beta_w,
-                                         V_c       = V_c,
-                                         beta_c    = beta_c,
-                                         H         = H)
+        self.nu_dot = self._mmg_dynamics(nu          = self.nu,
+                                         rud_angle   = self.rud_angle,
+                                         nps         = self.nps,
+                                         psi         = self.eta[2],
+                                         V_w         = V_w,
+                                         beta_w      = beta_w,
+                                         V_c         = V_c,
+                                         beta_c      = beta_c,
+                                         H           = H,
+                                         beta_wave   = beta_wave,
+                                         eta_wave    = eta_wave,
+                                         T_0_wave    = T_0_wave,
+                                         lambda_wave = lambda_wave)
         self.nu += self.nu_dot * self.delta_t
 
         # find new eta_dot via rotation

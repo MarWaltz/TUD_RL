@@ -316,8 +316,6 @@ class MMG_Env(gym.Env):
 
             elif self.spawn_mode == "line_v2":
 
-                raise Exception("'line_v2' spawning is deprecated in MMG-Env.")
-
                 # quick access for OS
                 N0, E0, _ = self.OS.eta
                 chiOS = self.OS._get_course()

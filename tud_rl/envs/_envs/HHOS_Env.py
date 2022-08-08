@@ -48,7 +48,7 @@ class HHOS_Env(gym.Env):
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
 
         # visualization
-        self.plot_in_latlon = True         # if false, plots in UTM coordinates
+        self.plot_in_latlon = False         # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
         self.plot_wind = True
@@ -280,8 +280,9 @@ class HHOS_Env(gym.Env):
         V_w, beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
 
-        self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H)
-
+        #self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H)
+        self.OS._upd_dynamics(V_w=0.0, beta_w=beta_w, V_c=0.0, beta_c=beta_c, H=None, beta_wave=dtr(270.0), eta_wave=20.0, T_0_wave=3.0, lambda_wave=5.0)
+        
         # update waypoints of path
         self._update_wps()
 
