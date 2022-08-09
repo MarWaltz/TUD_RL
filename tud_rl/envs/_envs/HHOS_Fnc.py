@@ -30,7 +30,7 @@ def get_utm_zone_number(lat, lon):
 def to_latlon(north, east, number):
     """Converts North, East, number in UTM into longitude and latitude. Assumes northern hemisphere.
     Returns: (lat, lon)"""
-    return utm.to_latlon(easting=east, northing=north, zone_number=number, northern=True)
+    return utm.to_latlon(easting=east, northing=north, zone_number=number, northern=True, strict=False)
 
 
 def to_utm(lat, lon):
@@ -48,7 +48,7 @@ def find_nearest(array, value):
     return array[idx], int(idx)
 
 
-def find_nearest_two(array, value):
+def find_nearest_two_old(array, value):
     """Finds the closest two entries in a SORTED (ascending) array with UNIQUE entries to a given value.
     Returns (entry1, idx1, entry2, idx2)."""
     array = np.asarray(array)
@@ -72,6 +72,80 @@ def find_nearest_two(array, value):
     # neighbours
     idx1, idx2 = np.sort(np.argpartition(abs_diff, kth=2)[0:2])
     return array[idx1], int(idx1), array[idx2], int(idx2)
+
+
+def find_nearest_two(array, value):
+    """Finds the closest two entries in a SORTED (ascending) array with UNIQUE entries to a given value. Based on binary search.
+    Returns (entry1, idx1, entry2, idx2)."""
+    array = np.asarray(array)
+
+    # out of array
+    if value <= array[0]:
+        return array[0], int(0), array[0], int(0)
+
+    if value >= array[-1]:
+        idx = len(array)-1
+        ent = array[-1]
+        return ent, int(idx), ent, int(idx)
+
+    # in array
+    n = len(array); i = 0; j = n
+    while i < j:
+        mid = (i + j) // 2
+
+        # direct hit
+        if array[mid] == value:
+            return value, mid, value, mid
+
+        # target is to the left
+        if value < array[mid]:
+
+            # target is right of one entry smaller
+            if mid > 0:
+                if value > array[mid-1]:
+                    return array[mid-1], mid-1, array[mid], mid
+            
+            # repeat for left half
+            j = mid
+
+        # target is to the right
+        else:
+            
+            # target is left of one entry larger
+            if mid < n-1:
+                if value < array[mid+1]:
+                    return array[mid], mid, array[mid+1], mid+1
+
+            # repeat for right half
+            i = mid + 1
+
+    # one element left
+    return find_neighbor(array=array, value=value, idx=mid)
+
+
+def find_neighbor(array, value, idx):
+    """Checks whether left or right neighbor of a given idx in an array is closer to the value, when idx is the closest in general.
+    Returns (entry1, idx1, entry2, idx2)."""
+
+    # corner cases
+    if idx == 0:
+        return array[idx], idx, array[idx+1], idx+1
+
+    elif idx == len(array)-1:
+        return array[idx-1], idx-1, array[idx], idx
+    
+    # check neighbors
+    else:
+        left = array[idx-1]
+        right = array[idx+1]
+
+        if np.abs(left - value) <= np.abs(right - value):
+            return left, idx-1, array[idx], idx
+        else:
+            return array[idx], idx, right, idx+1
+
+#print(find_nearest_two_old(array=np.array([3.2, 6.4, 8.0, 9.0, 11.2, 18.3, 21.0]), value=21.0))
+#print(find_nearest_two(array=np.array([3.2, 6.4, 8.0, 9.0, 11.2, 18.3, 21.0]), value=21.0))
 
 
 def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
