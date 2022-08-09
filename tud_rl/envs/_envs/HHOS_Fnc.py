@@ -234,7 +234,7 @@ def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
 
 
 class Hull:
-    def __init__(self, Lpp, B, N=1000, h_xs=None, h_ys=None) -> None:
+    def __init__(self, Lpp, B, N=1000, approx_method="ellipse", h_xs=None, h_ys=None) -> None:
         """Computes x-y-coordinates (x ist Ordinate, y ist Abszisse) based on an elliptical approximation of a ship hull.
 
         Args:
@@ -252,28 +252,89 @@ class Hull:
             thetas (np.array): angles between hull and center line
             dls (np.array): length of normal vectors
         """
+        assert approx_method in ["rectangle", "ellipse"], "Unknown ship hull approximation."
+
         self.Lpp = Lpp
         self.B = B
         self.N = N
+        self.approx_method = approx_method
         self.h_xs = h_xs
         self.h_ys = h_ys
         self._construct_hull()
-    
+
     def _construct_hull(self):
         if self.h_xs is not None and self.h_ys is not None:
             assert len(self.h_xs) == len(self.h_ys), "Incorrect ship hull specification."
             self.N = len(self.h_xs)
-        
         else:
-            # define ellipse
             a = self.Lpp*0.5
             b = self.B*0.5
             degs = np.linspace(0, 2*math.pi, self.N, endpoint=False)
-            lengths = np.power(np.power(np.cos(degs),2) / a + np.power(np.sin(degs),2) / b, -0.5)
 
-            # construct points
-            self.h_xs = lengths * np.cos(degs)
-            self.h_ys = lengths * np.sin(degs)
+            if self.approx_method == "rectangle":
+                theta = np.arctan(b/a)
+                self.h_xs = np.zeros(self.N)
+                self.h_ys = np.zeros(self.N)
+
+                for n, eta in enumerate(degs):
+
+                    # I
+                    if 0 <= eta < theta:
+                        x = a
+                        y = a * np.tan(eta)
+
+                    # II
+                    elif theta <= eta < math.pi/2:
+                        eta_p = math.pi/2 - eta
+                        y = b
+                        x = b * np.tan(eta_p)
+
+                    # III                    
+                    elif math.pi/2 <= eta < math.pi - theta:
+                        eta_p = eta - math.pi/2
+                        y = b
+                        x = -b * np.tan(eta_p)
+                    
+                    # IV
+                    elif math.pi - theta <= eta < math.pi:
+                        eta_p = math.pi - eta
+                        x = -a
+                        y = a * np.tan(eta_p)
+
+                    # V                    
+                    elif math.pi <= eta < math.pi + theta:
+                        eta_p = eta - math.pi
+                        x = -a
+                        y = -a * np.tan(eta_p)
+
+                    # VI
+                    elif math.pi + theta <= eta < 3/2*math.pi:
+                        eta_p = 3/2*math.pi - eta
+                        y = -b
+                        x = -b * np.tan(eta_p)
+
+                    # VII                    
+                    elif 3/2*math.pi <= eta < 2*math.pi - theta:
+                        eta_p = eta - 3/2*math.pi
+                        y = -b
+                        x = b * np.tan(eta_p)
+                    
+                    # VIII
+                    else:
+                        eta_p = 2*math.pi - eta
+                        x = a
+                        y = -a * np.tan(eta_p)
+
+                    self.h_xs[n] = x
+                    self.h_ys[n] = y
+
+            elif self.approx_method == "ellipse":
+                lengths = np.power(np.power(np.cos(degs),2) / a + np.power(np.sin(degs),2) / b, -0.5)
+                self.h_xs = lengths * np.cos(degs)
+                self.h_ys = lengths * np.sin(degs)
+
+        # reverse axis like in Faltinsen et al. (1980)
+        self.h_xs *= -1.0
 
         # integration components
         self.N_Xs = np.zeros(self.N)
@@ -296,12 +357,23 @@ class Hull:
             self.x0s[n] = 0.5 * (x1 + x2)
             self.y0s[n] = 0.5 * (y1 + y2)
 
-            self.N_Ys[n] = math.sqrt(((x2-x1)**2 + (y2-y1)**2) / (1 + (y2-y1)**2/(x2-x1)**2))
-            self.N_Xs[n] = -(y2-y1)/(x2-x1)*self.N_Ys[n]
+            # rectangle cases
+            if x1 == x2:
+                self.N_Ys[n] = 0.0
+                self.N_Xs[n] = y1 - y2
+            
+            elif y1 == y2:
+                self.N_Xs[n] = 0.0
+                self.N_Ys[n] = x2 - x1
 
-            if x2 - x1 < 0.0:
-                self.N_Ys[n] *= -1.0
-                self.N_Xs[n] *= -1.0
+            # ellipse/corner cases
+            else:
+                self.N_Ys[n] = math.sqrt(((x2-x1)**2 + (y2-y1)**2) / (1 + (y2-y1)**2/(x2-x1)**2))
+                self.N_Xs[n] = -(y2-y1)/(x2-x1)*self.N_Ys[n]
+
+                if x2 - x1 < 0.0:
+                    self.N_Ys[n] *= -1.0
+                    self.N_Xs[n] *= -1.0
 
             self.thetas[n] = bng_abs(N0=x2, E0=y2, N1=x1, E1=y1)
             if self.thetas[n] <= math.pi:
@@ -311,24 +383,18 @@ class Hull:
 
         self.dls = np.sqrt(self.N_Xs**2 + self.N_Ys**2)
 
-        # some usefull definitions
+        # some useful definitions
         self.cos_thetas = np.cos(self.thetas)
         self.sin_thetas = np.sin(self.thetas)
 
         #import matplotlib.pyplot as plt
-        #plt.plot(h_ys, h_xs, marker='o', markersize=3)
+        #plt.plot(self.h_ys, self.h_xs, marker='o', markersize=3)
         #plt.gca().set_aspect('equal')
-        #plt.show()
 
-            #dls_tmp = np.sqrt(N_Xs[n]**2 + N_Ys[n]**2)
-            #show = np.abs(angle_to_pi(np.arccos(N_Xs[n]*N_WX/dls_tmp + N_Ys[n]*N_WY/dls_tmp))) <= math.pi/2
-
-            #if show:
-            #    plt.scatter(y0s[n], x0s[n], color="red", s=3)
-            #    plt.arrow(y0s[n] - N_WY, x0s[n] - N_WX, N_WY, N_WX, color="red", length_includes_head=True,
-            #    head_width=0.2, head_length=0.3)
-            #    plt.arrow(y0s[n] -N_Ys[n], x0s[n] - N_Xs[n], N_Ys[n], N_Xs[n], color="green", length_includes_head=True,
-            #    head_width=0.2, head_length=0.3)
+        #for n in range(self.N):
+        #    plt.scatter(self.y0s[n], self.x0s[n], color="red", s=3)
+        #    plt.arrow(self.y0s[n] - self.N_Ys[n], self.x0s[n] - self.N_Xs[n], self.N_Ys[n], self.N_Xs[n], color="green", length_includes_head=True,
+        #                  head_width=2, head_length=3)
         #plt.show()
 
 
@@ -350,10 +416,6 @@ def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, l
         rho (float): water density in kg/m³
         hull (Hull): hull object with relevant integration components
 
-    Note:
-        If h_xs and h_ys are not given, the argument 'B' is required. In this case, the hull of the ship is approximated
-        by an ellipse using Lpp and B.
-
     Returns:
         surge force, sway force, yaw moment (all floats)
     """
@@ -366,18 +428,22 @@ def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, l
     # wave angle from vessel perspective
     beta_w = angle_to_2pi(beta_wave - psi - math.pi)
 
-    # compute integration block components
+    # detect non-shadow region
     N_WX = np.cos(beta_w)
     N_WY = np.sin(beta_w)
     alphas = [angle_to_pi(a) for a in np.arccos(hull.N_Xs*N_WX/hull.dls + hull.N_Ys*N_WY/hull.dls)]
+    non_shadow = (np.abs(alphas) <= math.pi/2)
 
-    # integration
-    inner_terms = np.cos(alphas)**2 + 2*omega_0*U/g * (-N_WX - hull.cos_thetas*np.sin(alphas)) * (np.abs(alphas) <= math.pi/2)
-    
-    X_int = np.sum(inner_terms * hull.sin_thetas * hull.dls)
-    Y_int = np.sum(inner_terms * hull.cos_thetas * hull.dls)
-    M_int = np.sum(inner_terms * (hull.x0s * hull.cos_thetas - hull.y0s * hull.sin_thetas) * hull.dls)
+    # compute integration block components
+    inner_terms = np.sin(hull.thetas + beta_w)**2 + 2*omega_0*U/g * (np.cos(beta_w) - hull.cos_thetas*np.cos(hull.thetas + beta_w))
+    inner_terms *= non_shadow * hull.dls
 
+    # integrate
+    X_int = np.sum(inner_terms * hull.sin_thetas)
+    Y_int = np.sum(inner_terms * hull.cos_thetas)
+    M_int = np.sum(inner_terms * (hull.x0s * hull.cos_thetas - hull.y0s * hull.sin_thetas))
+
+    # pre-factors
     FX_SW = 0.5 * rho * g * eta_wave**2 * X_int
     FY_SW = 0.5 * rho * g * eta_wave**2 * Y_int
     MN_SW = 0.5 * rho * g * eta_wave**2 * M_int
@@ -392,6 +458,3 @@ def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, l
     FX_SW *= (0.87/C_b)**(1 + 4*math.sqrt(Fn)) * 1/np.cos(alpha_WL)
     
     return FX_SW, FY_SW, MN_SW
-
-#print(get_wave_XYN(U=0.0, psi=0.0, T=20.0, C_b=0.8, alpha_WL=0.0, Lpp=64.0, \
-#    beta_wave=dtr(270.0), eta_wave=3.0, T_0_wave=5.0, lambda_wave=10.0, rho=1000, B=11))

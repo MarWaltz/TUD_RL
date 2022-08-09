@@ -586,21 +586,25 @@ class KVLCC2:
         return False
 
 
-    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0):
+    def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0, 
+                        beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
         """Returns the converged u-velocity for given revolutions per second if rudder angle is 0.0."""
 
         def to_find_root_of(u):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi,
+                                      beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
 
         return newton(func=to_find_root_of, x0=5.0)
 
 
-    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0):
+    def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0,
+                        beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
         """Returns the revolutions per second for a given u-velocity if rudder angle is 0.0."""
 
         def to_find_root_of(nps):
             nu = np.array([u, 0.0, 0.0])
-            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi)[0]
+            return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi,
+                                      beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
 
         return newton(func=to_find_root_of, x0=2.0)
