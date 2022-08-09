@@ -9,7 +9,7 @@ from tud_rl.envs._envs.VesselFnc import angle_to_2pi, dtr
 class KVLCC2:
     """This class provides a KVLCC2 tanker behaving according to the MMG standard model of Yasukawa, Yoshimura (2015)."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True, cont_acts=False) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
 
@@ -175,9 +175,15 @@ class KVLCC2:
         # Propeller revolutions [s⁻¹]
         self.nps = nps
 
-        # rudder angle max (in rad) and increment (in rad/s)
-        self.rud_angle_max = dtr(20.0)
-        self.rud_angle_inc = dtr(5.0)
+        # actions
+        self.cont_acts = cont_acts
+
+        if cont_acts:
+            self.rud_angle_max = dtr(20.0)
+            self.rud_angle_inc = dtr(5.0)
+        else:
+            self.rud_angle_max = dtr(20.0)
+            self.rud_angle_inc = dtr(5.0)
 
         # init rudder angle
         self.rud_angle = 0.0
@@ -187,6 +193,7 @@ class KVLCC2:
         self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)    # u (in m/s), vm in (m/s), r (in rad/s)   in (midship-centered) BODY-system
 
         self.nu_dot  = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
 
     def _T_of_psi(self, psi):
         """Computes rotation matrix for given heading (in rad)."""
@@ -539,24 +546,33 @@ class KVLCC2:
 
     def _control(self, a):
         """
-        Action 'a' is an integer taking values in [0, 1, 2]. They correspond to:
+        Action 'a' is an integer taking values in [0, 1, 2] for the discrete case. They correspond to:
 
         0 - keep rudder angle as is
         1 - increase rudder angle
         2 - decrease rudder angle
-        """
-        assert a in range(3), "Unknown action."
 
+        In the continuous case, a is a float in [-1,1].
+        """
         # store action for rendering
         self.action = a
-        
-        # update angle
-        if a == 0:
-            pass
-        elif a == 1:
-            self.rud_angle += self.rud_angle_inc
-        elif a == 2:
-            self.rud_angle -= self.rud_angle_inc
+
+        # continuous
+        if self.cont_acts:
+            assert -1 <= a <= 1, "Unknown action."
+
+            self.rud_angle += a*self.rud_angle_inc
+
+        # discrete
+        else:
+            assert a in range(3), "Unknown action."
+
+            if a == 0:
+                pass
+            elif a == 1:
+                self.rud_angle += self.rud_angle_inc
+            elif a == 2:
+                self.rud_angle -= self.rud_angle_inc
         
         # clip it
         self.rud_angle = np.clip(self.rud_angle, -self.rud_angle_max, self.rud_angle_max)

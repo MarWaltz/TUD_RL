@@ -4,6 +4,7 @@ import pickle
 
 import gym
 import numpy as np
+from gym import spaces
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, cte, find_nearest,
@@ -18,22 +19,32 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 from Hamburg to Oslo."""
 
-    def __init__(self):
+    def __init__(self, mode="train"):
         super().__init__()
 
         # simulation settings
         self.delta_t = 3.0   # simulation time interval (in s)
 
         # LiDAR
-        self.lidar_range       = NM_to_meter(3.0)                                                # range of LiDAR sensoring in m
+        self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
         self.lidar_n_beams     = 25                                                              # number of beams
         self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
-        self.n_dots_per_beam   = 20                                                              # number of subpoints per beam
+        self.n_dots_per_beam   = 10                                                              # number of subpoints per beam
         self.d_dots_per_beam   = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
         self.sense_depth       = 15  # water depth at which LiDAR recognizes an obstacle
 
         # vector field guidance
         self.VFG_K = 0.001
+
+        # setting
+        assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
+        self.mode = mode
+
+        # data range
+        self.lon_lims = [4.83, 14.33]
+        self.lat_lims = [51.83, 60.5]
+        self.lon_range = self.lon_lims[1] - self.lon_lims[0]
+        self.lat_range = self.lat_lims[1] - self.lat_lims[0]
 
         # data loading
         self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
@@ -41,32 +52,40 @@ class HHOS_Env(gym.Env):
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
+        # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
+        if mode == "train":
+            self._sample_desired_path()
+            self._sample_depth_data()
+            self._sample_wind_data()
+            self._sample_current_data()
+
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.20
+        self.show_lon_lat = 10.0
         self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
 
         # visualization
-        self.plot_in_latlon = False         # if false, plots in UTM coordinates
-        self.plot_depth = True
+        self.plot_in_latlon = True         # if false, plots in UTM coordinates
+        self.plot_depth = False
         self.plot_path = True
-        self.plot_wind = True
-        self.plot_current = True
+        self.plot_wind = False
+        self.plot_current = False
         self.plot_lidar = False
-
-        # data range
-        self.lon_lims = [4.83, 14.33]
-        self.lat_lims = [51.83, 60.5]
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
             self.UTM_viz_range_E = abs(to_utm(lat=52.0, lon=6.0001)[1] - to_utm(lat=52.0, lon=6.0001+self.show_lon_lat/2)[1])
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
-        # custom inits
+        # gym inherits
+        obs_size = 7 + self.lidar_n_beams
+        self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
+                                            high = np.full(obs_size,  np.inf, dtype=np.float32))
+        self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
+                                       high=np.array([1], dtype=np.float32))
         self.r = 0
-        self._max_episode_steps = np.infty
+        self._max_episode_steps = 10_000
 
 
     def _load_desired_path(self, path_to_desired_path):
@@ -111,6 +130,64 @@ class HHOS_Env(gym.Env):
     def _load_current_data(self, path_to_current_data):
         with open(f"{path_to_current_data}/CurrentData_latlon.pickle", "rb") as f:
             self.CurrentData = pickle.load(f)
+
+
+    def _sample_desired_path(self, n_wps=5_000, l=0.01):
+        """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system."""
+        self.DesiredPath = {"n_wps" : n_wps}
+
+        # sample starting point
+        lat = np.zeros(n_wps)
+        lon = np.zeros(n_wps)
+
+        lat[0] = np.random.uniform(low  = self.lat_lims[0] + 0.25 * self.lat_range, 
+                                   high = self.lat_lims[1] - 0.25 * self.lat_range)
+        lon[0] = np.random.uniform(low  = self.lon_lims[0] + 0.25 * self.lon_range, 
+                                   high = self.lon_lims[1] - 0.25 * self.lon_range)
+
+        # sample other points
+        ang = np.random.uniform(0.0, 2*math.pi)
+        ang_diff = 0.0
+        ang_diff2 = 0.0
+        for n in range(1, n_wps):
+            
+            # next angle
+            ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
+            ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2 + 0.0 * dtr(np.random.uniform(-5.0, 5.0))
+            ang = angle_to_2pi(ang + ang_diff)
+
+            # next point
+            lon_diff, lat_diff = xy_from_polar(r=l, angle=ang)
+            lat[n] = lat[n-1] + lat_diff
+            lon[n] = lon[n-1] + lon_diff
+
+            # clip
+            lat[n] = np.clip(lat[n], a_min=self.lat_lims[0], a_max=self.lat_lims[1])
+            lon[n] = np.clip(lon[n], a_min=self.lon_lims[0], a_max=self.lon_lims[1])
+
+        self.DesiredPath["lat"] = lat
+        self.DesiredPath["lon"] = lon
+
+        # add utm coordinates
+        path_n = np.zeros_like(self.DesiredPath["lat"])
+        path_e = np.zeros_like(self.DesiredPath["lon"])
+
+        for idx in range(len(path_n)):
+            path_n[idx], path_e[idx], _ = to_utm(lat=self.DesiredPath["lat"][idx], lon=self.DesiredPath["lon"][idx])
+        
+        self.DesiredPath["north"] = path_n
+        self.DesiredPath["east"] = path_e
+
+    def _sample_depth_data(self):
+        pass
+
+
+    def _sample_wind_data(self):
+        pass
+
+
+    def _sample_current_data(self):
+        pass
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -194,8 +271,8 @@ class HHOS_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = 56.635
-        lon_init = 7.421
+        lat_init = self.DesiredPath["lat"][0] #56.635
+        lon_init = self.DesiredPath["lon"][0] #7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
@@ -207,8 +284,9 @@ class HHOS_Env(gym.Env):
                          delta_t   = self.delta_t,
                          N_max     = np.infty,
                          E_max     = np.infty,
-                         nps       = 1.8,
-                         full_ship = True)
+                         nps       = 3.0,
+                         full_ship = False,
+                         cont_acts = True)
 
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
@@ -217,8 +295,12 @@ class HHOS_Env(gym.Env):
         V_c, beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
         V_w, beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
         H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        beta_wave, eta_wave, T_0_wave, lambda_wave = None, None, None, None
 
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=V_c, beta_c=beta_c, V_w=V_w, beta_w=beta_w, H=H)
+        H = None
+
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=V_c, beta_c=beta_c, V_w=V_w, beta_w=beta_w, H=H,
+                                                beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
 
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
@@ -279,9 +361,12 @@ class HHOS_Env(gym.Env):
         V_c, beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         V_w, beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        beta_wave, eta_wave, T_0_wave, lambda_wave = None, None, None, None
 
-        #self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H)
-        self.OS._upd_dynamics(V_w=0.0, beta_w=beta_w, V_c=0.0, beta_c=beta_c, H=None, beta_wave=dtr(270.0), eta_wave=20.0, T_0_wave=3.0, lambda_wave=5.0)
+        H = None
+
+        self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, 
+                              beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
         
         # update waypoints of path
         self._update_wps()
