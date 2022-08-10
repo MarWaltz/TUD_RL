@@ -106,8 +106,11 @@ class MMG_Env(gym.Env):
         self.r_coll   = 0
         self.r_COLREG = 0
         self.r_comf   = 0
-        self.state_names = ["u", "v", "r", r"$\Psi$", r"$\dot{r}$", r"$\tau_r$", r"$\beta_{G}$", r"$ED_{G}$"]
+        self.state_names = ["u", "v", "r", r"$\dot{r}$", r"$\delta$", r"$\beta_{G}$", r"$ED_{G}$", 
+                            r"$ED_{TS}$", r"$\beta_{TS}$", "C_T", "V_TS", r"$\sigma$", "CR"]
 
+        #self.cr_cpa = 0.0
+        #self.cr_ed = 0.0
 
     def reset(self):
         """Resets environment to initial state."""
@@ -601,6 +604,7 @@ class MMG_Env(gym.Env):
         Returns
             KVLCC2, respawn_flag (bool)
         """
+        return TS, False
         if self.spawn_mode == "center":
             return TS, False
 
@@ -646,10 +650,21 @@ class MMG_Env(gym.Env):
         DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
         
         if TCPA >= 0:
-            cr = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
+            cr_cpa = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
         else:
-            cr = math.exp((DCPA + VR * 5.0 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
-        return min([1.0, cr])
+            cr_cpa = math.exp((DCPA + VR * 5.0 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
+
+        # CR based on euclidean distance
+        ED_domain = ED(N0=N0+N_add, E0=E0+E_add, N1=N1, E1=E1)
+        cr_ed = math.exp(-ED_domain/(self.CR_rec_dist*0.4))
+
+        #self.cr_ed_old = self.cr_ed
+        #self.cr_cpa_old = self.cr_cpa
+
+        #self.cr_ed = cr_ed
+        #self.cr_cpa = cr_cpa
+
+        return min([1.0, max([cr_cpa, cr_ed])])
 
 
     def _get_COLREG_situation(self, OS, TS):
@@ -807,8 +822,8 @@ class MMG_Env(gym.Env):
         u, v, r = np.round(self.OS.nu,3)
 
         ste = f"Step: {self.step_cnt}"
-        pos = f"N: {np.round(meter_to_NM(N0),3) - 7}, E: {np.round(meter_to_NM(E0),3) - 7}, " + r"$\psi$: " + f"{np.round(rtd(head0), 3)}°"
-        vel = f"u: {u}, v: {v}, r: {r}"
+        pos = f"N: {meter_to_NM(N0) - 7:.2f}, E: {meter_to_NM(E0) - 7:.2f}, " + r"$\psi$: " + f"{rtd(head0):.2f}°"
+        vel = f"u: {u:.4f}, v: {v:.4f}, r: {r:.4f}"
         return ste + "\n" + pos + "\n" + vel
 
 
@@ -836,7 +851,7 @@ class MMG_Env(gym.Env):
                     plt.show()
                 
                 # ------------------------------ ship movement --------------------------------
-                for ax in [self.ax0, self.fig2_ax]:
+                for ax in [self.fig2_ax]:
                     # clear prior axes, set limits and add labels and title
                     ax.clear()
                     ax.set_xlim(0, self.E_max)
@@ -995,12 +1010,15 @@ class MMG_Env(gym.Env):
                     self.ax2.set_xlabel("Timestep in episode")
                     self.ax2.set_ylabel("State information")
 
-                    for i in range(8):
-                        self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], self.state[i]], 
-                                    color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
-                                    label=self.state_names[i])    
-                    if self.step_cnt == 0:
-                        self.ax2.legend()
+                    #for i, obs in enumerate(self.state):
+                    #    if i > 6:
+                    #        self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], obs], 
+                    #                    color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i-7], 
+                    #                    label=self.state_names[i])
+                    #self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.cr_cpa_old, self.cr_cpa], color="red", label="CR_CPA")
+                    #self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.cr_ed_old, self.cr_ed], color="blue", label="CR_ED")
+                    #if self.step_cnt == 0:
+                    #    self.ax2.legend()
 
                     self.ax2.old_time = self.step_cnt
                     self.ax2.old_state = self.state
