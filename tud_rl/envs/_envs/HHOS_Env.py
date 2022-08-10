@@ -7,12 +7,12 @@ import numpy as np
 from gym import spaces
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, cte, find_nearest,
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, find_nearest,
                                         get_init_two_wp, mps_to_knots,
                                         switch_wp, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, bng_abs,
-                                         dtr, rtd, xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, dtr, rtd,
+                                         xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -36,10 +36,6 @@ class HHOS_Env(gym.Env):
         # vector field guidance
         self.VFG_K = 0.001
 
-        # setting
-        assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
-        self.mode = mode
-
         # data range
         self.lon_lims = [4.83, 14.33]
         self.lat_lims = [51.83, 60.5]
@@ -52,6 +48,10 @@ class HHOS_Env(gym.Env):
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
 
+        # setting
+        assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
+        self.mode = mode
+
         # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
         if mode == "train":
             self._sample_desired_path()
@@ -60,17 +60,17 @@ class HHOS_Env(gym.Env):
             self._sample_current_data()
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 10.0
+        self.show_lon_lat = 25
         self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
 
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
-        self.plot_depth = False
-        self.plot_path = True
-        self.plot_wind = False
-        self.plot_current = False
+        self.plot_depth = True
+        self.plot_path = False
+        self.plot_wind = True
+        self.plot_current = True
         self.plot_lidar = False
 
         if not self.plot_in_latlon:
@@ -132,7 +132,7 @@ class HHOS_Env(gym.Env):
             self.CurrentData = pickle.load(f)
 
 
-    def _sample_desired_path(self, n_wps=5_000, l=0.01):
+    def _sample_desired_path(self, n_wps=2_000, l=0.01):
         """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system."""
         self.DesiredPath = {"n_wps" : n_wps}
 
@@ -183,11 +183,96 @@ class HHOS_Env(gym.Env):
 
 
     def _sample_wind_data(self):
-        pass
+        """Generates random wind data by overwriting the real data information."""
+        # zero out real data
+        speed_mps = self.WindData["speed_mps"] * 0.0
+        angle = self.WindData["angle"] * 0.0
+
+        # size of homogenous wind areas
+        lat_n_areas = np.random.randint(4, 7)
+        lon_n_areas = np.random.randint(4, 7)
+
+        idx_freq_lat = speed_mps.shape[0] // lat_n_areas
+        idx_freq_lon = speed_mps.shape[1] // lon_n_areas
+
+        V_const = np.random.uniform(low=0.0, high=15.0, size=(lat_n_areas, lon_n_areas))
+        angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
+
+        # sampling
+        for lat_idx, _ in enumerate(self.WindData["lat"]):
+            for lon_idx, _ in enumerate(self.WindData["lon"]):
+
+                lat_area = lat_idx // idx_freq_lat
+                lat_area = lat_area-1 if lat_area >= lat_n_areas else lat_area
+
+                lon_area = lon_idx // idx_freq_lon
+                lon_area = lon_area-1 if lon_area >= lon_n_areas else lon_area
+
+                speed_mps[lat_idx, lon_idx] = max([0.0, V_const[lat_area, lon_area] + np.random.normal(0.0, 1.0)])
+                angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
+
+        self.WindData["speed_mps"] = speed_mps
+        self.WindData["angle"] = angle
+
+        # overwrite other entries
+        e = self.WindData["eastward_mps"] * 0.0
+        n = self.WindData["northward_mps"] * 0.0
+
+        for lat_idx, _ in enumerate(self.WindData["lat"]):
+            for lon_idx, _ in enumerate(self.WindData["lon"]):
+                e[lat_idx, lon_idx], n[lat_idx, lon_idx] = xy_from_polar(r=speed_mps[lat_idx, lon_idx], angle=angle_to_2pi(angle[lat_idx, lon_idx] - math.pi))
+
+        self.WindData["eastward_mps"] = e
+        self.WindData["northward_mps"] = n
+        self.WindData["eastward_knots"] = mps_to_knots(self.WindData["eastward_mps"])
+        self.WindData["northward_knots"] = mps_to_knots(self.WindData["northward_mps"])
 
 
     def _sample_current_data(self):
-        pass
+        """Generates random current data by overwriting the real data information."""
+        # zero out real data
+        speed_mps = self.CurrentData["speed_mps"] * 0.0
+        angle = self.CurrentData["angle"] * 0.0
+
+        # size of homogenous current areas
+        lat_n_areas = np.random.randint(4, 7)
+        lon_n_areas = np.random.randint(4, 7)
+
+        idx_freq_lat = speed_mps.shape[0] // lat_n_areas
+        idx_freq_lon = speed_mps.shape[1] // lon_n_areas
+
+        V_const = np.clip(np.random.exponential(scale=0.2, size=(lat_n_areas, lon_n_areas)), 0.0, 0.5)
+        angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
+
+        # sampling
+        for lat_idx, lat in enumerate(self.CurrentData["lat"]):
+            for lon_idx, lon in enumerate(self.CurrentData["lon"]):
+
+                # no currents at land
+                if self._depth_at_latlon(lat_q=lat, lon_q=lon) >= 1.0:
+
+                    lat_area = lat_idx // idx_freq_lat
+                    lat_area = lat_area-1 if lat_area >= lat_n_areas else lat_area
+
+                    lon_area = lon_idx // idx_freq_lon
+                    lon_area = lon_area-1 if lon_area >= lon_n_areas else lon_area
+
+                    speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
+                    angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
+
+        self.CurrentData["speed_mps"] = speed_mps
+        self.CurrentData["angle"] = angle
+
+        # overwrite other entries
+        e = self.CurrentData["eastward_mps"] * 0.0
+        n = self.CurrentData["northward_mps"] * 0.0
+
+        for lat_idx, _ in enumerate(self.CurrentData["lat"]):
+            for lon_idx, _ in enumerate(self.CurrentData["lon"]):
+                e[lat_idx, lon_idx], n[lat_idx, lon_idx] = xy_from_polar(r=speed_mps[lat_idx, lon_idx], angle=angle_to_2pi(angle[lat_idx, lon_idx] - math.pi))
+
+        self.CurrentData["eastward_mps"] = e
+        self.CurrentData["northward_mps"] = n
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -271,8 +356,8 @@ class HHOS_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = self.DesiredPath["lat"][0] #56.635
-        lon_init = self.DesiredPath["lon"][0] #7.421
+        lat_init = self.DesiredPath["lat"][0] if self.mode == "train" else 56.635
+        lon_init = self.DesiredPath["lon"][0] if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
