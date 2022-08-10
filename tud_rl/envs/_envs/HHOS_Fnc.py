@@ -144,9 +144,6 @@ def find_neighbor(array, value, idx):
         else:
             return array[idx], idx, right, idx+1
 
-#print(find_nearest_two_old(array=np.array([3.2, 6.4, 8.0, 9.0, 11.2, 18.3, 21.0]), value=21.0))
-#print(find_nearest_two(array=np.array([3.2, 6.4, 8.0, 9.0, 11.2, 18.3, 21.0]), value=21.0))
-
 
 def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
     """Computes the linearly interpolated value (e.g. water depth, wind) at a (queried) longitude-latitude position.
@@ -166,16 +163,30 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
     lon_low_idx = int(lon_low_idx)
     lon_upp_idx = int(lon_upp_idx)
 
-    # value has been in array
+    # value has been in array or completely out of the domain
     if lat_low == lat_upp and lon_low == lon_upp:
         return Z[lat_low_idx, lon_low_idx]
 
-    # get depth of S6 and S7
-    if lat_low == lat_upp:
+    # latitudes are equal
+    elif lat_low == lat_upp:
         depth_S6 = Z[lat_low_idx, lon_low_idx]
         depth_S7 = Z[lat_low_idx, lon_upp_idx]
+
+        delta_lon6Q = lon_q - lon_low
+        delta_lonQ7 = lon_upp - lon_q
+        return (delta_lon6Q * depth_S7 + delta_lonQ7 * depth_S6) / (delta_lon6Q + delta_lonQ7)
+
+    # longitudes are equal
+    elif lon_low == lon_upp:
+        depth_S1 = Z[lat_upp_idx, lon_low_idx]
+        depth_S3 = Z[lat_low_idx, lon_low_idx]
+
+        delta_lat16 = lat_upp - lat_q
+        delta_lat63 = lat_q - lat_low
+        return (delta_lat16 * depth_S3 + delta_lat63 * depth_S1) / (delta_lat16 + delta_lat63)
+
+    # everything is different
     else:
-        # depth of S1, S2, S3, S4
         depth_S1 = Z[lat_upp_idx, lon_low_idx]
         depth_S3 = Z[lat_low_idx, lon_low_idx]
 
@@ -188,12 +199,6 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
         depth_S6 = (delta_lat16 * depth_S3 + delta_lat63 * depth_S1) / (delta_lat16 + delta_lat63)
         depth_S7 = (delta_lat16 * depth_S4 + delta_lat63 * depth_S2) / (delta_lat16 + delta_lat63)
 
-    # get depth of SQ
-    if lon_q == lon_low:
-        return depth_S6
-    elif lon_q == lon_upp:
-        return depth_S7
-    else:
         delta_lon6Q = lon_q - lon_low
         delta_lonQ7 = lon_upp - lon_q
         return (delta_lon6Q * depth_S7 + delta_lonQ7 * depth_S6) / (delta_lon6Q + delta_lonQ7)
