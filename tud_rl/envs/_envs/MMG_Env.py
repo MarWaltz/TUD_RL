@@ -623,8 +623,7 @@ class MMG_Env(gym.Env):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
-        D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, \
-            D=self.OS.ship_domain_D, OS=OS, TS=TS)
+        D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
         CR_dist = self.CR_rec_dist
         #CR_dist = self.CR_dist_multiple * D
 
