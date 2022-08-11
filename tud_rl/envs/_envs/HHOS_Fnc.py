@@ -3,28 +3,8 @@ import math
 import numpy as np
 import utm
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
-                                         bng_abs, bng_rel, rtd, dtr)
-
-
-def get_utm_zone_number(lat, lon):
-    """Computes the UTM zone number (not the letter) for given latitude and longitude.
-    Considers the special cases for Norway and Svalbard."""
-    if lat > 55 and lat < 64 and lon > 2 and lon < 6:
-        return 32
-    elif lat > 71 and lon >= 6 and lon < 9:
-        return 31
-    elif lat > 71 and lon >= 9 and lon < 12:
-        return 33
-    elif lat > 71 and lon >= 18 and lon < 21:
-        return 33
-    elif lat > 71 and lon >= 21 and lon < 24:
-        return 35
-    elif lat > 71 and lon >= 30 and lon < 33:
-        return 35
-    elif lon >= -180 and lon <= 180:
-        return (math.floor((lon + 180)/6) % 60) + 1
-    else:
-        raise ValueError("UTM zone determination failed. Check your latitude and longitude again.")
+                                         bng_abs, bng_rel, dtr, rtd)
+from utm import latlon_to_zone_number
 
 
 def to_latlon(north, east, number):
@@ -311,6 +291,62 @@ def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
     else:
         return False
 
+
+def fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value):
+    """Returns the array Z where indicies between [lat_idx1, lon_idx1] and [lat_idx2, lon_idx2] are filled with value.
+    Example:
+    Z = [[0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0]]
+
+    [lat_idx1, lon_idx1] = [0, 1]
+    [lat_idx2, lon_idx2] = [2, 3]
+    value = 5
+
+    Output is:
+    Z = [[0.0, 5.0, 5.0, 5.0, 0.0],
+         [0.0, 5.0, 5.0, 5.0, 0.0],
+         [0.0, 5.0, 5.0, 5.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0]]
+
+    Args:
+        Z (np.array(lat_length, lon_length)): Array with data
+        lat_idx1 (int): lat-idx of first point
+        lon_idx1 (int): lon-idx of first point
+        lat_idx2 (int): lat-idx of second point
+        lon_idx2 (int): lon-idx of second point
+        value (float): value used for filling 
+    """
+    # indices should be in array
+    lat_N, lon_N = Z.shape
+    lat_idx1 = int(np.clip(lat_idx1, 0, lat_N-1))
+    lat_idx2 = int(np.clip(lat_idx2, 0, lat_N-1))
+    lon_idx1 = int(np.clip(lon_idx1, 0, lon_N-1))
+    lon_idx2 = int(np.clip(lon_idx2, 0, lon_N-1))
+    
+    # order points to slice over rectangle
+    lat_idx1_c = min([lat_idx1, lat_idx2])
+    lat_idx2_c = max([lat_idx1, lat_idx2])
+
+    lon_idx1_c = min([lon_idx1, lon_idx2])
+    lon_idx2_c = max([lon_idx1, lon_idx2])
+
+    # filling
+    Z[lat_idx1_c:lat_idx2_c+1, lon_idx1_c:lon_idx2_c+1] = value
+    return Z
+
+"""Z = np.array([[0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0]])
+lat_idx1 = 0
+lon_idx1 = 1
+lat_idx2 = 2
+lon_idx2 = 3
+value = 5
+print(fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value))
+"""
 
 class Hull:
     def __init__(self, Lpp, B, N=1000, approx_method="ellipse", h_xs=None, h_ys=None) -> None:

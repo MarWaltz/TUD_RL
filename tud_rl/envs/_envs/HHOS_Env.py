@@ -4,22 +4,24 @@ import pickle
 
 import gym
 import numpy as np
+import scipy.ndimage
 from gym import spaces
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, find_nearest,
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, fill_array,
+                                        find_nearest, find_nearest_two,
                                         get_init_two_wp, mps_to_knots,
                                         switch_wp, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, dtr, rtd,
-                                         xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, bng_abs,
+                                         dtr, rtd, xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 from Hamburg to Oslo."""
 
-    def __init__(self, mode="train"):
+    def __init__(self, mode="validate"):
         super().__init__()
 
         # simulation settings
@@ -47,6 +49,7 @@ class HHOS_Env(gym.Env):
         self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
         self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
         self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
+        self._load_wave_data(path_to_wave_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/waves")
 
         # setting
         assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
@@ -54,16 +57,19 @@ class HHOS_Env(gym.Env):
 
         # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
         if mode == "train":
+            self.n_wps = 500
             self._sample_desired_path()
             self._sample_depth_data()
             self._sample_wind_data()
             self._sample_current_data()
+            self._sample_wave_data()
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 25
-        self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
-        self.half_num_wind_idx = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
+        self.show_lon_lat = 2.5
+        self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
+        self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
+        self.half_num_wave_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WaveData["metaData"]["cellsize"]) + 1
 
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
@@ -71,6 +77,7 @@ class HHOS_Env(gym.Env):
         self.plot_path = False
         self.plot_wind = True
         self.plot_current = True
+        self.plot_waves = True
         self.plot_lidar = False
 
         if not self.plot_in_latlon:
@@ -132,38 +139,48 @@ class HHOS_Env(gym.Env):
             self.CurrentData = pickle.load(f)
 
 
-    def _sample_desired_path(self, n_wps=2_000, l=0.01):
+    def _load_wave_data(self, path_to_wave_data):
+        with open(f"{path_to_wave_data}/WaveData_latlon.pickle", "rb") as f:
+            self.WaveData = pickle.load(f)
+
+
+    def _sample_desired_path(self, l=0.01):
         """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system."""
-        self.DesiredPath = {"n_wps" : n_wps}
+        self.DesiredPath = {"n_wps" : self.n_wps}
 
-        # sample starting point
-        lat = np.zeros(n_wps)
-        lon = np.zeros(n_wps)
+        # do it until we have a path whichs stays in our simulation domain
+        while True:
 
-        lat[0] = np.random.uniform(low  = self.lat_lims[0] + 0.25 * self.lat_range, 
-                                   high = self.lat_lims[1] - 0.25 * self.lat_range)
-        lon[0] = np.random.uniform(low  = self.lon_lims[0] + 0.25 * self.lon_range, 
-                                   high = self.lon_lims[1] - 0.25 * self.lon_range)
+            # sample starting point
+            lat = np.zeros(self.n_wps)
+            lon = np.zeros(self.n_wps)
 
-        # sample other points
-        ang = np.random.uniform(0.0, 2*math.pi)
-        ang_diff = 0.0
-        ang_diff2 = 0.0
-        for n in range(1, n_wps):
-            
-            # next angle
-            ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
-            ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2 + 0.0 * dtr(np.random.uniform(-5.0, 5.0))
-            ang = angle_to_2pi(ang + ang_diff)
+            #lat[0] = np.random.uniform(low  = self.lat_lims[0] + 0.25 * self.lat_range, 
+            #                           high = self.lat_lims[1] - 0.25 * self.lat_range)
+            #lon[0] = np.random.uniform(low  = self.lon_lims[0] + 0.25 * self.lon_range, 
+            #                           high = self.lon_lims[1] - 0.25 * self.lon_range)
+            lat[0] = 60.0
+            lon[0] = 9.0
 
-            # next point
-            lon_diff, lat_diff = xy_from_polar(r=l, angle=ang)
-            lat[n] = lat[n-1] + lat_diff
-            lon[n] = lon[n-1] + lon_diff
+            # sample other points
+            ang = np.random.uniform(math.pi/2, 3/2*math.pi)
+            ang_diff = dtr(np.random.uniform(-20., 20.))
+            ang_diff2 = 0.0
+            for n in range(1, self.n_wps):
+                
+                # next angle
+                ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
+                ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2 + 0.0 * dtr(np.random.uniform(-5.0, 5.0))
+                ang = angle_to_2pi(ang + ang_diff)
 
-            # clip
-            lat[n] = np.clip(lat[n], a_min=self.lat_lims[0], a_max=self.lat_lims[1])
-            lon[n] = np.clip(lon[n], a_min=self.lon_lims[0], a_max=self.lon_lims[1])
+                # next point
+                lon_diff, lat_diff = xy_from_polar(r=l, angle=ang)
+                lat[n] = lat[n-1] + lat_diff
+                lon[n] = lon[n-1] + lon_diff
+
+            if all(self.lat_lims[0] <= lat) and all(self.lat_lims[1] >= lat) and \
+                all(6.1 <= lon) and all(11.9 >= lon):
+                break
 
         self.DesiredPath["lat"] = lat
         self.DesiredPath["lon"] = lon
@@ -178,8 +195,73 @@ class HHOS_Env(gym.Env):
         self.DesiredPath["north"] = path_n
         self.DesiredPath["east"] = path_e
 
+
     def _sample_depth_data(self):
-        pass
+        """Generates random depth data by overwriting the real data information."""
+        # clear real data
+        lat_depth = self.DepthData["lat"]
+        lon_depth = self.DepthData["lon"]
+        self.DepthData["data"] *= 0.0
+        self.DepthData["data"] += 1.0
+
+        # sample distances to waypoints
+        d_left  = np.zeros(self.n_wps)
+        d_right = np.zeros(self.n_wps)
+
+        for i in range(self.n_wps):
+            if i == 0:
+                d_left[i]  = np.clip(np.random.normal(loc=10_000, scale=2_000, size=1), 500, np.infty)
+                d_right[i] = np.clip(np.random.normal(loc=10_000, scale=2_000, size=1), 500, np.infty)
+            else:
+                d_left[i]  = np.clip(d_left[i-1] + np.random.normal(loc=100, scale=50, size=1), 500, 30_000)
+                d_right[i] = np.clip(d_right[i-1] + np.random.normal(loc=100, scale=50, size=1), 500, 30_000)
+
+        # fill close points at that distance away from the path
+        lat_path = self.DesiredPath["lat"]
+        lon_path = self.DesiredPath["lon"]
+
+        for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
+            
+            if i != self.n_wps-1:
+
+                # go to utm
+                n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
+                n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
+
+                # angles
+                bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
+                angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
+                angle_right = angle_to_2pi(bng_absolute + math.pi/2)
+
+                # compute resulting points
+                e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
+                lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
+
+                e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
+                lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
+
+                # find closest point in the array and set depth
+                _, lat_left_idx = find_nearest(array=lat_depth, value=lat_left)
+                _, lon_left_idx = find_nearest(array=lon_depth, value=lon_left)
+
+                _, lat_right_idx = find_nearest(array=lat_depth, value=lat_right)
+                _, lon_right_idx = find_nearest(array=lon_depth, value=lon_right)
+
+                self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_left_idx, lon_idx1=lon_left_idx,
+                                                    lat_idx2=lat_right_idx, lon_idx2=lon_right_idx, 
+                                                    value=np.clip(np.random.exponential(scale=75, size=1), 1, 1000))
+
+        # smoothing things
+        self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[20, 20], mode="constant"), 1, np.infty)
+
+        # log
+        self.log_Depth = np.log(self.DepthData["data"])
+
+        # for contour plot
+        self.con_ticks = np.log([1.0, 2.0, 5.0, 15.0, 50.0, 150.0, 500.0])
+        self.con_ticklabels = [int(np.round(tick, 0)) for tick in np.exp(self.con_ticks)]
+        self.con_ticklabels[0] = 0
+        self.clev = np.arange(0, self.log_Depth.max(), .1)
 
 
     def _sample_wind_data(self):
@@ -189,11 +271,11 @@ class HHOS_Env(gym.Env):
         angle = self.WindData["angle"] * 0.0
 
         # size of homogenous wind areas
-        lat_n_areas = np.random.randint(4, 7)
-        lon_n_areas = np.random.randint(4, 7)
+        lat_n_areas = np.random.randint(5, 20)
+        lon_n_areas = np.random.randint(5, 20)
 
-        idx_freq_lat = speed_mps.shape[0] // lat_n_areas
-        idx_freq_lon = speed_mps.shape[1] // lon_n_areas
+        idx_freq_lat = speed_mps.shape[0] / lat_n_areas
+        idx_freq_lon = speed_mps.shape[1] / lon_n_areas
 
         V_const = np.random.uniform(low=0.0, high=15.0, size=(lat_n_areas, lon_n_areas))
         angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
@@ -202,17 +284,18 @@ class HHOS_Env(gym.Env):
         for lat_idx, _ in enumerate(self.WindData["lat"]):
             for lon_idx, _ in enumerate(self.WindData["lon"]):
 
-                lat_area = lat_idx // idx_freq_lat
-                lat_area = lat_area-1 if lat_area >= lat_n_areas else lat_area
+                lat_area = int(lat_idx / idx_freq_lat)
+                lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
 
-                lon_area = lon_idx // idx_freq_lon
-                lon_area = lon_area-1 if lon_area >= lon_n_areas else lon_area
+                lon_area = int(lon_idx / idx_freq_lon)
+                lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
                 speed_mps[lat_idx, lon_idx] = max([0.0, V_const[lat_area, lon_area] + np.random.normal(0.0, 1.0)])
                 angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
 
-        self.WindData["speed_mps"] = speed_mps
-        self.WindData["angle"] = angle
+        # smoothing things
+        self.WindData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[5, 5], mode="constant"), 0.0, np.infty)
+        self.WindData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
         # overwrite other entries
         e = self.WindData["eastward_mps"] * 0.0
@@ -235,11 +318,11 @@ class HHOS_Env(gym.Env):
         angle = self.CurrentData["angle"] * 0.0
 
         # size of homogenous current areas
-        lat_n_areas = np.random.randint(4, 7)
-        lon_n_areas = np.random.randint(4, 7)
+        lat_n_areas = np.random.randint(5, 20)
+        lon_n_areas = np.random.randint(5, 20)
 
-        idx_freq_lat = speed_mps.shape[0] // lat_n_areas
-        idx_freq_lon = speed_mps.shape[1] // lon_n_areas
+        idx_freq_lat = speed_mps.shape[0] / lat_n_areas
+        idx_freq_lon = speed_mps.shape[1] / lon_n_areas
 
         V_const = np.clip(np.random.exponential(scale=0.2, size=(lat_n_areas, lon_n_areas)), 0.0, 0.5)
         angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
@@ -249,19 +332,20 @@ class HHOS_Env(gym.Env):
             for lon_idx, lon in enumerate(self.CurrentData["lon"]):
 
                 # no currents at land
-                if self._depth_at_latlon(lat_q=lat, lon_q=lon) >= 1.0:
+                if self._depth_at_latlon(lat_q=lat, lon_q=lon) > 1.0:
 
-                    lat_area = lat_idx // idx_freq_lat
-                    lat_area = lat_area-1 if lat_area >= lat_n_areas else lat_area
+                    lat_area = int(lat_idx / idx_freq_lat)
+                    lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
 
-                    lon_area = lon_idx // idx_freq_lon
-                    lon_area = lon_area-1 if lon_area >= lon_n_areas else lon_area
+                    lon_area = int(lon_idx / idx_freq_lon)
+                    lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
                     speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
                     angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
 
-        self.CurrentData["speed_mps"] = speed_mps
-        self.CurrentData["angle"] = angle
+        # smoothing thins
+        self.CurrentData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[1, 1], mode="constant"), 0.0, np.infty)
+        self.CurrentData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
         # overwrite other entries
         e = self.CurrentData["eastward_mps"] * 0.0
@@ -273,6 +357,11 @@ class HHOS_Env(gym.Env):
 
         self.CurrentData["eastward_mps"] = e
         self.CurrentData["northward_mps"] = n
+
+
+    def _sample_wave_data(self):
+        """Generates random wave data by overwriting the real data information."""
+        raise NotImplementedError("Wave sampling is not there yet.")
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -299,6 +388,20 @@ class HHOS_Env(gym.Env):
         angle = angle_to_2pi(Z_at_latlon(Z=self.WindData["angle"], lat_array=self.WindData["lat"], 
                                          lon_array=self.WindData["lon"], lat_q=lat_q, lon_q=lon_q))
         return speed, angle
+
+
+    def _wave_at_latlon(self, lat_q, lon_q):
+        """Computes the wave angle, amplitude, period, and length at a (queried) longitude-latitude position based on linear interpolation.
+        Returns: (angle, amplitude, period, length)"""
+        angle = Z_at_latlon(Z=self.WaveData["angle"], lat_array=self.WaveData["lat"], lon_array=self.WaveData["lon"],
+                            lat_q=lat_q, lon_q=lon_q)
+        amplitude = Z_at_latlon(Z=self.WaveData["height"], lat_array=self.WaveData["lat"], lon_array=self.WaveData["lon"],
+                                lat_q=lat_q, lon_q=lon_q)
+        period = Z_at_latlon(Z=self.WaveData["period"], lat_array=self.WaveData["lat"], lon_array=self.WaveData["lon"],
+                             lat_q=lat_q, lon_q=lon_q)
+        length = Z_at_latlon(Z=self.WaveData["length"], lat_array=self.WaveData["lat"], lon_array=self.WaveData["lon"],
+                             lat_q=lat_q, lon_q=lon_q)
+        return angle, amplitude, period, length
 
 
     def _get_closeness_from_lidar(self, dists):
@@ -380,9 +483,7 @@ class HHOS_Env(gym.Env):
         V_c, beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
         V_w, beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
         H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        beta_wave, eta_wave, T_0_wave, lambda_wave = None, None, None, None
-
-        H = None
+        beta_wave, eta_wave, T_0_wave, lambda_wave = self._wave_at_latlon(lat_q=lat_init, lon_q=lon_init)
 
         self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=V_c, beta_c=beta_c, V_w=V_w, beta_w=beta_w, H=H,
                                                 beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
@@ -446,9 +547,7 @@ class HHOS_Env(gym.Env):
         V_c, beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         V_w, beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        beta_wave, eta_wave, T_0_wave, lambda_wave = None, None, None, None
-
-        H = None
+        beta_wave, eta_wave, T_0_wave, lambda_wave = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
 
         self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, 
                               beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
@@ -469,22 +568,27 @@ class HHOS_Env(gym.Env):
 
     def __str__(self, OS_lat, OS_lon) -> str:
         u, v, r = self.OS.nu
+        course = self.OS._get_course()
 
         ste = f"Step: {self.step_cnt}"
-        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"
+        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{course}"
         vel = f"u [m/s]: {u:.3f}, v [m/s]: {v:.3f}, r [rad/s]: {r:.3f}"
         
-        depth = f"Water depth [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
+        depth = f"H [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
 
         wind_speed, wind_angle = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        wind = f"Wind speed [kn]: {mps_to_knots(wind_speed):.2f}, Wind direction [°]: {rtd(wind_angle):.2f}"
+        wind = r"$V_{\rm wind}$" + f" [kn]: {mps_to_knots(wind_speed):.2f}, " + r"$\psi_{\rm wind}$" + f" [°]: {rtd(wind_angle):.2f}"
 
         current_speed, current_angle = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        current = f"Current speed [m/s]: {current_speed:.2f}, Current direction [°]: {rtd(current_angle):.2f}"
+        current = r"$V_{\rm current}$" + f" [m/s]: {current_speed:.2f}, " + r"$\psi_{\rm current}$" + f" [°]: {rtd(current_angle):.2f}"
+
+        wave_angle, wave_amplitude, wave_period, wave_length = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        wave = r"$\psi_{\rm wave}$" + f" [°]: {rtd(wave_angle):.2f}" + r", $\xi_{\rm wave}$ [m]: " + f"{wave_amplitude:.2f}" \
+            + r", $T_{\rm wave}$ [s]: " + f"{wave_period:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{wave_length:.2f}"
 
         ye, desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
-        path_info = f"CTE [m]: {ye:.2f}, Desired course [°]: {rtd(desired_course):.2f}, Course error [°]: {rtd(desired_course - self.OS._get_course()):.2f}"
-        return ste + "\n" + pos + ", " + vel + "\n" + depth + ", " + wind + "\n" + current + "\n" + path_info
+        path_info = r"$y_e$" + f" [m]: {ye:.2f}, " + r"$\chi_{\rm desired}$" + f" [°]: {rtd(desired_course):.2f}, " + r"$\chi_{\rm error}$" + f" [°]: {rtd(desired_course - course):.2f}"
+        return ste + ", " + pos + "\n" + vel + ", " + depth + "\n" + wind + "\n" + current + "\n" + wave + "\n" + path_info
 
     def _calculate_reward(self):
         return 0.0
@@ -514,7 +618,7 @@ class HHOS_Env(gym.Env):
 
             # general information
             if self.plot_in_latlon:
-                ax.text(0.125, 0.90, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
+                ax.text(0.125, 0.8875, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=9, transform=plt.gcf().transFigure)
 
                 ax.set_xlabel("Longitude [°]", fontsize=10)
                 ax.set_ylabel("Latitude [°]", fontsize=10)
@@ -697,7 +801,25 @@ class HHOS_Env(gym.Env):
                           self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
                           self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
                           self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                          headwidth=2.0, color="whitesmoke", scale=5)
+                          headwidth=2.0, color="whitesmoke", scale=10)
+
+            #--------------------- Wave data ------------------------
+            if self.plot_waves and self.plot_in_latlon:
+
+                _, cnt_lat_idx = find_nearest(array=self.WaveData["lat"], value=OS_lat)
+                _, cnt_lon_idx = find_nearest(array=self.WaveData["lon"], value=OS_lon)
+
+                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wave_idx, 0]))
+                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wave_idx, len(self.WaveData["lat"]) - 1]))
+
+                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wave_idx, 0]))
+                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wave_idx, len(self.WaveData["lon"]) - 1]))
+                
+                ax.quiver(self.WaveData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                          self.WaveData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                          self.WaveData["eastward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                          self.WaveData["northward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                          headwidth=2.0, color="salmon", scale=10)
 
             #--------------------- LiDAR sensing ------------------------
             if self.plot_lidar and self.plot_in_latlon:
