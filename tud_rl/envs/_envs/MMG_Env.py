@@ -32,6 +32,7 @@ class MMG_Env(gym.Env):
                  w_coll           = 1.0,
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
+                 ada_r_comf       = False,
                  spawn_mode       = "line"):
         super().__init__()
 
@@ -97,6 +98,7 @@ class MMG_Env(gym.Env):
         self.w_coll   = w_coll
         self.w_COLREG = w_COLREG
         self.w_comf   = w_comf
+        self.ada_r_comf = ada_r_comf  # if True, comfort reward is off if there is collision risk
 
         # custom inits
         self._max_episode_steps = 1500
@@ -779,7 +781,13 @@ class MMG_Env(gym.Env):
         if a == 0:
             r_comf = 0.0
         else:
-            r_comf = -1.0
+            if self.ada_r_comf:
+                if all([self._get_CR(OS=self.OS, TS=TS) <= self.CR_al for TS in self.TSs]):
+                    r_comf = -1.0
+                else:
+                    r_comf = 0.0
+            else:
+                r_comf = -1.0
 
         # -------------------------------------- Overall reward --------------------------------------------
         w_sum = self.w_dist + self.w_head + self.w_coll + self.w_COLREG + self.w_comf

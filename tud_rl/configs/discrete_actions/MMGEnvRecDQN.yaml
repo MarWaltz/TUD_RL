@@ -12,6 +12,7 @@ env:
     w_coll: 1.5
     w_COLREG: 2.0
     w_comf: 0.4
+    ada_r_comf: True
     spawn_mode : line
     state_design: RecDQN
     pdf_traj: False
