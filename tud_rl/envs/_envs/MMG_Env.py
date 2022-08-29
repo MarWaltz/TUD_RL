@@ -626,8 +626,6 @@ class MMG_Env(gym.Env):
         N0, E0, _ = OS.eta
         N1, E1, _ = TS.eta
         D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
-        CR_dist = self.CR_rec_dist
-        #CR_dist = self.CR_dist_multiple * D
 
         # check if already in ship domain
         if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
@@ -640,9 +638,9 @@ class MMG_Env(gym.Env):
         chiTS = TS._get_course()
 
         # compute relative speed
-        vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
-        vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+        #vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
+        #vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
+        #VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
 
         # compute CPA measures under the assumption that agent is at ship domain border in the direction of the TS
         bng_absolute = bng_abs(N0=N0, E0=E0, N1=N1, E1=E1)
@@ -651,13 +649,13 @@ class MMG_Env(gym.Env):
         DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
         
         if TCPA >= 0:
-            cr_cpa = math.exp((DCPA + VR * TCPA) * math.log(self.CR_al) / CR_dist)
+            cr_cpa = math.exp((DCPA + 1.5 * TCPA) * math.log(self.CR_al) / self.CR_rec_dist)
         else:
-            cr_cpa = math.exp((DCPA + VR * 5.0 * abs(TCPA)) * math.log(self.CR_al) / CR_dist)
+            cr_cpa = math.exp((DCPA + 20.0 * abs(TCPA)) * math.log(self.CR_al) / self.CR_rec_dist)
 
         # CR based on euclidean distance
         ED_domain = ED(N0=N0+N_add, E0=E0+E_add, N1=N1, E1=E1)
-        cr_ed = math.exp(-ED_domain/(self.CR_rec_dist*0.4))
+        cr_ed = math.exp(-ED_domain/(self.CR_rec_dist*0.3))
 
         #self.cr_ed_old = self.cr_ed
         #self.cr_cpa_old = self.cr_cpa
@@ -740,6 +738,7 @@ class MMG_Env(gym.Env):
         """Returns reward of the current state."""
 
         N0, E0, head0 = self.OS.eta
+        safe_sit = all([self._get_CR(OS=self.OS, TS=TS) <= 0.2 for TS in self.TSs])
 
         # --------------- Path planning reward (Xu et al. 2022 in Neurocomputing, Ocean Eng.) -----------
         # Distance reward
@@ -782,7 +781,7 @@ class MMG_Env(gym.Env):
             r_comf = 0.0
         else:
             if self.ada_r_comf:
-                if all([self._get_CR(OS=self.OS, TS=TS) <= self.CR_al for TS in self.TSs]):
+                if safe_sit:
                     r_comf = -1.0
                 else:
                     r_comf = 0.0

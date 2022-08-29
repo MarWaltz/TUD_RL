@@ -175,10 +175,11 @@ class TrajPlotter:
     def plot_traj_fnc(self, 
                       E_max,
                       N_max,
-                      goal,
                       goal_reach_dist,
                       Lpp,
                       step_cnt,
+                      goal     = None,
+                      goals    = None,
                       ax       = None, 
                       sit      = None, 
                       r_dist   = None, 
@@ -207,6 +208,9 @@ class TrajPlotter:
 
         if not star:
             ax.scatter(goal["E"], goal["N"])
+        else:
+            for g in goals:
+                ax.scatter(g["E"], g["N"])
         
         # OS trajectory
         ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
@@ -264,12 +268,12 @@ class TrajPlotter:
             circ = patches.Circle((goal["E"], goal["N"]), radius=goal_reach_dist, edgecolor='blue', facecolor='none', alpha=0.3)
             ax.add_patch(circ)
         else:
-            for i in range(len(self.agents)):
+            for i in range(len(goals)):
                 if i == 0:
                     col = "black"
                 else:
                     col = COLREG_COLORS[i-1]
-                circ = patches.Circle((self.goals[i]["E"], self.goals[i]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.4)
+                circ = patches.Circle((goals[i]["E"], goals[i]["N"]), radius=goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.4)
                 ax.add_patch(circ)
 
         if create_pdf:
@@ -289,7 +293,7 @@ class TrajPlotter:
                 
                 ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-                if sit not in [19, 20, 21, 22]:
+                if sit not in [20, 21, 22, 23]:
                     ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
                     ax.set_xlabel("")
                 else:
@@ -372,7 +376,7 @@ class TrajPlotter:
 
         ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-        if sit not in [19, 20, 21, 22]:
+        if sit not in [20, 21, 22, 23]:
             ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
             ax.set_xlabel("")
         else:
@@ -408,7 +412,7 @@ class TrajPlotter:
 
         ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
 
-        if sit not in [19, 20, 21, 22]:
+        if sit not in [20, 21, 22, 23]:
             ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
             ax.set_xlabel("")
         else:

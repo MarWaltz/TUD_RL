@@ -5,7 +5,7 @@ class MMG_Star(MMG_Env):
     """This environment contains four agents, each steering a KVLCC2."""
 
     def __init__(self, N_TSs_max=3, state_design="RecDQN"):
-        super().__init__(N_TSs_max=N_TSs_max, state_design=state_design, plot_traj=True, N_TSs_increasing=False, N_TSs_random=False)
+        super().__init__(N_TSs_max=N_TSs_max, state_design=state_design, pdf_traj=True, N_TSs_increasing=False, N_TSs_random=False)
         self.N_TSs = self.N_TSs_max
 
     def reset(self):
@@ -82,23 +82,7 @@ class MMG_Star(MMG_Env):
         self.finished = [False] * len(self.agents)
 
         # we arbitrarily consider the first ship as the OS for plotting
-        if self.plot_traj:
-            self.OS_traj_N = [self.agents[0].eta[0]]
-            self.OS_traj_E = [self.agents[0].eta[1]]
-            self.OS_traj_h = [self.agents[0].eta[2]]
-
-            self.OS_col_N = []
-
-            self.TS_traj_N = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_E = [[] for _ in range(self.N_TSs)]
-            self.TS_traj_h = [[] for _ in range(self.N_TSs)]
-
-            self.TS_spawn_steps = [[self.step_cnt] for _ in range(self.N_TSs)]
- 
-            for TS_idx, TS in enumerate(self.agents[1:]):             
-                self.TS_traj_N[TS_idx].append(TS.eta[0])
-                self.TS_traj_E[TS_idx].append(TS.eta[1])
-                self.TS_traj_h[TS_idx].append(TS.eta[2])
+        self.TrajPlotter.reset(OS=self.agents[0], TSs=self.agents[1:], N_TSs=self.N_TSs)
 
         return self.state_agg
 
@@ -165,20 +149,7 @@ class MMG_Star(MMG_Env):
         self.sim_t += self.delta_t
 
         # trajectory plotting
-        if self.plot_traj:
-
-            # agent update
-            self.OS_traj_N.append(self.agents[0].eta[0])
-            self.OS_traj_E.append(self.agents[0].eta[1])
-            self.OS_traj_h.append(self.agents[0].eta[2])
-
-            if self.N_TSs > 0:
-
-                # TS update
-                for TS_idx, TS in enumerate(self.agents[1:]):
-                    self.TS_traj_N[TS_idx].append(TS.eta[0])
-                    self.TS_traj_E[TS_idx].append(TS.eta[1])
-                    self.TS_traj_h[TS_idx].append(TS.eta[2])
+        self.TrajPlotter.step(OS=self.agents[0], TSs=self.agents[1:], respawn_flags=[False for _ in range(self.N_TSs)], step_cnt=self.step_cnt)
         
         return self.state_agg, self.r, d, {}
 

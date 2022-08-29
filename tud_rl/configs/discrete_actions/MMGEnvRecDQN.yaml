@@ -11,7 +11,7 @@ env:
     w_head: 1.5
     w_coll: 1.5
     w_COLREG: 2.0
-    w_comf: 0.4
+    w_comf: 0.3
     ada_r_comf: True
     spawn_mode : line
     state_design: RecDQN
@@ -82,7 +82,7 @@ agent:
     double: false
     history_length: 2
 seed: 12
-timesteps: 5_000_000
+timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 10
 dqn_weights:
