@@ -226,7 +226,7 @@ def VFG(N1, E1, N2, E2, NA, EA, K):
     ye = cte(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path)
 
     # get desired course, which is rotated back to NED
-    return ye, pi_path - math.atan(ye * K), pi_path
+    return ye, angle_to_2pi(pi_path - math.atan(ye * K)), pi_path
 
 
 def get_init_two_wp(lat_array, lon_array, a_n, a_e):

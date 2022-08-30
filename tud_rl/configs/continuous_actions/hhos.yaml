@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-v0
-  max_episode_steps: 10_000
+  max_episode_steps: 1_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -51,22 +51,22 @@ input_norm_prior:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
-- - 256
+- - 128
   - relu
-- - 256
+- - 128
   - relu
 - tanh
 net_struc_critic:
-- - 256
+- - 128
   - relu
-- - 256
+- - 128
   - relu
 - identity
 optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001
 lr_critic: 0.0001
-buffer_length: 100000
+buffer_length: 100_000
 grad_clip: false
 grad_rescale: false
 act_start_step: 5000

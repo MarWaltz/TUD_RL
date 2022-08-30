@@ -13,8 +13,9 @@ from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, fill_array,
                                         get_init_two_wp, mps_to_knots,
                                         switch_wp, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi, bng_abs,
-                                         dtr, rtd, xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi,
+                                         angle_to_pi, bng_abs, dtr, rtd,
+                                         xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -79,6 +80,7 @@ class HHOS_Env(gym.Env):
         self.plot_current = False
         self.plot_waves = True
         self.plot_lidar = False
+        self.plot_reward = True
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
@@ -92,7 +94,9 @@ class HHOS_Env(gym.Env):
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
         self.r = 0
-        self._max_episode_steps = 10_000
+        self.r_ye = 0
+        self.r_ce = 0
+        self._max_episode_steps = 1_000
 
 
     def _load_desired_path(self, path_to_desired_path):
@@ -548,6 +552,7 @@ class HHOS_Env(gym.Env):
 
         # init cross-track error and desired course
         self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
+        self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
 
         # init state
         self._set_state()
@@ -558,12 +563,11 @@ class HHOS_Env(gym.Env):
     def _set_state(self):
         # OS information
         cmp1 = self.OS.nu / np.array([7.0, 0.7, 0.004])                # u, v, r
-        cmp2 = np.array([self.OS.nu_dot[2] / (8e-5),                   # r_dot
-                         self.OS.rud_angle / self.OS.rud_angle_max])   # rudder angle
+        cmp2 = np.array([self.OS.nu_dot[2] / (8e-5), self.OS.rud_angle / self.OS.rud_angle_max])   # r_dot, rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
 
         # path information
-        state_path = np.array([self.ye/self.OS.Lpp, self.desired_course/math.pi])
+        state_path = np.array([self.ye/self.OS.Lpp, self.course_error/math.pi])
 
         # environmental disturbances
         if self.T_0_wave is None:
@@ -610,6 +614,7 @@ class HHOS_Env(gym.Env):
         Returns new_state, r, done, {}."""
 
         # perform control action
+        a = a.item()
         self.OS._control(a)
 
         # update agent dynamics
@@ -631,6 +636,7 @@ class HHOS_Env(gym.Env):
 
         # compute new cross-track error and desired course
         self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
+        self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -641,6 +647,33 @@ class HHOS_Env(gym.Env):
         self._calculate_reward()
         d = self._done()
         return self.state, self.r, d, {}
+
+
+    def _calculate_reward(self):
+        # cross-track error
+        k_ye = 0.05
+        self.r_ye = math.exp(-k_ye * abs(self.ye))
+
+        # course error
+        k_ce = 5.0
+        self.r_ce = math.exp(-k_ce * abs(self.course_error))
+
+        weights = np.array([0.5, 0.5])
+        self.r = np.sum(weights * np.array([self.r_ye, self.r_ce])) / np.sum(weights)
+
+
+    def _done(self):
+        """Returns boolean flag whether episode is over."""
+        # end episode if OS is too far away from path
+        if self.ye > 400:
+            return True
+
+        # artificial done signal
+        elif self.step_cnt >= self._max_episode_steps:
+            return True
+
+        else:
+            return False
 
 
     def __str__(self, OS_lat, OS_lon) -> str:
@@ -658,18 +691,8 @@ class HHOS_Env(gym.Env):
             + r", $T_{\rm wave}$ [s]: " + f"{self.T_0_wave:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{self.lambda_wave:.2f}"
 
         path_info = r"$y_e$" + f" [m]: {self.ye:.2f}, " + r"$\chi_{\rm desired}$" + f" [°]: {rtd(self.desired_course):.2f}, " \
-            + r"$\chi_{\rm error}$" + f" [°]: {rtd(self.desired_course - course):.2f}"
+            + r"$\chi_{\rm error}$" + f" [°]: {rtd(self.course_error):.2f}"
         return ste + ", " + pos + "\n" + vel + ", " + depth + "\n" + wind + "\n" + current + "\n" + wave + "\n" + path_info
-
-
-    def _calculate_reward(self):
-        return 0.0
-
-
-    def _done(self):
-        """Returns boolean flag whether episode is over."""
-        d = False
-        return d
 
 
     def render(self, mode=None):
@@ -677,7 +700,10 @@ class HHOS_Env(gym.Env):
 
         # check whether figure has been initialized
         if len(plt.get_fignums()) == 0:
-            self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
+            if self.plot_reward:
+                self.f, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(14, 8))
+            else:
+                self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
 
             plt.ion()
             plt.show()
@@ -902,5 +928,28 @@ class HHOS_Env(gym.Env):
                 for _, latlon in enumerate(lidar_lat_lon):
                     ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
         
+        # ------------------------------ reward plot --------------------------------
+        if self.plot_reward:
+            if self.step_cnt == 0:
+                self.ax2.clear()
+                self.ax2.old_time = 0
+                self.ax2.old_r_ye = 0
+                self.ax2.old_r_ce = 0
+
+            self.ax2.set_xlim(0, self._max_episode_steps)
+            self.ax2.set_ylim(0, 1)
+            self.ax2.set_xlabel("Timestep in episode")
+            self.ax2.set_ylabel("Reward")
+
+            self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
+            self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "grey", label="Course error")
+            
+            if self.step_cnt == 0:
+                self.ax2.legend()
+
+            self.ax2.old_time = self.step_cnt
+            self.ax2.old_r_ye = self.r_ye
+            self.ax2.old_r_ce = self.r_ce
+
         #plt.gca().set_aspect('equal')
         plt.pause(0.001)
