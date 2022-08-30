@@ -21,7 +21,7 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 from Hamburg to Oslo."""
 
-    def __init__(self, mode="validate"):
+    def __init__(self, mode="train"):
         super().__init__()
 
         # simulation settings
@@ -29,7 +29,7 @@ class HHOS_Env(gym.Env):
 
         # LiDAR
         self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
-        self.lidar_n_beams     = 25                                                              # number of beams
+        self.lidar_n_beams     = 0 # 25                                                              # number of beams
         self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
         self.n_dots_per_beam   = 10                                                              # number of subpoints per beam
         self.d_dots_per_beam   = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
@@ -65,7 +65,7 @@ class HHOS_Env(gym.Env):
             self._sample_wave_data()
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 2.5
+        self.show_lon_lat = 0.05
         self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
@@ -74,9 +74,9 @@ class HHOS_Env(gym.Env):
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
         self.plot_depth = True
-        self.plot_path = False
-        self.plot_wind = True
-        self.plot_current = True
+        self.plot_path = True
+        self.plot_wind = False
+        self.plot_current = False
         self.plot_waves = True
         self.plot_lidar = False
 
@@ -86,7 +86,7 @@ class HHOS_Env(gym.Env):
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # gym inherits
-        obs_size = 7 + self.lidar_n_beams
+        obs_size = 16 + self.lidar_n_beams
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
@@ -101,6 +101,7 @@ class HHOS_Env(gym.Env):
         
         # store number of waypoints
         self.DesiredPath["n_wps"] = len(self.DesiredPath["lat"])
+        self.n_wps = self.DesiredPath["n_wps"]
 
         # add utm coordinates
         path_n = np.zeros_like(self.DesiredPath["lat"])
@@ -267,8 +268,8 @@ class HHOS_Env(gym.Env):
     def _sample_wind_data(self):
         """Generates random wind data by overwriting the real data information."""
         # zero out real data
-        speed_mps = self.WindData["speed_mps"] * 0.0
-        angle = self.WindData["angle"] * 0.0
+        speed_mps = np.zeros_like(self.WindData["speed_mps"])
+        angle = np.zeros_like(self.WindData["angle"])
 
         # size of homogenous wind areas
         lat_n_areas = np.random.randint(5, 20)
@@ -291,7 +292,7 @@ class HHOS_Env(gym.Env):
                 lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
                 speed_mps[lat_idx, lon_idx] = max([0.0, V_const[lat_area, lon_area] + np.random.normal(0.0, 1.0)])
-                angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
+                angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
         self.WindData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[5, 5], mode="constant"), 0.0, np.infty)
@@ -313,9 +314,8 @@ class HHOS_Env(gym.Env):
 
     def _sample_current_data(self):
         """Generates random current data by overwriting the real data information."""
-        # zero out real data
-        speed_mps = self.CurrentData["speed_mps"] * 0.0
-        angle = self.CurrentData["angle"] * 0.0
+        speed_mps = np.zeros_like(self.CurrentData["speed_mps"])
+        angle = np.zeros_like(self.CurrentData["angle"])
 
         # size of homogenous current areas
         lat_n_areas = np.random.randint(5, 20)
@@ -341,9 +341,9 @@ class HHOS_Env(gym.Env):
                     lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
                     speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
-                    angle[lat_idx, lon_idx] = angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0))
+                    angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
-        # smoothing thins
+        # smoothing things
         self.CurrentData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[1, 1], mode="constant"), 0.0, np.infty)
         self.CurrentData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
@@ -361,7 +361,57 @@ class HHOS_Env(gym.Env):
 
     def _sample_wave_data(self):
         """Generates random wave data by overwriting the real data information."""
-        raise NotImplementedError("Wave sampling is not there yet.")
+        height = np.zeros_like(self.WaveData["height"])
+        length = np.zeros_like(self.WaveData["length"])
+        period = np.zeros_like(self.WaveData["period"])
+        angle = np.zeros_like(self.WaveData["angle"])
+
+        # size of homogenous current areas
+        lat_n_areas = np.random.randint(5, 20)
+        lon_n_areas = np.random.randint(5, 20)
+
+        idx_freq_lat = height.shape[0] / lat_n_areas
+        idx_freq_lon = height.shape[1] / lon_n_areas
+
+        height_const = np.random.exponential(scale=0.1, size=(lat_n_areas, lon_n_areas))
+        length_const = np.random.exponential(scale=10., size=(lat_n_areas, lon_n_areas))
+        period_const = np.random.exponential(scale=1.0, size=(lat_n_areas, lon_n_areas))
+        angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
+
+        # sampling
+        for lat_idx, lat in enumerate(self.WaveData["lat"]):
+            for lon_idx, lon in enumerate(self.WaveData["lon"]):
+
+                # no waves at land
+                if self._depth_at_latlon(lat_q=lat, lon_q=lon) > 1.0:
+
+                    lat_area = int(lat_idx / idx_freq_lat)
+                    lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
+
+                    lon_area = int(lon_idx / idx_freq_lon)
+                    lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
+
+                    height[lat_idx, lon_idx] = np.clip(height_const[lat_area, lon_area] + np.random.normal(0.0, 0.05), 0.0, 0.5)
+                    length[lat_idx, lon_idx] = np.clip(length_const[lat_area, lon_area] + np.random.normal(0.0, 5.0), 0.0, 100.0)
+                    period[lat_idx, lon_idx] = np.clip(period_const[lat_area, lon_area] + np.random.normal(0.0, 0.5), 0.0, 10.0)
+                    angle[lat_idx, lon_idx]  = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
+
+        # smoothing things
+        self.WaveData["height"] = np.clip(scipy.ndimage.gaussian_filter(height, sigma=[0.01, 0.01], mode="constant"), 0.0001, np.infty)
+        self.WaveData["length"] = np.clip(scipy.ndimage.gaussian_filter(length, sigma=[5, 5], mode="constant"), 0.0001, np.infty)
+        self.WaveData["period"] = np.clip(scipy.ndimage.gaussian_filter(period, sigma=[0.1, 0.1], mode="constant"), 0.0001, np.infty)
+        self.WaveData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
+
+        # overwrite other entries
+        e = self.WaveData["eastward"] * 0.0
+        n = self.WaveData["northward"] * 0.0
+
+        for lat_idx, _ in enumerate(self.WaveData["lat"]):
+            for lon_idx, _ in enumerate(self.WaveData["lon"]):
+                e[lat_idx, lon_idx], n[lat_idx, lon_idx] = xy_from_polar(r=height[lat_idx, lon_idx], angle=angle_to_2pi(angle[lat_idx, lon_idx] - math.pi))
+
+        self.WaveData["eastward"] = e
+        self.WaveData["northward"] = n
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -459,13 +509,14 @@ class HHOS_Env(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # init OS
-        lat_init = self.DesiredPath["lat"][0] if self.mode == "train" else 56.635
-        lon_init = self.DesiredPath["lon"][0] if self.mode == "train" else 7.421
+        wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
+        lat_init = self.DesiredPath["lat"][wp_idx] if self.mode == "train" else 56.635
+        lon_init = self.DesiredPath["lon"][wp_idx] if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
-                         psi_init  = dtr(0.0),
+                         psi_init  = dtr(180.0),
                          u_init    = 0.0,
                          v_init    = 0.0,
                          r_init    = 0.0,
@@ -480,17 +531,23 @@ class HHOS_Env(gym.Env):
         self.OS.utm_number = number
 
         # set u-speed to near-convergence
-        V_c, beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        V_w, beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        beta_wave, eta_wave, T_0_wave, lambda_wave = self._wave_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.V_c, self.beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.V_w, self.beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        
+        if self.T_0_wave == 0.0:
+            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
 
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=V_c, beta_c=beta_c, V_w=V_w, beta_w=beta_w, H=H,
-                                                beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
+        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w, H=self.H,
+                                                beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
 
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
             lon_array=self.DesiredPath["lon"], a_n=N_init, a_e=E_init)
+
+        # init cross-track error and desired course
+        self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
 
         # init state
         self._set_state()
@@ -499,8 +556,6 @@ class HHOS_Env(gym.Env):
 
 
     def _set_state(self):
-        N0, E0, _ = self.OS.eta
-
         # OS information
         cmp1 = self.OS.nu / np.array([7.0, 0.7, 0.004])                # u, v, r
         cmp2 = np.array([self.OS.nu_dot[2] / (8e-5),                   # r_dot
@@ -508,13 +563,29 @@ class HHOS_Env(gym.Env):
         state_OS = np.concatenate([cmp1, cmp2])
 
         # path information
-        ye, desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=N0, EA=E0, K=self.VFG_K)
-        state_path = np.array([ye / self.OS.Lpp, desired_course / math.pi])
+        state_path = np.array([self.ye/self.OS.Lpp, self.desired_course/math.pi])
+
+        # environmental disturbances
+        if self.T_0_wave is None:
+            beta_wave = 0.0
+            eta_wave = 0.0
+            T_0_wave = 0.0
+            lambda_wave = 0.0
+        else:
+            beta_wave = self.beta_wave
+            eta_wave = self.eta_wave
+            T_0_wave = self.T_0_wave
+            lambda_wave = self.lambda_wave
+
+        state_env = np.array([self.V_c/0.5,  self.beta_c/(2*math.pi),      # currents
+                              self.V_w/15.0, self.beta_w/(2*math.pi),      # winds
+                              beta_wave/(2*math.pi), eta_wave/0.5, T_0_wave/7.0, lambda_wave/60.0,    # waves
+                              self.H/100.0])    # depth
 
         # LiDAR
-        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
+        #state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
 
-        self.state = np.concatenate([state_OS, state_path, state_LiDAR])
+        self.state = np.concatenate([state_OS, state_path, state_env])
 
 
     def _update_wps(self):
@@ -544,16 +615,22 @@ class HHOS_Env(gym.Env):
         # update agent dynamics
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
 
-        V_c, beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        V_w, beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        beta_wave, eta_wave, T_0_wave, lambda_wave = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.V_c, self.beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.V_w, self.beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
 
-        self.OS._upd_dynamics(V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, 
-                              beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)
+        if self.T_0_wave == 0.0:
+            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
+
+        self.OS._upd_dynamics(V_w=self.V_w, beta_w=self.beta_w, V_c=self.V_c, beta_c=self.beta_c, H=self.H, 
+                              beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
         
         # update waypoints of path
         self._update_wps()
+
+        # compute new cross-track error and desired course
+        self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -571,32 +648,29 @@ class HHOS_Env(gym.Env):
         course = self.OS._get_course()
 
         ste = f"Step: {self.step_cnt}"
-        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{course}"
+        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{course:.2f}"
         vel = f"u [m/s]: {u:.3f}, v [m/s]: {v:.3f}, r [rad/s]: {r:.3f}"
         
-        depth = f"H [m]: {self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon):.2f}"
+        depth = f"H [m]: {self.H:.2f}"
+        wind = r"$V_{\rm wind}$" + f" [kn]: {mps_to_knots(self.V_w):.2f}, " + r"$\psi_{\rm wind}$" + f" [°]: {rtd(self.beta_w):.2f}"
+        current = r"$V_{\rm current}$" + f" [m/s]: {self.V_c:.2f}, " + r"$\psi_{\rm current}$" + f" [°]: {rtd(self.beta_c):.2f}"
+        wave = r"$\psi_{\rm wave}$" + f" [°]: {rtd(self.beta_wave):.2f}" + r", $\xi_{\rm wave}$ [m]: " + f"{self.eta_wave:.2f}" \
+            + r", $T_{\rm wave}$ [s]: " + f"{self.T_0_wave:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{self.lambda_wave:.2f}"
 
-        wind_speed, wind_angle = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        wind = r"$V_{\rm wind}$" + f" [kn]: {mps_to_knots(wind_speed):.2f}, " + r"$\psi_{\rm wind}$" + f" [°]: {rtd(wind_angle):.2f}"
-
-        current_speed, current_angle = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        current = r"$V_{\rm current}$" + f" [m/s]: {current_speed:.2f}, " + r"$\psi_{\rm current}$" + f" [°]: {rtd(current_angle):.2f}"
-
-        wave_angle, wave_amplitude, wave_period, wave_length = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        wave = r"$\psi_{\rm wave}$" + f" [°]: {rtd(wave_angle):.2f}" + r", $\xi_{\rm wave}$ [m]: " + f"{wave_amplitude:.2f}" \
-            + r", $T_{\rm wave}$ [s]: " + f"{wave_period:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{wave_length:.2f}"
-
-        ye, desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
-        path_info = r"$y_e$" + f" [m]: {ye:.2f}, " + r"$\chi_{\rm desired}$" + f" [°]: {rtd(desired_course):.2f}, " + r"$\chi_{\rm error}$" + f" [°]: {rtd(desired_course - course):.2f}"
+        path_info = r"$y_e$" + f" [m]: {self.ye:.2f}, " + r"$\chi_{\rm desired}$" + f" [°]: {rtd(self.desired_course):.2f}, " \
+            + r"$\chi_{\rm error}$" + f" [°]: {rtd(self.desired_course - course):.2f}"
         return ste + ", " + pos + "\n" + vel + ", " + depth + "\n" + wind + "\n" + current + "\n" + wave + "\n" + path_info
+
 
     def _calculate_reward(self):
         return 0.0
+
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
         d = False
         return d
+
 
     def render(self, mode=None):
         """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
@@ -742,16 +816,16 @@ class HHOS_Env(gym.Env):
 
                     # desired course
                     ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
-                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
-                    dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
-                            width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                    #dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                    #ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
+                    #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
 
                     # actual course
-                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
-                    ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    ax.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
-                            width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                    #ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                    #ax.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
+                    #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
                     # cross-track error
                     if ye < 0:
@@ -768,15 +842,15 @@ class HHOS_Env(gym.Env):
                     ax.plot([self.wp1_E, self.wp2_E], [self.wp1_N, self.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
 
                     # desired course
-                    ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
-                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
-                    ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
-                            width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+                    #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                    #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                    #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
 
                     # actual course
-                    dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
-                    ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
-                            width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                    #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                    #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
                     # cross-track error
                     if ye < 0:
