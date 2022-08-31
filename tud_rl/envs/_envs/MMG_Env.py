@@ -113,6 +113,8 @@ class MMG_Env(gym.Env):
 
         #self.cr_cpa = 0.0
         #self.cr_ed = 0.0
+        #self.DCPA = 0
+        #self.TCPA = 0
 
     def reset(self):
         """Resets environment to initial state."""
@@ -171,11 +173,11 @@ class MMG_Env(gym.Env):
         rads  = np.linspace(0.0, 2*math.pi, 100)
         dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
             OS=None, TS=None, ang=rad) for rad in rads]
-        self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
-        self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
+        self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.domain_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
-        self.outer_domain_plot_xs = [(dist + self.CR_rec_dist) * math.sin(rad) for dist, rad in zip(dists, rads)]
-        self.outer_domain_plot_ys = [(dist + self.CR_rec_dist) * math.cos(rad) for dist, rad in zip(dists, rads)]
+        #self.outer_domain_plot_xs = [(dist + self.CR_rec_dist) * math.sin(rad) for dist, rad in zip(dists, rads)]
+        #self.outer_domain_plot_ys = [(dist + self.CR_rec_dist) * math.cos(rad) for dist, rad in zip(dists, rads)]
 
         # init other vessels
         if self.N_TSs_random:
@@ -479,6 +481,7 @@ class MMG_Env(gym.Env):
 
         #--------------------------- dynamic obstacle related -------------------------
         state_TSs = []
+        domain_xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
 
         for TS_idx, TS in enumerate(self.TSs):
 
@@ -490,7 +493,13 @@ class MMG_Env(gym.Env):
             if ED_OS_TS <= self.sight:
 
                 # euclidean distance
-                ED_OS_TS_norm = ED_OS_TS / self.E_max
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+                     OS=self.OS, TS=TS)
+
+                if ED_OS_TS <= D:
+                    ED_OS_TS_norm = 0.0
+                else:
+                    ED_OS_TS_norm = min([ED(N0=n, E0=e, N1=N, E1=E) for (e, n) in domain_xys]) / self.E_max
 
                 # relative bearing
                 bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (math.pi)
@@ -623,8 +632,8 @@ class MMG_Env(gym.Env):
 
     def _get_CR(self, OS, TS):
         """Computes the collision risk metric similar to Chun et al. (2021)."""
-        N0, E0, _ = OS.eta
-        N1, E1, _ = TS.eta
+        N0, E0, head0 = OS.eta
+        N1, E1, head1 = TS.eta
         D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
 
         # check if already in ship domain
@@ -637,25 +646,41 @@ class MMG_Env(gym.Env):
         chiOS = OS._get_course()
         chiTS = TS._get_course()
 
-        # compute relative speed
-        #vxOS, vyOS = xy_from_polar(r=VOS, angle=chiOS)
-        #vxTS, vyTS = xy_from_polar(r=VTS, angle=chiTS)
-        #VR = math.sqrt((vyTS - vyOS)**2 + (vxTS - vxOS)**2)
+        # compute CPA measures
+        DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, \
+            chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS, get_positions=True)
 
-        # compute CPA measures under the assumption that agent is at ship domain border in the direction of the TS
-        bng_absolute = bng_abs(N0=N0, E0=E0, N1=N1, E1=E1)
-        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
+        # substract ship domain at TCPA = 0 from DCPA
+        bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+        domain_tcpa = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=None, TS=None,\
+            ang=bng_rel_tcpa_from_OS_pers)
 
-        DCPA, TCPA = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=N1, ETS=E1, chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
+        # TS is in ship domain at TCPA = 0:
+        if DCPA <= domain_tcpa:
+            DCPA = 0
+
+        # set DCPA to be the minimum euclidean distance to the ship domain at TCPA = 0 
+        else:
+            domain_tcpa_xys = [rotate_point(EOS_tcpa + x, NOS_tcpa + y, cx=EOS_tcpa , cy=NOS_tcpa, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
+            DCPA = min([ED(N0=n, E0=e, N1=NTS_tcpa, E1=ETS_tcpa) for (e, n) in domain_tcpa_xys])
+
+        # check whether OS will be in front of TS when TCPA = 0
+        bng_rel_tcpa_from_TS_pers = abs(angle_to_pi(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=head1)))
+
+        if TCPA >= 0.0 and bng_rel_tcpa_from_TS_pers <= dtr(30.0):
+            DCPA = DCPA * (1.2-math.exp(-math.log(5.0)/dtr(30.0)*bng_rel_tcpa_from_TS_pers))
         
-        if TCPA >= 0:
+        if TCPA >= 0.0:
             cr_cpa = math.exp((DCPA + 1.5 * TCPA) * math.log(self.CR_al) / self.CR_rec_dist)
         else:
             cr_cpa = math.exp((DCPA + 20.0 * abs(TCPA)) * math.log(self.CR_al) / self.CR_rec_dist)
+        #self.DCPA = DCPA
+        #self.TCPA = TCPA
 
-        # CR based on euclidean distance
-        ED_domain = ED(N0=N0+N_add, E0=E0+E_add, N1=N1, E1=E1)
-        cr_ed = math.exp(-ED_domain/(self.CR_rec_dist*0.3))
+        # CR based on euclidean distance to ship domain
+        domain_xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
+        min_ED_domain = min([ED(N0=n, E0=e, N1=N1, E1=E1) for (e, n) in domain_xys])
+        cr_ed = math.exp(-min_ED_domain/(self.CR_rec_dist*0.3))
 
         #self.cr_ed_old = self.cr_ed
         #self.cr_cpa_old = self.cr_cpa
@@ -889,15 +914,15 @@ class MMG_Env(gym.Env):
                     ax.text(0.05 * self.E_max, 0.9 * self.N_max, self.__str__(), fontsize=8)
 
                     # ship domain
-                    xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                    xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
                     ax.plot(xs, ys, color="black", alpha=0.7)
 
-                    xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.outer_domain_plot_xs, self.outer_domain_plot_ys)]
-                    xs = [xy[0] for xy in xys]
-                    ys = [xy[1] for xy in xys]
-                    ax.plot(xs, ys, color="black", alpha=0.7)
+                    #xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.outer_domain_plot_xs, self.outer_domain_plot_ys)]
+                    #xs = [xy[0] for xy in xys]
+                    #ys = [xy[1] for xy in xys]
+                    #ax.plot(xs, ys, color="black", alpha=0.7)
 
                     # collision risk distance
                     #xys = [self._rotate_point(E0 + (1 + self.CR_dist_multiple) * x, N0 + (1 + self.CR_dist_multiple) * y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
@@ -950,12 +975,15 @@ class MMG_Env(gym.Env):
                         ax.text(E + 800, N-1000, f"D: {np.round(D, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
 
-                        bng_absolute = bng_abs(N0=N0, E0=E0, N1=TS.eta[0], E1=TS.eta[1])
-                        E_add, N_add = xy_from_polar(r=D, angle=bng_absolute)
+                        # compute CPA measures
+                        DCPA_TS, TCPA_TS, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1], \
+                            chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS, get_positions=True)
 
-                        DCPA_TS, TCPA_TS = cpa(NOS=N0+N_add, EOS=E0+E_add, NTS=TS.eta[0], ETS=TS.eta[1], \
-                            chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS)
-                        ax.scatter(E0+E_add, N0+N_add, color=col, s=10)
+                        # check whether OS will be in front of TS when TCPA = 0
+                        bng_rel_tcpa_TS = abs(angle_to_pi(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=chiTS)))
+                        col = "salmon" if bng_rel_tcpa_TS <= dtr(30.0) else col
+                        ax.scatter(ETS_tcpa, NTS_tcpa, color=col, s=10)
+                        ax.scatter(EOS_tcpa, NOS_tcpa, color="black", s=10)
 
                         ax.text(E + 800, N + 200, f"TCPA: {np.round(TCPA_TS, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
@@ -963,10 +991,10 @@ class MMG_Env(gym.Env):
                                     horizontalalignment='center', verticalalignment='center', color=col)
 
                         # ship domain
-                        xys = [rotate_point(E + x, N + y, cx=E, cy=N, angle=-headTS) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
-                        xs = [xy[0] for xy in xys]
-                        ys = [xy[1] for xy in xys]
-                        ax.plot(xs, ys, color=col, alpha=0.7)
+                        #xys = [rotate_point(E + x, N + y, cx=E, cy=N, angle=-headTS) for x, y in zip(self.domain_plot_xs, self.domain_plot_ys)]
+                        #xs = [xy[0] for xy in xys]
+                        #ys = [xy[1] for xy in xys]
+                        #ax.plot(xs, ys, color=col, alpha=0.7)
 
                     # set legend for COLREGS
                     ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], fontsize=8,

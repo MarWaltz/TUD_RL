@@ -104,8 +104,9 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     return - nom / den
 
 
-def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
-    """Returns DCPA and TCPA. Follows Chun et al. (2021, OE)."""
+def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS, get_positions=False):
+    """Returns DCPA and TCPA. Follows Chun et al. (2021, OE).
+    If get_positions, returns DCPA, TCPA, and NOS, EOS, NTS, ETS when TCPA = 0."""
 
     # easy access
     xOS = EOS
@@ -128,7 +129,10 @@ def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     xTS_tcpa = xTS + TCPA * vxTS
     yTS_tcpa = yTS + TCPA * vyTS
 
-    return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa), TCPA
+    if get_positions:
+        return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa), TCPA, yOS_tcpa, xOS_tcpa, yTS_tcpa, xTS_tcpa
+    else:
+        return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa), TCPA
 
 
 def project_vector(VA, angleA, VB, angleB):
