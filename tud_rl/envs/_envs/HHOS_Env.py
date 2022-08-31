@@ -332,20 +332,18 @@ class HHOS_Env(gym.Env):
         angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
 
         # sampling
-        for lat_idx, lat in enumerate(self.CurrentData["lat"]):
-            for lon_idx, lon in enumerate(self.CurrentData["lon"]):
+        for lat_idx, _ in enumerate(self.CurrentData["lat"]):
+            for lon_idx, _ in enumerate(self.CurrentData["lon"]):
 
                 # no currents at land
-                if self._depth_at_latlon(lat_q=lat, lon_q=lon) > 1.0:
+                lat_area = int(lat_idx / idx_freq_lat)
+                lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
 
-                    lat_area = int(lat_idx / idx_freq_lat)
-                    lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
+                lon_area = int(lon_idx / idx_freq_lon)
+                lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
-                    lon_area = int(lon_idx / idx_freq_lon)
-                    lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
-
-                    speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
-                    angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
+                speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
+                angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
         self.CurrentData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[1, 1], mode="constant"), 0.0, np.infty)
@@ -378,31 +376,28 @@ class HHOS_Env(gym.Env):
         idx_freq_lon = height.shape[1] / lon_n_areas
 
         height_const = np.random.exponential(scale=0.1, size=(lat_n_areas, lon_n_areas))
-        length_const = np.random.exponential(scale=10., size=(lat_n_areas, lon_n_areas))
+        length_const = np.random.exponential(scale=20., size=(lat_n_areas, lon_n_areas))
         period_const = np.random.exponential(scale=1.0, size=(lat_n_areas, lon_n_areas))
         angle_const = np.random.uniform(low=0.0, high=2*math.pi, size=(lat_n_areas, lon_n_areas))
 
         # sampling
-        for lat_idx, lat in enumerate(self.WaveData["lat"]):
-            for lon_idx, lon in enumerate(self.WaveData["lon"]):
+        for lat_idx, _ in enumerate(self.WaveData["lat"]):
+            for lon_idx, _ in enumerate(self.WaveData["lon"]):
 
-                # no waves at land
-                if self._depth_at_latlon(lat_q=lat, lon_q=lon) > 1.0:
+                lat_area = int(lat_idx / idx_freq_lat)
+                lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
 
-                    lat_area = int(lat_idx / idx_freq_lat)
-                    lat_area = int(lat_n_areas-1 if lat_area >= lat_n_areas else lat_area)
+                lon_area = int(lon_idx / idx_freq_lon)
+                lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
-                    lon_area = int(lon_idx / idx_freq_lon)
-                    lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
-
-                    height[lat_idx, lon_idx] = np.clip(height_const[lat_area, lon_area] + np.random.normal(0.0, 0.05), 0.0, 0.5)
-                    length[lat_idx, lon_idx] = np.clip(length_const[lat_area, lon_area] + np.random.normal(0.0, 5.0), 0.0, 100.0)
-                    period[lat_idx, lon_idx] = np.clip(period_const[lat_area, lon_area] + np.random.normal(0.0, 0.5), 0.0, 10.0)
-                    angle[lat_idx, lon_idx]  = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
+                height[lat_idx, lon_idx] = np.clip(height_const[lat_area, lon_area] + np.random.normal(0.0, 0.05), 0.0, 0.5)
+                length[lat_idx, lon_idx] = np.clip(length_const[lat_area, lon_area] + np.random.normal(0.0, 5.0), 0.0, 100.0)
+                period[lat_idx, lon_idx] = np.clip(period_const[lat_area, lon_area] + np.random.normal(0.0, 0.5), 0.0, 10.0)
+                angle[lat_idx, lon_idx]  = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
         self.WaveData["height"] = np.clip(scipy.ndimage.gaussian_filter(height, sigma=[0.01, 0.01], mode="constant"), 0.0001, np.infty)
-        self.WaveData["length"] = np.clip(scipy.ndimage.gaussian_filter(length, sigma=[5, 5], mode="constant"), 0.0001, np.infty)
+        self.WaveData["length"] = np.clip(scipy.ndimage.gaussian_filter(length, sigma=[1, 1], mode="constant"), 0.0001, np.infty)
         self.WaveData["period"] = np.clip(scipy.ndimage.gaussian_filter(period, sigma=[0.1, 0.1], mode="constant"), 0.0001, np.infty)
         self.WaveData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
@@ -664,8 +659,12 @@ class HHOS_Env(gym.Env):
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        # end episode if OS is too far away from path
+        # OS is too far away from path
         if self.ye > 400:
+            return True
+
+        # OS hit land
+        elif self.H <= 1.2 * self.OS.d:
             return True
 
         # artificial done signal
