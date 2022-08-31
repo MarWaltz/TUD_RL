@@ -30,11 +30,16 @@ class HHOS_Env(gym.Env):
 
         # LiDAR
         self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
-        self.lidar_n_beams     = 0 # 25                                                              # number of beams
-        self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
-        self.n_dots_per_beam   = 10                                                              # number of subpoints per beam
-        self.d_dots_per_beam   = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
-        self.sense_depth       = 15  # water depth at which LiDAR recognizes an obstacle
+        #self.lidar_n_beams     = 25                                                              # number of beams
+        #self.lidar_beam_angles = np.linspace(0.0, 2*math.pi, self.lidar_n_beams, endpoint=False) # beam angles
+
+        self.lidar_beam_angles = [5.0, 10.0, 20.0, 40.0, 60., 90., 135.0]
+        self.lidar_beam_angles += [360. - ang for ang in self.lidar_beam_angles] + [0.0, 180.0]
+        self.lidar_beam_angles = np.deg2rad(np.sort(self.lidar_beam_angles))
+
+        self.lidar_n_beams   = len(self.lidar_beam_angles)
+        self.n_dots_per_beam = 10                                                              # number of subpoints per beam
+        self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
 
         # vector field guidance
         self.VFG_K = 0.001
@@ -66,7 +71,7 @@ class HHOS_Env(gym.Env):
             self._sample_wave_data()
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.025
         self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
@@ -79,7 +84,7 @@ class HHOS_Env(gym.Env):
         self.plot_wind = False
         self.plot_current = False
         self.plot_waves = True
-        self.plot_lidar = False
+        self.plot_lidar = True
         self.plot_reward = True
 
         if not self.plot_in_latlon:
@@ -88,7 +93,7 @@ class HHOS_Env(gym.Env):
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # gym inherits
-        obs_size = 16 + self.lidar_n_beams
+        obs_size = 16 #+ self.lidar_n_beams
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
@@ -147,6 +152,7 @@ class HHOS_Env(gym.Env):
     def _load_wave_data(self, path_to_wave_data):
         with open(f"{path_to_wave_data}/WaveData_latlon.pickle", "rb") as f:
             self.WaveData = pickle.load(f)
+        self.WaveData["length"][np.isinf(self.WaveData["length"])] = 1.0
 
 
     def _sample_desired_path(self, l=0.01):
@@ -492,7 +498,7 @@ class HHOS_Env(gym.Env):
                 # check water depth at that point
                 depth_dot = self._depth_at_latlon(lat_q=lat_dot, lon_q=lon_dot)
 
-                if depth_dot <= self.sense_depth:
+                if depth_dot <= self.critical_depth:
                     out_dists[out_idx] = dist
                     out_lat_lon.append((lat_dot, lon_dot))
                     break
@@ -509,13 +515,14 @@ class HHOS_Env(gym.Env):
 
         # init OS
         wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
-        lat_init = self.DesiredPath["lat"][wp_idx] if self.mode == "train" else 56.635
-        lon_init = self.DesiredPath["lon"][wp_idx] if self.mode == "train" else 7.421
+        wp_idx = 1
+        lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
+        lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
-                         psi_init  = dtr(180.0),
+                         psi_init  = dtr(270.0),
                          u_init    = 0.0,
                          v_init    = 0.0,
                          r_init    = 0.0,
@@ -525,6 +532,9 @@ class HHOS_Env(gym.Env):
                          nps       = 3.0,
                          full_ship = False,
                          cont_acts = True)
+
+        # minimum water depth which can be operated on
+        self.critical_depth = 1.2 * self.OS.d     
 
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
@@ -664,7 +674,7 @@ class HHOS_Env(gym.Env):
             return True
 
         # OS hit land
-        elif self.H <= 1.2 * self.OS.d:
+        elif self.H <= self.critical_depth:
             return True
 
         # artificial done signal
