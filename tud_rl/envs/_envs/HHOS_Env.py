@@ -22,7 +22,7 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 from Hamburg to Oslo."""
 
-    def __init__(self, mode="train"):
+    def __init__(self, mode="validate"):
         super().__init__()
 
         # simulation settings
@@ -554,10 +554,14 @@ class HHOS_Env(gym.Env):
         # initialize waypoints
         self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
             lon_array=self.DesiredPath["lon"], a_n=N_init, a_e=E_init)
+        try:
+            self.wp3_idx = self.wp2_idx + 1
+            self.wp3_N, self.wp3_E, _ = to_utm(self.DesiredPath["lat"][self.wp3_idx], self.DesiredPath["lon"][self.wp3_idx])
+        except:
+            raise ValueError("The agent should spawn at least two waypoint away from the goal.")
 
         # init cross-track error and desired course
-        self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
-        self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
+        self._set_cte_dc()
 
         # init state
         self._set_state()
@@ -597,12 +601,30 @@ class HHOS_Env(gym.Env):
         self.state = np.concatenate([state_OS, state_path, state_env])
 
 
+    def _set_cte_dc(self, smooth_dc=False):
+        """Sets the cross-track error and desired coursed based on VFG."""
+        if smooth_dc:
+            N3, E3 = self.wp3_N, self.wp3_E
+        else:
+            N3, E3 = None, None
+
+        self.ye, self.desired_course, self.pi_path = VFG(N1 = self.wp1_N, 
+                                                         E1 = self.wp1_E, 
+                                                         N2 = self.wp2_N, 
+                                                         E2 = self.wp2_E,
+                                                         NA = self.OS.eta[0], 
+                                                         EA = self.OS.eta[1], 
+                                                         K  = self.VFG_K, 
+                                                         N3 = N3,
+                                                         E3 = E3)
+        self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
+
     def _update_wps(self):
         """Updates the waypoints for following the desired path."""
         # check whether we need to switch wps
         switch = switch_wp(wp1_N=self.wp1_N, wp1_E=self.wp1_E, wp2_N=self.wp2_N, wp2_E=self.wp2_E, a_N=self.OS.eta[0], a_E=self.OS.eta[1])
 
-        if switch and (self.wp2_idx != (self.DesiredPath["n_wps"]-1)):
+        if switch and (self.wp3_idx != (self.DesiredPath["n_wps"]-1)):
             # update waypoint 1
             self.wp1_idx += 1
             self.wp1_N = self.wp2_N
@@ -610,8 +632,13 @@ class HHOS_Env(gym.Env):
 
             # update waypoint 2
             self.wp2_idx += 1
-            self.wp2_N = self.DesiredPath["north"][self.wp2_idx]
-            self.wp2_E = self.DesiredPath["east"][self.wp2_idx]
+            self.wp2_N = self.wp3_N
+            self.wp2_E = self.wp3_E
+
+            # update waypoint 3
+            self.wp3_idx += 1
+            self.wp3_N = self.DesiredPath["north"][self.wp3_idx]
+            self.wp3_E = self.DesiredPath["east"][self.wp3_idx]
 
 
     def step(self, a):
@@ -640,8 +667,7 @@ class HHOS_Env(gym.Env):
         self._update_wps()
 
         # compute new cross-track error and desired course
-        self.ye, self.desired_course, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K=self.VFG_K)
-        self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
+        self._set_cte_dc()
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -850,7 +876,7 @@ class HHOS_Env(gym.Env):
                     #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
 
                     # desired course
-                    ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                    #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
                     #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
                     #dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
                     #ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
@@ -863,10 +889,10 @@ class HHOS_Env(gym.Env):
                     #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
                     # cross-track error
-                    if ye < 0:
-                        dE, dN = xy_from_polar(r=abs(ye), angle=angle_to_2pi(pi_path + dtr(90.0)))
+                    if self.ye < 0:
+                        dE, dN = xy_from_polar(r=abs(self.ye), angle=angle_to_2pi(self.pi_path + dtr(90.0)))
                     else:
-                        dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
+                        dE, dN = xy_from_polar(r=self.ye, angle=angle_to_2pi(self.pi_path - dtr(90.0)))
                     yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
                     ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
 

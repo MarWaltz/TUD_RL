@@ -210,7 +210,7 @@ def ate(N1, E1, N2, E2, NA, EA, pi_path=None):
     return np.cos(pi_path)*(NA - N1) + np.sin(pi_path)*(EA - E1)
 
 
-def VFG(N1, E1, N2, E2, NA, EA, K):
+def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
     """Computes the cte, desired course, and path angle based on the vector field guidance method following pp.354-55 of Fossen (2021).
     The waypoints are (N1, E1) and (N2, E2), while the agent is at (NA, EA). K is the convergence rate of the vector field.
     
@@ -219,14 +219,32 @@ def VFG(N1, E1, N2, E2, NA, EA, K):
 
     assert K > 0, "K of VFG must be larger zero."
 
-    # get path angle
-    pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
+    # get path angle between point 1 and 2
+    pi_path_12 = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
 
     # get CTE
-    ye = cte(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path)
+    ye = cte(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path_12)
+
+    # potentially consired point 3 for desired course
+    if N3 is not None and E3 is not None:
+        
+        # ate between point 1 and 2
+        ate_12 = ate(N1=N1, E1=E1, N2=N2, E2=E2, NA=NA, EA=EA, pi_path=pi_path_12)
+
+        # path angle between points 2 and 3
+        pi_path_23 = bng_abs(N0=N2, E0=E2, N1=N3, E1=E3)
+
+        # percentage of overall distance
+        frac = ate_12 / ED(N0=N1, E0=E1, N1=N2, E1=E2)
+
+        # construct new angle
+        pi_path_up = angle_to_2pi(frac*pi_path_23 + (1-frac)*pi_path_12)
+    
+    else:
+        pi_path_up = pi_path_12
 
     # get desired course, which is rotated back to NED
-    return ye, angle_to_2pi(pi_path - math.atan(ye * K)), pi_path
+    return ye, angle_to_2pi(pi_path_up - math.atan(ye * K)), pi_path_12
 
 
 def get_init_two_wp(lat_array, lon_array, a_n, a_e):
