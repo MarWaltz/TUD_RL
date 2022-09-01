@@ -1,28 +1,30 @@
 import copy
 import math
 import pickle
+import random
 
 import gym
 import numpy as np
+import pandas as pd
 import scipy.ndimage
 from gym import spaces
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, fill_array,
-                                        find_nearest, find_nearest_two,
-                                        get_init_two_wp, mps_to_knots,
-                                        switch_wp, to_latlon, to_utm)
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
+                                        find_nearest, get_init_two_wp,
+                                        mps_to_knots, switch_wp, to_latlon,
+                                        to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi,
+from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
                                          angle_to_pi, bng_abs, dtr, rtd,
                                          xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
 class HHOS_Env(gym.Env):
-    """This environment contains an agent steering a KVLCC2 from Hamburg to Oslo."""
+    """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
 
-    def __init__(self, mode="validate"):
+    def __init__(self, mode="validate", N_TSs_max=10, N_TSs_random=False):
         super().__init__()
 
         # simulation settings
@@ -61,17 +63,8 @@ class HHOS_Env(gym.Env):
         assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
         self.mode = mode
 
-        # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
-        if mode == "train":
-            self.n_wps = 500
-            self._sample_desired_path()
-            self._sample_depth_data()
-            self._sample_wind_data()
-            self._sample_current_data()
-            self._sample_wave_data()
-
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.025
+        self.show_lon_lat = 0.05
         self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
         self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
         self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
@@ -84,16 +77,28 @@ class HHOS_Env(gym.Env):
         self.plot_wind = False
         self.plot_current = False
         self.plot_waves = True
-        self.plot_lidar = True
-        self.plot_reward = True
+        self.plot_lidar = False
+        self.plot_reward = False
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
             self.UTM_viz_range_E = abs(to_utm(lat=52.0, lon=6.0001)[1] - to_utm(lat=52.0, lon=6.0001+self.show_lon_lat/2)[1])
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
+        # other ships
+        self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
+        self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
+                                                       # if false, always have N_TSs_max
+
+        # CR calculation
+        self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
+        self.CR_al = 0.1                         # collision risk metric normalization
+
         # gym inherits
-        obs_size = 16 #+ self.lidar_n_beams
+        path_info_size = 16
+        TS_info_size = 7
+        obs_size = path_info_size #+ self.lidar_n_beams + TS_info_size
+
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
@@ -152,7 +157,6 @@ class HHOS_Env(gym.Env):
     def _load_wave_data(self, path_to_wave_data):
         with open(f"{path_to_wave_data}/WaveData_latlon.pickle", "rb") as f:
             self.WaveData = pickle.load(f)
-        self.WaveData["length"][np.isinf(self.WaveData["length"])] = 1.0
 
 
     def _sample_desired_path(self, l=0.01):
@@ -513,16 +517,24 @@ class HHOS_Env(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
+        # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
+        if self.mode == "train":
+            self.n_wps = 500
+            self._sample_desired_path()
+            self._sample_depth_data()
+            self._sample_wind_data()
+            self._sample_current_data()
+            self._sample_wave_data()
+
         # init OS
         wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
-        wp_idx = 1
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
         lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
-                         psi_init  = dtr(270.0),
+                         psi_init  = None,
                          u_init    = 0.0,
                          v_init    = 0.0,
                          r_init    = 0.0,
@@ -536,37 +548,142 @@ class HHOS_Env(gym.Env):
         # minimum water depth which can be operated on
         self.critical_depth = 1.2 * self.OS.d     
 
+        # init waypoints
+        self._init_wps()
+
+        # init cross-track error
+        self._set_cte()
+
+        # set heading with noise
+        self.OS.eta[2] = angle_to_2pi(self.pi_path + dtr(np.random.uniform(-45.0, 45.0)))
+
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
 
         # set u-speed to near-convergence
         self.V_c, self.beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
         self.V_w, self.beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.H = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
+        self.H                = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
         self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        
-        if self.T_0_wave == 0.0:
+
+        # check for wave data issues
+        if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
+             [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
             self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
 
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2], V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w, H=self.H,
-                                                beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
+        self.OS.nu[0] = self.OS._get_u_from_nps(nps         = self.OS.nps, 
+                                                psi         = self.OS.eta[2], 
+                                                V_c         = self.V_c, 
+                                                beta_c      = self.beta_c, 
+                                                V_w         = self.V_w, 
+                                                beta_w      = self.beta_w, 
+                                                H           = self.H,
+                                                beta_wave   = self.beta_wave, 
+                                                eta_wave    = self.eta_wave, 
+                                                T_0_wave    = self.T_0_wave, 
+                                                lambda_wave = self.lambda_wave)
 
-        # initialize waypoints
-        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
-            lon_array=self.DesiredPath["lon"], a_n=N_init, a_e=E_init)
-        try:
-            self.wp3_idx = self.wp2_idx + 1
-            self.wp3_N, self.wp3_E, _ = to_utm(self.DesiredPath["lat"][self.wp3_idx], self.DesiredPath["lon"][self.wp3_idx])
-        except:
-            raise ValueError("The agent should spawn at least two waypoint away from the goal.")
+        # set course error
+        self._set_ce()
 
-        # init cross-track error and desired course
-        self._set_cte_dc()
+        # init other vessels
+        if self.N_TSs_random:
+            self.N_TSs = np.random.choice(self.N_TSs_max)
+        else:
+            self.N_TSs = self.N_TSs_max
+
+        # no list comprehension since we need access to previously spawned TS
+        self.TSs = []
+        for _ in range(self.N_TSs):
+            self.TSs.append(self._get_TS())
 
         # init state
         self._set_state()
         self.state_init = self.state
         return self.state
+
+
+    def _init_wps(self):
+        """Initializes the two waypoints based on the initial position of the agent."""
+        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
+            lon_array=self.DesiredPath["lon"], a_n=self.OS.eta[0], a_e=self.OS.eta[1])
+        try:
+            self.wp3_idx = self.wp2_idx + 1
+            self.wp3_N, self.wp3_E, _ = to_utm(self.DesiredPath["lat"][self.wp3_idx], self.DesiredPath["lon"][self.wp3_idx])
+        except:
+            raise ValueError("The agent should spawn at least two waypoints away from the goal.")
+
+
+    def _wp_dist(self, wp1_idx, wp2_idx):
+        """Computes the euclidean distance between two waypoints of the desired path."""
+        if wp1_idx not in range(self.n_wps) or wp2_idx not in range(self.n_wps):
+            raise ValueError("Your path index is out of order. Please check your sampling strategy.")
+
+        return ED(N0=self.DesiredPath["north"][wp1_idx], E0=self.DesiredPath["east"][wp1_idx], \
+            N1=self.DesiredPath["north"][wp2_idx], E1=self.DesiredPath["east"][wp2_idx])
+
+
+    def _get_TS(self):
+        """Places a target ship by sampling a 
+            1) traveling direction,
+            2) distance on the path.
+        Returns: 
+            KVLCC2."""
+        # sample distance
+        d = np.random.uniform(NM_to_meter(0.1), NM_to_meter(0.5))
+
+        # determine starting position
+        ate_12 = ate(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E,\
+                NA=self.OS.eta[0], EA=self.OS.eta[1], pi_path=self.pi_path)
+
+        wp1 = self.wp1_idx
+        wp2 = self.wp2_idx
+        d_to_nxt_wp = self._wp_dist(wp1, wp2) - ate_12
+
+        while True:
+            if d > d_to_nxt_wp:
+                d -= d_to_nxt_wp
+                wp1 += 1
+                wp2 += 1
+                d_to_nxt_wp = self._wp_dist(wp1, wp2)
+            else:
+                break
+
+        pi_path_spwn = bng_abs(N0=self.DesiredPath["north"][wp1], E0=self.DesiredPath["east"][wp1], \
+            N1=self.DesiredPath["north"][wp2], E1=self.DesiredPath["east"][wp2])
+        E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
+        
+        # include random disturbances
+        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 50)
+        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 50)
+
+        # sample direction
+        direc_as_OS = bool(random.getrandbits(1))
+        direc_as_OS = True
+
+        TS = KVLCC2(N_init    = N_TS,
+                    E_init    = E_TS,
+                    psi_init  = pi_path_spwn if direc_as_OS else angle_to_2pi(pi_path_spwn + math.pi),
+                    u_init    = 0.0,
+                    v_init    = 0.0,
+                    r_init    = 0.0,
+                    delta_t   = self.delta_t,
+                    N_max     = np.infty,
+                    E_max     = np.infty,
+                    nps       = np.random.uniform(0.3, 1.0) * self.OS.nps,
+                    full_ship = False)
+        TS.utm_number = 32
+
+        # store waypoint information
+        TS.direc_as_OS = direc_as_OS
+        TS.wp1_idx, TS.wp2_idx, TS.wp3_idx = wp1, wp2, wp2 + 1
+        TS.wp1_N, TS.wp1_E = self.DesiredPath["north"][TS.wp1_idx], self.DesiredPath["east"][TS.wp1_idx]
+        TS.wp2_N, TS.wp2_E = self.DesiredPath["north"][TS.wp2_idx], self.DesiredPath["east"][TS.wp2_idx]
+        TS.wp3_N, TS.wp3_E = self.DesiredPath["north"][TS.wp3_idx], self.DesiredPath["east"][TS.wp3_idx]
+
+        # predict converged speed of sampled TS
+        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+        return TS
 
 
     def _set_state(self):
@@ -579,7 +696,8 @@ class HHOS_Env(gym.Env):
         state_path = np.array([self.ye/self.OS.Lpp, self.course_error/math.pi])
 
         # environmental disturbances
-        if self.T_0_wave is None:
+        if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
+             [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
             beta_wave = 0.0
             eta_wave = 0.0
             T_0_wave = 0.0
@@ -595,14 +713,14 @@ class HHOS_Env(gym.Env):
                               beta_wave/(2*math.pi), eta_wave/0.5, T_0_wave/7.0, lambda_wave/60.0,    # waves
                               self.H/100.0])    # depth
 
-        # LiDAR
-        #state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
+        # LiDAR for depth
+        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
 
         self.state = np.concatenate([state_OS, state_path, state_env])
 
 
-    def _set_cte_dc(self, smooth_dc=False):
-        """Sets the cross-track error and desired coursed based on VFG."""
+    def _set_cte(self, smooth_dc=False):
+        """Sets the cross-track error based on VFG."""
         if smooth_dc:
             N3, E3 = self.wp3_N, self.wp3_E
         else:
@@ -617,10 +735,13 @@ class HHOS_Env(gym.Env):
                                                          K  = self.VFG_K, 
                                                          N3 = N3,
                                                          E3 = E3)
+    def _set_ce(self):
+        """Sets the course error, which is desired course minus course."""
         self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
 
-    def _update_wps(self):
-        """Updates the waypoints for following the desired path."""
+
+    def _update_OS_wps(self):
+        """Updates the waypoints of the OS for following the desired path."""
         # check whether we need to switch wps
         switch = switch_wp(wp1_N=self.wp1_N, wp1_E=self.wp1_E, wp2_N=self.wp2_N, wp2_E=self.wp2_E, a_N=self.OS.eta[0], a_E=self.OS.eta[1])
 
@@ -641,12 +762,55 @@ class HHOS_Env(gym.Env):
             self.wp3_E = self.DesiredPath["east"][self.wp3_idx]
 
 
+    def _update_TS_wps(self, TS):
+        """Updates the waypoints of the TS for following the desired path."""
+        # check whether we need to switch wps
+        switch = switch_wp(wp1_N = TS.wp1_N, 
+                           wp1_E = TS.wp1_E, 
+                           wp2_N = TS.wp2_N, 
+                           wp2_E = TS.wp2_E, 
+                           a_N   = TS.eta[0], 
+                           a_E   = TS.eta[1])
+
+        if switch and (TS.wp3_idx != (self.DesiredPath["n_wps"]-1)):
+            # update waypoint 1
+            TS.wp1_idx += 1
+            TS.wp1_N = TS.wp2_N
+            TS.wp1_E = TS.wp2_E
+
+            # update waypoint 2
+            TS.wp2_idx += 1
+            TS.wp2_N = TS.wp3_N
+            TS.wp2_E = TS.wp3_E
+
+            # update waypoint 3
+            TS.wp3_idx += 1
+            TS.wp3_N = self.DesiredPath["north"][TS.wp3_idx]
+            TS.wp3_E = self.DesiredPath["east"][TS.wp3_idx]
+        return TS
+
+
+    def _heading_control(self, TS):
+        """Controls the heading of the target ship to smoothly follow the path."""
+        pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
+        pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
+
+        ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
+        dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx)
+
+        frac = ate_TS/dist_12
+        w23 = frac**15
+
+        TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
+        return TS
+
+
     def step(self, a):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
 
         # perform control action
-        a = a.item()
+        a = int(a)
         self.OS._control(a)
 
         # update agent dynamics
@@ -662,12 +826,22 @@ class HHOS_Env(gym.Env):
 
         self.OS._upd_dynamics(V_w=self.V_w, beta_w=self.beta_w, V_c=self.V_c, beta_c=self.beta_c, H=self.H, 
                               beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
-        
-        # update waypoints of path
-        self._update_wps()
 
-        # compute new cross-track error and desired course
-        self._set_cte_dc()
+        # update waypoints of path
+        self._update_OS_wps()
+
+        # compute new cross-track error and course error
+        self._set_cte()
+        self._set_ce()
+
+        # simple heading control of target ships
+        self.TSs = [self._heading_control(TS) for TS in self.TSs]
+
+        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
+        [TS._upd_dynamics() for TS in self.TSs]
+
+        # update waypoints for other vessels
+        self.TSs = [self._update_TS_wps(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -700,8 +874,8 @@ class HHOS_Env(gym.Env):
             return True
 
         # OS hit land
-        elif self.H <= self.critical_depth:
-            return True
+        #elif self.H <= self.critical_depth:
+        #    return True
 
         # artificial done signal
         elif self.step_cnt >= self._max_episode_steps:
@@ -716,18 +890,60 @@ class HHOS_Env(gym.Env):
         course = self.OS._get_course()
 
         ste = f"Step: {self.step_cnt}"
-        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{course:.2f}"
+        pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{rtd(course):.2f}"
         vel = f"u [m/s]: {u:.3f}, v [m/s]: {v:.3f}, r [rad/s]: {r:.3f}"
         
         depth = f"H [m]: {self.H:.2f}"
         wind = r"$V_{\rm wind}$" + f" [kn]: {mps_to_knots(self.V_w):.2f}, " + r"$\psi_{\rm wind}$" + f" [°]: {rtd(self.beta_w):.2f}"
         current = r"$V_{\rm current}$" + f" [m/s]: {self.V_c:.2f}, " + r"$\psi_{\rm current}$" + f" [°]: {rtd(self.beta_c):.2f}"
-        wave = r"$\psi_{\rm wave}$" + f" [°]: {rtd(self.beta_wave):.2f}" + r", $\xi_{\rm wave}$ [m]: " + f"{self.eta_wave:.2f}" \
-            + r", $T_{\rm wave}$ [s]: " + f"{self.T_0_wave:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{self.lambda_wave:.2f}"
+        
+        if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
+             [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
+            wave = r"$\psi_{\rm wave}$" + f" [°]: -" + r", $\xi_{\rm wave}$ [m]: " + f"-" \
+                + r", $T_{\rm wave}$ [s]: " + f"-" + r", $\lambda_{\rm wave}$ [m]: " + f"-"
+        else:
+            wave = r"$\psi_{\rm wave}$" + f" [°]: {rtd(self.beta_wave):.2f}" + r", $\xi_{\rm wave}$ [m]: " + f"{self.eta_wave:.2f}" \
+                + r", $T_{\rm wave}$ [s]: " + f"{self.T_0_wave:.2f}" + r", $\lambda_{\rm wave}$ [m]: " + f"{self.lambda_wave:.2f}"
 
         path_info = r"$y_e$" + f" [m]: {self.ye:.2f}, " + r"$\chi_{\rm desired}$" + f" [°]: {rtd(self.desired_course):.2f}, " \
             + r"$\chi_{\rm error}$" + f" [°]: {rtd(self.course_error):.2f}"
         return ste + ", " + pos + "\n" + vel + ", " + depth + "\n" + wind + "\n" + current + "\n" + wave + "\n" + path_info
+
+
+    def _render_ship(self, ax, vessel, color):
+        """Draws the ship on the axis. Vessel should by of type KVLCC2. Returns the ax."""
+        # quick access
+        l = vessel.Lpp/2
+        b = vessel.B/2
+        N, E, head = vessel.eta
+
+        # get rectangle/polygon end points in UTM
+        A = (E - b, N + l)
+        B = (E + b, N + l)
+        C = (E - b, N - l)
+        D = (E + b, N - l)
+
+        # rotate them according to heading
+        A = rotate_point(x=A[0], y=A[1], cx=E, cy=N, angle=-head)
+        B = rotate_point(x=B[0], y=B[1], cx=E, cy=N, angle=-head)
+        C = rotate_point(x=C[0], y=C[1], cx=E, cy=N, angle=-head)
+        D = rotate_point(x=D[0], y=D[1], cx=E, cy=N, angle=-head)
+
+        if self.plot_in_latlon:
+
+            # convert them to lat/lon
+            A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=vessel.utm_number)
+            B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=vessel.utm_number)
+            C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=vessel.utm_number)
+            D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=vessel.utm_number)
+
+            # draw the polygon (A is included twice to create a closed shape)
+            lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
+            lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
+            ax.plot(lons, lats, color=color, linewidth=2.0)
+        else:
+            ax.plot([A[0], B[0], D[0], C[0], A[0]], [A[1], B[1], D[1], C[1], A[1]], color=color, linewidth=2.0)
+        return ax
 
 
     def render(self, mode=None):
@@ -743,248 +959,220 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        # ------------------------------ ship movement --------------------------------
-        # get position of OS in lat/lon
-        N0, E0, head0 = self.OS.eta
-        OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=self.OS.utm_number)
+        if self.step_cnt % 5 == 0:
+            # ------------------------------ ship movement --------------------------------
+            # get position of OS in lat/lon
+            N0, E0, head0 = self.OS.eta
+            OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=self.OS.utm_number)
 
-        for ax in [self.ax1]:
-            ax.clear()
+            for ax in [self.ax1]:
+                ax.clear()
 
-            # general information
-            if self.plot_in_latlon:
-                ax.text(0.125, 0.8875, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=9, transform=plt.gcf().transFigure)
-
-                ax.set_xlabel("Longitude [°]", fontsize=10)
-                ax.set_ylabel("Latitude [°]", fontsize=10)
-
-                ax.set_xlim(max([self.lon_lims[0], OS_lon - self.show_lon_lat/2]), min([self.lon_lims[1], OS_lon + self.show_lon_lat/2]))
-                ax.set_ylim(max([self.lat_lims[0], OS_lat - self.show_lon_lat/2]), min([self.lat_lims[1], OS_lat + self.show_lon_lat/2]))
-            else:
-                ax.text(0.125, 0.8675, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
-
-                ax.set_xlabel("UTM-E [m]", fontsize=10)
-                ax.set_ylabel("UTM-N [m]", fontsize=10)
-
-                # reverse xaxis in UTM
-                ax.set_xlim(E0 - self.UTM_viz_range_E, E0 + self.UTM_viz_range_E)
-                ax.set_ylim(N0 - self.UTM_viz_range_N, N0 + self.UTM_viz_range_N)
-
-            #--------------- depth plot ---------------------
-            if self.plot_depth and self.plot_in_latlon:
-                cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
-                cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
-
-                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
-                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
-
-                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
-                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
-                
-                #ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
-                #            min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
-                #ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
-                #            min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
-
-                # contour plot from depth data
-                con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                                self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                                self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                                self.clev, cmap=cm.ocean)
-
-                # colorbar as legend
-                if self.step_cnt == 0:
-                    cbar = self.f.colorbar(con, ticks=self.con_ticks)
-                    cbar.ax.set_yticklabels(self.con_ticklabels)
-
-            #--------------- wind plot ---------------------
-            if self.plot_wind and self.plot_in_latlon:
-
-                # no barb plot if there is no wind data
-                if any([OS_lat < min(self.WindData["lat"]),
-                        OS_lat > max(self.WindData["lat"]),
-                        OS_lon < min(self.WindData["lon"]),
-                        OS_lon > max(self.WindData["lon"])]):
-                    pass
-                else:
-                    _, cnt_lat_idx = find_nearest(array=self.WindData["lat"], value=OS_lat)
-                    _, cnt_lon_idx = find_nearest(array=self.WindData["lon"], value=OS_lon)
-
-                    lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wind_idx, 0]))
-                    upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wind_idx, len(self.WindData["lat"]) - 1]))
-
-                    lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
-                    upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
-
-                    ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                            self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
-                            self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            length=4, barbcolor="goldenrod")
-
-            #------------------ set OS ------------------------
-            # midship
-            #ax.plot(OS_lon, OS_lat, marker="o", color="red")
-            
-            # quick access
-            l = self.OS.Lpp/2
-            b = self.OS.B/2
-
-            # get rectangle/polygon end points in UTM
-            A = (E0 - b, N0 + l)
-            B = (E0 + b, N0 + l)
-            C = (E0 - b, N0 - l)
-            D = (E0 + b, N0 - l)
-
-            # rotate them according to heading
-            A = rotate_point(x=A[0], y=A[1], cx=E0, cy=N0, angle=-head0)
-            B = rotate_point(x=B[0], y=B[1], cx=E0, cy=N0, angle=-head0)
-            C = rotate_point(x=C[0], y=C[1], cx=E0, cy=N0, angle=-head0)
-            D = rotate_point(x=D[0], y=D[1], cx=E0, cy=N0, angle=-head0)
-
-            if self.plot_in_latlon:
-
-                # convert them to lat/lon
-                A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=self.OS.utm_number)
-                B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=self.OS.utm_number)
-                C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=self.OS.utm_number)
-                D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=self.OS.utm_number)
-
-                # draw the polygon (A is included twice to create a closed shape)
-                lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
-                lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
-                ax.plot(lons, lats, color="red", linewidth=2.0)
-            else:
-                ax.plot([A[0], B[0], D[0], C[0], A[0]], [A[1], B[1], D[1], C[1], A[1]], color="red", linewidth=2.0)
-
-            #--------------------- Desired path ------------------------
-            if self.plot_path:
-
+                # general information
                 if self.plot_in_latlon:
-                    ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+                    ax.text(0.125, 0.8875, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=9, transform=plt.gcf().transFigure)
 
-                    # current waypoints
-                    wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
-                    wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
-                    ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
+                    ax.set_xlabel("Longitude [°]", fontsize=10)
+                    ax.set_ylabel("Latitude [°]", fontsize=10)
 
-                    # wp switching line
-                    #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
-                    #pi_lot = angle_to_2pi(pi_path + dtr(90.0))
-                    #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_lot)
-                    #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
-                    #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
-
-                    # desired course
-                    #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
-                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
-                    #dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    #ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
-                    #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
-
-                    # actual course
-                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
-                    #ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    #ax.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
-                    #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
-
-                    # cross-track error
-                    if self.ye < 0:
-                        dE, dN = xy_from_polar(r=abs(self.ye), angle=angle_to_2pi(self.pi_path + dtr(90.0)))
-                    else:
-                        dE, dN = xy_from_polar(r=self.ye, angle=angle_to_2pi(self.pi_path - dtr(90.0)))
-                    yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                    ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
-
+                    ax.set_xlim(max([self.lon_lims[0], OS_lon - self.show_lon_lat/2]), min([self.lon_lims[1], OS_lon + self.show_lon_lat/2]))
+                    ax.set_ylim(max([self.lat_lims[0], OS_lat - self.show_lon_lat/2]), min([self.lat_lims[1], OS_lat + self.show_lon_lat/2]))
                 else:
-                    ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+                    ax.text(0.125, 0.8675, self.__str__(OS_lat=OS_lat, OS_lon=OS_lon), fontsize=10, transform=plt.gcf().transFigure)
 
-                    # current waypoints
-                    ax.plot([self.wp1_E, self.wp2_E], [self.wp1_N, self.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
+                    ax.set_xlabel("UTM-E [m]", fontsize=10)
+                    ax.set_ylabel("UTM-N [m]", fontsize=10)
 
-                    # desired course
-                    #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
-                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
-                    #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
-                    #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+                    # reverse xaxis in UTM
+                    ax.set_xlim(E0 - self.UTM_viz_range_E, E0 + self.UTM_viz_range_E)
+                    ax.set_ylim(N0 - self.UTM_viz_range_N, N0 + self.UTM_viz_range_N)
 
-                    # actual course
-                    #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
-                    #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
-                    #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+                #--------------- depth plot ---------------------
+                if self.plot_depth and self.plot_in_latlon:
+                    cnt_lat, cnt_lat_idx = find_nearest(array=self.DepthData["lat"], value=OS_lat)
+                    cnt_lon, cnt_lon_idx = find_nearest(array=self.DepthData["lon"], value=OS_lon)
 
-                    # cross-track error
-                    if ye < 0:
-                        dE, dN = xy_from_polar(r=abs(ye), angle=angle_to_2pi(pi_path + dtr(90.0)))
+                    lower_lat_idx = int(max([cnt_lat_idx - self.half_num_depth_idx, 0]))
+                    upper_lat_idx = int(min([cnt_lat_idx + self.half_num_depth_idx, len(self.DepthData["lat"]) - 1]))
+
+                    lower_lon_idx = int(max([cnt_lon_idx - self.half_num_depth_idx, 0]))
+                    upper_lon_idx = int(min([cnt_lon_idx + self.half_num_depth_idx, len(self.DepthData["lon"]) - 1]))
+                    
+                    #ax.set_xlim(max([self.DepthData["lon"][0],  cnt_lon - self.show_lon_lat/2]), 
+                    #            min([self.DepthData["lon"][-1], cnt_lon + self.show_lon_lat/2]))
+                    #ax.set_ylim(max([self.DepthData["lat"][0],  cnt_lat - self.show_lon_lat/2]), 
+                    #            min([self.DepthData["lat"][-1], cnt_lat + self.show_lon_lat/2]))
+
+                    # contour plot from depth data
+                    con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                                    self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                                    self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                                    self.clev, cmap=cm.ocean)
+
+                    # colorbar as legend
+                    if self.step_cnt == 0:
+                        cbar = self.f.colorbar(con, ticks=self.con_ticks)
+                        cbar.ax.set_yticklabels(self.con_ticklabels)
+
+                #--------------- wind plot ---------------------
+                if self.plot_wind and self.plot_in_latlon:
+
+                    # no barb plot if there is no wind data
+                    if any([OS_lat < min(self.WindData["lat"]),
+                            OS_lat > max(self.WindData["lat"]),
+                            OS_lon < min(self.WindData["lon"]),
+                            OS_lon > max(self.WindData["lon"])]):
+                        pass
                     else:
-                        dE, dN = xy_from_polar(r=ye, angle=angle_to_2pi(pi_path - dtr(90.0)))
-                    ax.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
+                        _, cnt_lat_idx = find_nearest(array=self.WindData["lat"], value=OS_lat)
+                        _, cnt_lon_idx = find_nearest(array=self.WindData["lon"], value=OS_lon)
 
-            #--------------------- Current data ------------------------
-            if self.plot_current and self.plot_in_latlon:
+                        lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wind_idx, 0]))
+                        upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wind_idx, len(self.WindData["lat"]) - 1]))
 
-                _, cnt_lat_idx = find_nearest(array=self.CurrentData["lat"], value=OS_lat)
-                _, cnt_lon_idx = find_nearest(array=self.CurrentData["lon"], value=OS_lon)
+                        lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wind_idx, 0]))
+                        upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wind_idx, len(self.WindData["lon"]) - 1]))
 
-                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_current_idx, 0]))
-                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_current_idx, len(self.CurrentData["lat"]) - 1]))
+                        ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                                self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
+                                self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                                self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                                length=4, barbcolor="goldenrod")
 
-                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_current_idx, 0]))
-                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_current_idx, len(self.CurrentData["lon"]) - 1]))
-                
-                ax.quiver(self.CurrentData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                          self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                          self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                          self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                          headwidth=2.0, color="whitesmoke", scale=10)
+                #------------------ set ships ------------------------
+                ax = self._render_ship(ax=ax, vessel=self.OS, color="red")
+                for TS in self.TSs:
+                    ax = self._render_ship(ax=ax, vessel=TS, color="salmon")
 
-            #--------------------- Wave data ------------------------
-            if self.plot_waves and self.plot_in_latlon:
 
-                _, cnt_lat_idx = find_nearest(array=self.WaveData["lat"], value=OS_lat)
-                _, cnt_lon_idx = find_nearest(array=self.WaveData["lon"], value=OS_lon)
+                #--------------------- Desired path ------------------------
+                if self.plot_path:
 
-                lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wave_idx, 0]))
-                upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wave_idx, len(self.WaveData["lat"]) - 1]))
+                    if self.plot_in_latlon:
+                        ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
-                lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wave_idx, 0]))
-                upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wave_idx, len(self.WaveData["lon"]) - 1]))
-                
-                ax.quiver(self.WaveData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                          self.WaveData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                          self.WaveData["eastward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                          self.WaveData["northward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                          headwidth=2.0, color="salmon", scale=10)
+                        # current waypoints
+                        wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
+                        wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
+                        ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
 
-            #--------------------- LiDAR sensing ------------------------
-            if self.plot_lidar and self.plot_in_latlon:
-                _, lidar_lat_lon = self._sense_LiDAR()
+                        # wp switching line
+                        #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
+                        #pi_lot = angle_to_2pi(pi_path + dtr(90.0))
+                        #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_lot)
+                        #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
+                        #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
 
-                for _, latlon in enumerate(lidar_lat_lon):
-                    ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
-        
-        # ------------------------------ reward plot --------------------------------
-        if self.plot_reward:
-            if self.step_cnt == 0:
-                self.ax2.clear()
-                self.ax2.old_time = 0
-                self.ax2.old_r_ye = 0
-                self.ax2.old_r_ce = 0
+                        # desired course
+                        #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                        #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                        #dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                        #ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
+                        #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
 
-            self.ax2.set_xlim(0, self._max_episode_steps)
-            self.ax2.set_ylim(0, 1)
-            self.ax2.set_xlabel("Timestep in episode")
-            self.ax2.set_ylabel("Reward")
+                        # actual course
+                        #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                        #ac_lat, ac_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                        #ax.arrow(x=OS_lon, y=OS_lat, dx=ac_lon-OS_lon, dy=ac_lat-OS_lat, length_includes_head=True,
+                        #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
 
-            self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
-            self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "grey", label="Course error")
+                        # cross-track error
+                        if self.ye < 0:
+                            dE, dN = xy_from_polar(r=abs(self.ye), angle=angle_to_2pi(self.pi_path + dtr(90.0)))
+                        else:
+                            dE, dN = xy_from_polar(r=self.ye, angle=angle_to_2pi(self.pi_path - dtr(90.0)))
+                        yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                        ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
+
+                    else:
+                        ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+
+                        # current waypoints
+                        ax.plot([self.wp1_E, self.wp2_E], [self.wp1_N, self.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
+
+                        # desired course
+                        #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                        #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
+                        #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                        #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
+
+                        # actual course
+                        #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=self.OS._get_course())
+                        #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
+                        #        width=0.0004, head_width=0.002, head_length=0.003, color="rosybrown")
+
+                        # cross-track error
+                        if self.ye < 0:
+                            dE, dN = xy_from_polar(r=abs(self.ye), angle=angle_to_2pi(self.pi_path + dtr(90.0)))
+                        else:
+                            dE, dN = xy_from_polar(r=self.ye, angle=angle_to_2pi(self.pi_path - dtr(90.0)))
+                        ax.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
+
+                #--------------------- Current data ------------------------
+                if self.plot_current and self.plot_in_latlon:
+
+                    _, cnt_lat_idx = find_nearest(array=self.CurrentData["lat"], value=OS_lat)
+                    _, cnt_lon_idx = find_nearest(array=self.CurrentData["lon"], value=OS_lon)
+
+                    lower_lat_idx = int(max([cnt_lat_idx - self.half_num_current_idx, 0]))
+                    upper_lat_idx = int(min([cnt_lat_idx + self.half_num_current_idx, len(self.CurrentData["lat"]) - 1]))
+
+                    lower_lon_idx = int(max([cnt_lon_idx - self.half_num_current_idx, 0]))
+                    upper_lon_idx = int(min([cnt_lon_idx + self.half_num_current_idx, len(self.CurrentData["lon"]) - 1]))
+                    
+                    ax.quiver(self.CurrentData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                            self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                            self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                            self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                            headwidth=2.0, color="whitesmoke", scale=10)
+
+                #--------------------- Wave data ------------------------
+                if self.plot_waves and self.plot_in_latlon:
+
+                    _, cnt_lat_idx = find_nearest(array=self.WaveData["lat"], value=OS_lat)
+                    _, cnt_lon_idx = find_nearest(array=self.WaveData["lon"], value=OS_lon)
+
+                    lower_lat_idx = int(max([cnt_lat_idx - self.half_num_wave_idx, 0]))
+                    upper_lat_idx = int(min([cnt_lat_idx + self.half_num_wave_idx, len(self.WaveData["lat"]) - 1]))
+
+                    lower_lon_idx = int(max([cnt_lon_idx - self.half_num_wave_idx, 0]))
+                    upper_lon_idx = int(min([cnt_lon_idx + self.half_num_wave_idx, len(self.WaveData["lon"]) - 1]))
+                    
+                    ax.quiver(self.WaveData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
+                            self.WaveData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                            self.WaveData["eastward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                            self.WaveData["northward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                            headwidth=2.0, color="salmon", scale=10)
+
+                #--------------------- LiDAR sensing ------------------------
+                if self.plot_lidar and self.plot_in_latlon:
+                    _, lidar_lat_lon = self._sense_LiDAR()
+
+                    for _, latlon in enumerate(lidar_lat_lon):
+                        ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
             
-            if self.step_cnt == 0:
-                self.ax2.legend()
+            # ------------------------------ reward plot --------------------------------
+            if self.plot_reward:
+                if self.step_cnt == 0:
+                    self.ax2.clear()
+                    self.ax2.old_time = 0
+                    self.ax2.old_r_ye = 0
+                    self.ax2.old_r_ce = 0
 
-            self.ax2.old_time = self.step_cnt
-            self.ax2.old_r_ye = self.r_ye
-            self.ax2.old_r_ce = self.r_ce
+                self.ax2.set_xlim(0, self._max_episode_steps)
+                self.ax2.set_ylim(0, 1)
+                self.ax2.set_xlabel("Timestep in episode")
+                self.ax2.set_ylabel("Reward")
 
-        #plt.gca().set_aspect('equal')
-        plt.pause(0.001)
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "grey", label="Course error")
+                
+                if self.step_cnt == 0:
+                    self.ax2.legend()
+
+                self.ax2.old_time = self.step_cnt
+                self.ax2.old_r_ye = self.r_ye
+                self.ax2.old_r_ce = self.r_ce
+
+            #plt.gca().set_aspect('equal')
+            plt.pause(0.001)
