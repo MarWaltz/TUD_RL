@@ -236,9 +236,10 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
 
         # percentage of overall distance
         frac = ate_12 / ED(N0=N1, E0=E1, N1=N2, E1=E2)
+        w23 = frac**15
 
         # construct new angle
-        pi_path_up = angle_to_2pi(frac*pi_path_23 + (1-frac)*pi_path_12)
+        pi_path_up = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
     
     else:
         pi_path_up = pi_path_12

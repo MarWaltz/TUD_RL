@@ -630,7 +630,7 @@ class HHOS_Env(gym.Env):
         Returns: 
             KVLCC2."""
         # sample distance
-        d = np.random.uniform(NM_to_meter(0.1), NM_to_meter(0.5))
+        d = np.random.uniform(NM_to_meter(0.1), NM_to_meter(1.0))
 
         # determine starting position
         ate_12 = ate(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E,\
@@ -659,7 +659,6 @@ class HHOS_Env(gym.Env):
 
         # sample direction
         direc_as_OS = bool(random.getrandbits(1))
-        direc_as_OS = True
 
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
@@ -676,10 +675,12 @@ class HHOS_Env(gym.Env):
 
         # store waypoint information
         TS.direc_as_OS = direc_as_OS
-        TS.wp1_idx, TS.wp2_idx, TS.wp3_idx = wp1, wp2, wp2 + 1
-        TS.wp1_N, TS.wp1_E = self.DesiredPath["north"][TS.wp1_idx], self.DesiredPath["east"][TS.wp1_idx]
-        TS.wp2_N, TS.wp2_E = self.DesiredPath["north"][TS.wp2_idx], self.DesiredPath["east"][TS.wp2_idx]
-        TS.wp3_N, TS.wp3_E = self.DesiredPath["north"][TS.wp3_idx], self.DesiredPath["east"][TS.wp3_idx]
+
+        if direc_as_OS:
+            TS.wp1_idx, TS.wp2_idx, TS.wp3_idx = wp1, wp2, wp2 + 1
+            TS.wp1_N, TS.wp1_E = self.DesiredPath["north"][TS.wp1_idx], self.DesiredPath["east"][TS.wp1_idx]
+            TS.wp2_N, TS.wp2_E = self.DesiredPath["north"][TS.wp2_idx], self.DesiredPath["east"][TS.wp2_idx]
+            TS.wp3_N, TS.wp3_E = self.DesiredPath["north"][TS.wp3_idx], self.DesiredPath["east"][TS.wp3_idx]
 
         # predict converged speed of sampled TS
         TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
@@ -764,44 +765,50 @@ class HHOS_Env(gym.Env):
 
     def _update_TS_wps(self, TS):
         """Updates the waypoints of the TS for following the desired path."""
-        # check whether we need to switch wps
-        switch = switch_wp(wp1_N = TS.wp1_N, 
-                           wp1_E = TS.wp1_E, 
-                           wp2_N = TS.wp2_N, 
-                           wp2_E = TS.wp2_E, 
-                           a_N   = TS.eta[0], 
-                           a_E   = TS.eta[1])
+        # we only update waypoints (and thus heading) of TS traveling in the same direction as the OS since otherwise 
+        # the TS gets respawned anyways
+        if TS.direc_as_OS:
 
-        if switch and (TS.wp3_idx != (self.DesiredPath["n_wps"]-1)):
-            # update waypoint 1
-            TS.wp1_idx += 1
-            TS.wp1_N = TS.wp2_N
-            TS.wp1_E = TS.wp2_E
+            # check whether we need to switch wps
+            switch = switch_wp(wp1_N = TS.wp1_N, 
+                               wp1_E = TS.wp1_E, 
+                               wp2_N = TS.wp2_N, 
+                               wp2_E = TS.wp2_E, 
+                               a_N   = TS.eta[0], 
+                               a_E   = TS.eta[1])
 
-            # update waypoint 2
-            TS.wp2_idx += 1
-            TS.wp2_N = TS.wp3_N
-            TS.wp2_E = TS.wp3_E
+            if switch and (TS.wp3_idx != (self.DesiredPath["n_wps"]-1)):
+                # update waypoint 1
+                TS.wp1_idx += 1
+                TS.wp1_N = TS.wp2_N
+                TS.wp1_E = TS.wp2_E
 
-            # update waypoint 3
-            TS.wp3_idx += 1
-            TS.wp3_N = self.DesiredPath["north"][TS.wp3_idx]
-            TS.wp3_E = self.DesiredPath["east"][TS.wp3_idx]
+                # update waypoint 2
+                TS.wp2_idx += 1
+                TS.wp2_N = TS.wp3_N
+                TS.wp2_E = TS.wp3_E
+
+                # update waypoint 3
+                TS.wp3_idx += 1
+                TS.wp3_N = self.DesiredPath["north"][TS.wp3_idx]
+                TS.wp3_E = self.DesiredPath["east"][TS.wp3_idx]
         return TS
 
 
     def _heading_control(self, TS):
         """Controls the heading of the target ship to smoothly follow the path."""
-        pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
-        pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
 
-        ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
-        dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx)
+        if TS.direc_as_OS:
+            pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
+            pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
 
-        frac = ate_TS/dist_12
-        w23 = frac**15
+            ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
+            dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx)
 
-        TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
+            frac = ate_TS/dist_12
+            w23 = frac**15
+
+            TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
         return TS
 
 
