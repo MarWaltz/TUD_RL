@@ -33,6 +33,7 @@ class MMG_Env(gym.Env):
                  w_COLREG         = 1.0,
                  w_comf           = 1.0,
                  ada_r_comf       = False,
+                 nonlinear_r_coll = False,
                  spawn_mode       = "line"):
         super().__init__()
 
@@ -99,6 +100,7 @@ class MMG_Env(gym.Env):
         self.w_COLREG = w_COLREG
         self.w_comf   = w_comf
         self.ada_r_comf = ada_r_comf  # if True, comfort reward is off if there is collision risk
+        self.nonlinear_r_coll = nonlinear_r_coll
 
         # custom inits
         self._max_episode_steps = 1500
@@ -170,7 +172,7 @@ class MMG_Env(gym.Env):
         self.OS_goal_old  = self.OS_goal_init
 
         # initially compute ship domain for plotting
-        rads  = np.linspace(0.0, 2*math.pi, 100)
+        rads  = np.linspace(0.0, 2*math.pi, 25)
         dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
             OS=None, TS=None, ang=rad) for rad in rads]
         self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
@@ -481,7 +483,6 @@ class MMG_Env(gym.Env):
 
         #--------------------------- dynamic obstacle related -------------------------
         state_TSs = []
-        domain_xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
 
         for TS_idx, TS in enumerate(self.TSs):
 
@@ -495,11 +496,7 @@ class MMG_Env(gym.Env):
                 # euclidean distance
                 D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
                      OS=self.OS, TS=TS)
-
-                if ED_OS_TS <= D:
-                    ED_OS_TS_norm = 0.0
-                else:
-                    ED_OS_TS_norm = min([ED(N0=n, E0=e, N1=N, E1=E) for (e, n) in domain_xys]) / self.E_max
+                ED_OS_TS_norm = (ED_OS_TS-D) / self.E_max
 
                 # relative bearing
                 bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (math.pi)
@@ -637,7 +634,8 @@ class MMG_Env(gym.Env):
         D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
 
         # check if already in ship domain
-        if ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) <= D:
+        ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+        if ED_OS_TS <= D:
             return 1.0
 
         # compute speeds and courses
@@ -654,15 +652,7 @@ class MMG_Env(gym.Env):
         bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
         domain_tcpa = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=None, TS=None,\
             ang=bng_rel_tcpa_from_OS_pers)
-
-        # TS is in ship domain at TCPA = 0:
-        if DCPA <= domain_tcpa:
-            DCPA = 0
-
-        # set DCPA to be the minimum euclidean distance to the ship domain at TCPA = 0 
-        else:
-            domain_tcpa_xys = [rotate_point(EOS_tcpa + x, NOS_tcpa + y, cx=EOS_tcpa , cy=NOS_tcpa, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
-            DCPA = min([ED(N0=n, E0=e, N1=NTS_tcpa, E1=ETS_tcpa) for (e, n) in domain_tcpa_xys])
+        DCPA = max([0.0, DCPA-domain_tcpa])
 
         # check whether OS will be in front of TS when TCPA = 0
         bng_rel_tcpa_from_TS_pers = abs(angle_to_pi(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=head1)))
@@ -678,9 +668,7 @@ class MMG_Env(gym.Env):
         #self.TCPA = TCPA
 
         # CR based on euclidean distance to ship domain
-        domain_xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
-        min_ED_domain = min([ED(N0=n, E0=e, N1=N1, E1=E1) for (e, n) in domain_xys])
-        cr_ed = math.exp(-min_ED_domain/(self.CR_rec_dist*0.3))
+        cr_ed = math.exp(-(ED_OS_TS-D)/(self.CR_rec_dist*0.3))
 
         #self.cr_ed_old = self.cr_ed
         #self.cr_cpa_old = self.cr_cpa
@@ -788,7 +776,10 @@ class MMG_Env(gym.Env):
             if CR == 1.0:
                 r_coll -= 10.0
             else:
-                r_coll -= CR
+                if self.nonlinear_r_coll:
+                    r_coll -= math.sqrt(CR)
+                else:
+                    r_coll -= CR
 
             # COLREG: if vessel just spawned, don't assess COLREG reward
             if not self.respawn_flags[TS_idx]:
