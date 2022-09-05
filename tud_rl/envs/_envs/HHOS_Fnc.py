@@ -289,25 +289,30 @@ def get_init_two_wp(lat_array, lon_array, a_n, a_e):
     EDs = [ED(N0=a_n, E0=a_e, N1=wp_n, E1=wp_e, sqrt=False) for (wp_n, wp_e) in ne_tups]
     min_idx = np.argmin(EDs)
 
-    # limit cases
+    # limit case one
     if min_idx == len(lat_array)-1:
         raise ValueError("The agent spawned already at the goal!")
-    if min_idx == 0:
+
+    # limit case two
+    elif min_idx == 0:
         idx1 = min_idx
         idx2 = min_idx + 1
-
-    # arbitrarily select prior index as current set of wps
-    idx1 = min_idx - 1
-    idx2 = min_idx
-    wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
-    wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
-
-    # check whether waypoints should be switched
-    if switch_wp(wp1_N=wp1_N, wp1_E=wp1_E, wp2_N=wp2_N, wp2_E=wp2_E, a_N=a_n, a_E=a_e):
-        idx1 += 1
-        idx2 += 1
         wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
         wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+
+    # arbitrarily select prior index as current set of wps
+    else:
+        idx1 = min_idx - 1
+        idx2 = min_idx
+        wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
+        wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+
+        # check whether waypoints should be switched
+        if switch_wp(wp1_N=wp1_N, wp1_E=wp1_E, wp2_N=wp2_N, wp2_E=wp2_E, a_N=a_n, a_E=a_e):
+            idx1 += 1
+            idx2 += 1
+            wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
+            wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
 
     return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
 

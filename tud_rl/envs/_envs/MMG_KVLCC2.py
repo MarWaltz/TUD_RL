@@ -149,14 +149,23 @@ class KVLCC2:
         for key, value in self.kvlcc2.items():
             setattr(self, key, value)
 
+        # minimum water depth which can be operated on
+        self.critical_depth = 1.2 * self.d
+
         # construct ship hull
         self.hull = Hull(Lpp=self.Lpp, B=self.B)
 
         # in [m]
-        self.ship_domain_A = 3 * self.Lpp + 0.5 * self.Lpp
-        self.ship_domain_B = 1 * self.Lpp + 0.5 * self.B   
-        self.ship_domain_C = 1 * self.Lpp + 0.5 * self.Lpp
-        self.ship_domain_D = 3 * self.Lpp + 0.5 * self.B
+        if cont_acts:
+            self.ship_domain_A = 0.5 * self.Lpp + 0.5 * self.Lpp
+            self.ship_domain_B = 0.5 * self.B + 0.5 * self.B   
+            self.ship_domain_C = self.ship_domain_A
+            self.ship_domain_D = self.ship_domain_B
+        else:
+            self.ship_domain_A = 3 * self.Lpp + 0.5 * self.Lpp
+            self.ship_domain_B = 1 * self.Lpp + 0.5 * self.B   
+            self.ship_domain_C = 1 * self.Lpp + 0.5 * self.Lpp
+            self.ship_domain_D = 3 * self.Lpp + 0.5 * self.B
 
         #---------------------------- Dynamic inits ----------------------------------------
         self.m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
@@ -246,6 +255,9 @@ class KVLCC2:
             np.array with nu_dot"""
 
         # shallow water
+        if H is not None:
+            assert H >= self.critical_depth, "Insufficient water depth!"
+
         X_vv_dash, X_vr_dash, X_rr_dash, X_vvvv_dash,\
              Y_v_dash, Y_r_dash, Y_vvv_dash, Y_vvr_dash, Y_vrr_dash, Y_rrr_dash,\
                  N_v_dash, N_r_dash, N_vvv_dash, N_vvr_dash, N_vrr_dash, N_rrr_dash, \

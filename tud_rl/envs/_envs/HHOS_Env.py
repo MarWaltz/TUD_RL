@@ -16,15 +16,16 @@ from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
                                         to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
-                                         angle_to_pi, bng_abs, dtr, rtd, tcpa,
-                                         xy_from_polar)
+                                         angle_to_pi, bng_abs, bng_rel, cpa,
+                                         dtr, get_ship_domain, head_inter, rtd,
+                                         tcpa, xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
 
-    def __init__(self, mode="train", N_TSs_max=10, N_TSs_random=False):
+    def __init__(self, mode="train", N_TSs_max=3, N_TSs_random=False):
         super().__init__()
 
         # simulation settings
@@ -65,12 +66,15 @@ class HHOS_Env(gym.Env):
         assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
         self.mode = mode
 
+        if self.mode == "train":
+            self.river_dist_loc = 80 # 10_000
+            self.river_dist_sca = 20  # 2_000
+            self.river_dist_noise_loc = 5 # 100
+            self.river_dist_noise_sca = 2 # 50
+            self.river_min = 5
+
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
-        self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
-        self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
-        self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
-        self.half_num_wave_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WaveData["metaData"]["cellsize"]) + 1
+        self.show_lon_lat = 0.02
 
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
@@ -79,7 +83,7 @@ class HHOS_Env(gym.Env):
         self.plot_wind = False
         self.plot_current = False
         self.plot_waves = True
-        self.plot_lidar = False
+        self.plot_lidar = True
         self.plot_reward = False
 
         if not self.plot_in_latlon:
@@ -100,7 +104,7 @@ class HHOS_Env(gym.Env):
         # gym inherits
         path_info_size = 16
         TS_info_size = 7
-        obs_size = path_info_size #+ self.lidar_n_beams + TS_info_size
+        obs_size = path_info_size + self.lidar_n_beams + TS_info_size * self.N_TSs_max
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -162,7 +166,7 @@ class HHOS_Env(gym.Env):
             self.WaveData = pickle.load(f)
 
 
-    def _sample_desired_path(self, l=0.01):
+    def _sample_desired_path(self, l=0.001):
         """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
         The agent should follows the path always in direction of increasing indices."""
         self.DesiredPath = {"n_wps" : self.n_wps}
@@ -215,63 +219,85 @@ class HHOS_Env(gym.Env):
         self.DesiredPath["east"] = path_e
 
 
-    def _sample_depth_data(self):
+    def _sample_depth_data(self, OS_lat, OS_lon):
         """Generates random depth data by overwriting the real data information."""
         # clear real data
-        lat_depth = self.DepthData["lat"]
-        lon_depth = self.DepthData["lon"]
-        self.DepthData["data"] *= 0.0
-        self.DepthData["data"] += 1.0
+        self.DepthData["lat"] = np.linspace(np.min(self.DepthData["lat"]), np.max(self.DepthData["lat"]), num=10_000)
+        self.DepthData["lon"] = np.linspace(np.min(self.DepthData["lon"]), np.max(self.DepthData["lon"]), num=10_000)
+        self.DepthData["data"] = np.ones((len(self.DepthData["lat"]), len(self.DepthData["lon"])))
 
-        # sample distances to waypoints
-        d_left  = np.zeros(self.n_wps)
-        d_right = np.zeros(self.n_wps)
+        while True:
+            # sample distances to waypoints
+            d_left  = np.zeros(self.n_wps)
+            d_right = np.zeros(self.n_wps)
+            depth = np.zeros(self.n_wps)
 
-        for i in range(self.n_wps):
-            if i == 0:
-                d_left[i]  = np.clip(np.random.normal(loc=10_000, scale=2_000, size=1), 500, np.infty)
-                d_right[i] = np.clip(np.random.normal(loc=10_000, scale=2_000, size=1), 500, np.infty)
-            else:
-                d_left[i]  = np.clip(d_left[i-1] + np.random.normal(loc=100, scale=50, size=1), 500, 30_000)
-                d_right[i] = np.clip(d_right[i-1] + np.random.normal(loc=100, scale=50, size=1), 500, 30_000)
+            for i in range(self.n_wps):
+                if i == 0:
+                    d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                    d_right[i] = np.clip(np.random.normal(loc=self.river_dist_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                    depth[i] = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
+                else:
+                    d_left[i]  = np.clip(
+                                    d_left[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
+                                self.river_min, 3*self.river_dist_loc)
+                    d_right[i] = np.clip(
+                                    d_right[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
+                                self.river_min, 3*self.river_dist_loc)
+                    depth[i] = np.clip(depth[i-1] + np.random.normal(loc=0.0, scale=10.0), 20, 100)
 
-        # fill close points at that distance away from the path
-        lat_path = self.DesiredPath["lat"]
-        lon_path = self.DesiredPath["lon"]
+            # fill close points at that distance away from the path
+            lat_path = self.DesiredPath["lat"]
+            lon_path = self.DesiredPath["lon"]
 
-        for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
-            
-            if i != self.n_wps-1:
+            for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
+                
+                if i != self.n_wps-1:
 
-                # go to utm
-                n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
-                n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
+                    # go to utm
+                    n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
+                    n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
 
-                # angles
-                bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
-                angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
-                angle_right = angle_to_2pi(bng_absolute + math.pi/2)
+                    # angles
+                    bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
+                    angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
+                    angle_right = angle_to_2pi(bng_absolute + math.pi/2)
 
-                # compute resulting points
-                e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
-                lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
+                    # compute resulting points
+                    e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
+                    lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
 
-                e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
-                lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
+                    e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
+                    lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
 
-                # find closest point in the array and set depth
-                _, lat_left_idx = find_nearest(array=lat_depth, value=lat_left)
-                _, lon_left_idx = find_nearest(array=lon_depth, value=lon_left)
+                    # find closest point in the array
+                    _, lat_left_idx = find_nearest(array=self.DepthData["lat"], value=lat_left)
+                    _, lon_left_idx = find_nearest(array=self.DepthData["lon"], value=lon_left)
 
-                _, lat_right_idx = find_nearest(array=lat_depth, value=lat_right)
-                _, lon_right_idx = find_nearest(array=lon_depth, value=lon_right)
+                    _, lat_right_idx = find_nearest(array=self.DepthData["lat"], value=lat_right)
+                    _, lon_right_idx = find_nearest(array=self.DepthData["lon"], value=lon_right)
 
-                self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_left_idx, lon_idx1=lon_left_idx,
-                                                    lat_idx2=lat_right_idx, lon_idx2=lon_right_idx, 
-                                                    value=np.clip(np.random.exponential(scale=75, size=1), 1, 1000))
+                    if i != 0:
+                        lat_idx1 = np.min([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
+                        lat_idx2 = np.max([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
 
-        # smoothing things
-        self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[20, 20], mode="constant"), 1, np.infty)
+                        lon_idx1 = np.min([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+                        lon_idx2 = np.max([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+
+                        self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_idx1, lon_idx1=lon_idx1,
+                                                            lat_idx2=lat_idx2, lon_idx2=lon_idx2,
+                                                            value=depth[i])
+                    lat_left_idx_old = lat_left_idx
+                    lon_left_idx_old = lon_left_idx
+                    lat_right_idx_old = lat_right_idx
+                    lon_right_idx_old = lon_right_idx
+
+            # smoothing things
+            self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[1, 1], mode="constant"), 1.0, np.infty)
+            #self.DepthData["data"] = np.clip(self.DepthData["data"], 1.0, np.infty)
+
+            if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
+                break
 
         # log
         self.log_Depth = np.log(self.DepthData["data"])
@@ -515,7 +541,7 @@ class HHOS_Env(gym.Env):
                 # check water depth at that point
                 depth_dot = self._depth_at_latlon(lat_q=lat_dot, lon_q=lon_dot)
 
-                if depth_dot <= self.critical_depth:
+                if depth_dot <= self.OS.critical_depth:
                     out_dists[out_idx] = dist
                     out_lat_lon.append((lat_dot, lon_dot))
                     break
@@ -525,25 +551,31 @@ class HHOS_Env(gym.Env):
         return out_dists, out_lat_lon
 
 
+    def _set_viz_ind(self):
+        """Defines some helper indices; purely for visualization."""
+        if self.mode == "train":
+            self.half_num_depth_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.DepthData["lat"]))) + 1
+        else:
+            self.half_num_depth_idx   = math.ceil((self.show_lon_lat / 2.0) / self.DepthData["metaData"]["cellsize"]) + 1
+        
+        self.half_num_wind_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WindData["metaData"]["cellsize"]) + 1
+        self.half_num_current_idx = math.ceil((self.show_lon_lat / 2.0) / np.mean(np.diff(self.CurrentData["lat"]))) + 1
+        self.half_num_wave_idx    = math.ceil((self.show_lon_lat / 2.0) / self.WaveData["metaData"]["cellsize"]) + 1
+
+
     def reset(self):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        # In training, we are not using real data. Thus, we only stick to the format and overwrite them by sampled values.
+        # sample path in training
         if self.mode == "train":
             self.n_wps = 500
             self._sample_desired_path()
-            self._sample_depth_data()
-            self._sample_wind_data()
-            self._sample_current_data()
-            self._sample_wave_data()
-
-            # add reversed path (necessary for opposing target ships)
             self._add_rev_path()
 
         # init OS
-        wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
+        wp_idx = 20 #np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
         lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
@@ -560,10 +592,6 @@ class HHOS_Env(gym.Env):
                          nps       = 3.0,
                          full_ship = False,
                          cont_acts = True)
-
-        # minimum water depth which can be operated on
-        self.critical_depth = 1.2 * self.OS.d     
-
         # init waypoints
         self._init_wps()
 
@@ -576,17 +604,20 @@ class HHOS_Env(gym.Env):
         # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
         self.OS.utm_number = number
 
+        # generate random environmental data in training
+        if self.mode == "train":
+            self._sample_depth_data(lat_init, lon_init)
+            self._sample_wind_data()
+            self._sample_current_data()
+            self._sample_wave_data()
+
+        # set visualization indices
+        self._set_viz_ind()
+
+        # environmental effects
+        self._update_disturbances(lat_init, lon_init)
+
         # set u-speed to near-convergence
-        self.V_c, self.beta_c = self._current_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.V_w, self.beta_w = self._wind_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.H                = self._depth_at_latlon(lat_q=lat_init, lon_q=lon_init)
-        self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=lat_init, lon_q=lon_init)
-
-        # check for wave data issues
-        if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
-             [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
-            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
-
         self.OS.nu[0] = self.OS._get_u_from_nps(nps         = self.OS.nps, 
                                                 psi         = self.OS.eta[2], 
                                                 V_c         = self.V_c, 
@@ -598,7 +629,6 @@ class HHOS_Env(gym.Env):
                                                 eta_wave    = self.eta_wave, 
                                                 T_0_wave    = self.T_0_wave, 
                                                 lambda_wave = self.lambda_wave)
-
         # set course error
         self._set_ce()
 
@@ -701,8 +731,8 @@ class HHOS_Env(gym.Env):
             E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
 
         # include random disturbances
-        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 50)
-        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 50)
+        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 100)
+        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 100)
 
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
@@ -738,15 +768,15 @@ class HHOS_Env(gym.Env):
 
 
     def _set_state(self):
-        # OS information
+        #--------------------------- OS information ----------------------------
         cmp1 = self.OS.nu / np.array([7.0, 0.7, 0.004])                # u, v, r
         cmp2 = np.array([self.OS.nu_dot[2] / (8e-5), self.OS.rud_angle / self.OS.rud_angle_max])   # r_dot, rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
 
-        # path information
+        # ------------------------- path information ---------------------------
         state_path = np.array([self.ye/self.OS.Lpp, self.course_error/math.pi])
 
-        # environmental disturbances
+        # -------------------- environmental disturbances ----------------------
         if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
              [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
             beta_wave = 0.0
@@ -764,10 +794,61 @@ class HHOS_Env(gym.Env):
                               beta_wave/(2*math.pi), eta_wave/0.5, T_0_wave/7.0, lambda_wave/60.0,    # waves
                               self.H/100.0])    # depth
 
-        # LiDAR for depth
+        # ----------------------- LiDAR for depth -----------------------------
         state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
 
-        self.state = np.concatenate([state_OS, state_path, state_env])
+        # ----------------------- TS information ------------------------------
+        N0, E0, head0 = self.OS.eta
+        state_TSs = []
+
+        for TS in self.TSs:
+            N, E, headTS = TS.eta
+
+            # euclidean distance
+            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+                 OS=self.OS, TS=TS)
+            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) - D) / (20*self.OS.Lpp)
+            ED_OS_TS_norm = np.clip(1-ED_OS_TS, 0.0, 1.0)
+
+            # relative bearing
+            bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (math.pi)
+
+            # heading intersection angle
+            C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (math.pi)
+
+            # speed
+            V_TS = TS._get_V() / 7.0
+
+            # collision risk
+            CR = self._get_CR(OS=self.OS, TS=TS)
+
+            # store it
+            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, CR])
+
+        # need always same state size, thus we pad ghost ships
+        while len(state_TSs) != self.N_TSs_max:
+            # ED
+            ED_ghost = 0.0
+
+            # relative bearing
+            bng_rel_ghost = -1.0
+
+            # heading intersection angle
+            C_ghost = -1.0
+
+            # speed
+            V_ghost = 0.0
+
+            # collision risk
+            CR_ghost = 0.0
+
+            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, CR_ghost])
+
+        # sort according to collision risk (ascending, larger CR is more dangerous)
+        state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1])).flatten()
+
+        # ------------------------- aggregate information ------------------------
+        self.state = np.concatenate([state_OS, state_path, state_env, state_LiDAR, state_TSs])
 
 
     def _set_cte(self, smooth_dc=False):
@@ -856,15 +937,37 @@ class HHOS_Env(gym.Env):
         TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
         return TS
 
+
     def _handle_respawn(self, TS):
         """Checks whether the respawning condition of the target ship is fulfilled."""
-        TCPA = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],\
-            chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+        N0, E0, _ = self.OS.eta
+        N1, E1, _ = TS.eta
+        TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
+             VOS=self.OS._get_V(), VTS=TS._get_V())
 
-        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn:
+        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= 3*self.OS.Lpp:
             return self._get_TS()
         else:
             return TS
+
+
+    def _update_disturbances(self, OS_lat=None, OS_lon=None):
+        """Updates the environmental disturbances at the agent's current position."""
+        if OS_lat is None and OS_lon is None:
+            OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
+
+        self.V_c, self.beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.V_w, self.beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+        self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
+
+        # consider wave data issues
+        if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
+             [self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave]]):
+            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
+        
+        elif self.T_0_wave == 0.0:
+            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
 
 
     def step(self, a):
@@ -876,18 +979,11 @@ class HHOS_Env(gym.Env):
         self.OS._control(a)
 
         # update agent dynamics
-        OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
-
-        self.V_c, self.beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        self.V_w, self.beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        self.H = self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-        self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = self._wave_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
-
-        if self.T_0_wave == 0.0:
-            self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
-
         self.OS._upd_dynamics(V_w=self.V_w, beta_w=self.beta_w, V_c=self.V_c, beta_c=self.beta_c, H=self.H, 
                               beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
+
+        # environmental effects
+        self._update_disturbances()
 
         # update waypoints of path
         self._update_OS_wps()
@@ -919,6 +1015,44 @@ class HHOS_Env(gym.Env):
         return self.state, self.r, d, {}
 
 
+    def _get_CR(self, OS, TS):
+        """Computes the collision risk metric similar to Chun et al. (2021)."""
+        N0, E0, head0 = OS.eta
+        N1, E1, _ = TS.eta
+        D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
+
+        # check if already in ship domain
+        ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+        if ED_OS_TS <= D:
+            return 1.0
+
+        # compute speeds and courses
+        VOS = OS._get_V()
+        VTS = TS._get_V()
+        chiOS = OS._get_course()
+        chiTS = TS._get_course()
+
+        # compute CPA measures
+        DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, \
+            chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS, get_positions=True)
+
+        # substract ship domain at TCPA = 0 from DCPA
+        bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+        domain_tcpa = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=None, TS=None,\
+            ang=bng_rel_tcpa_from_OS_pers)
+        DCPA = max([0.0, DCPA-domain_tcpa])
+
+        if TCPA >= 0.0:
+            cr_cpa = math.exp((DCPA + 1.5 * TCPA) * math.log(self.CR_al) / self.CR_rec_dist)
+        else:
+            cr_cpa = math.exp((DCPA + 20.0 * abs(TCPA)) * math.log(self.CR_al) / self.CR_rec_dist)
+
+        # CR based on euclidean distance to ship domain
+        cr_ed = math.exp(-(ED_OS_TS-D)/200)
+
+        return min([1.0, max([cr_cpa, cr_ed])])
+
+
     def _calculate_reward(self):
         # cross-track error
         k_ye = 0.05
@@ -939,8 +1073,8 @@ class HHOS_Env(gym.Env):
             return True
 
         # OS hit land
-        #elif self.H <= self.critical_depth:
-        #    return True
+        elif self.H <= self.OS.critical_depth:
+            return True
 
         # artificial done signal
         elif self.step_cnt >= self._max_episode_steps:
@@ -975,7 +1109,7 @@ class HHOS_Env(gym.Env):
         return ste + ", " + pos + "\n" + vel + ", " + depth + "\n" + wind + "\n" + current + "\n" + wave + "\n" + path_info
 
 
-    def _render_ship(self, ax, vessel, color):
+    def _render_ship(self, ax, vessel, color, plot_CR=False):
         """Draws the ship on the axis. Vessel should by of type KVLCC2. Returns the ax."""
         # quick access
         l = vessel.Lpp/2
@@ -994,6 +1128,10 @@ class HHOS_Env(gym.Env):
         C = rotate_point(x=C[0], y=C[1], cx=E, cy=N, angle=-head)
         D = rotate_point(x=D[0], y=D[1], cx=E, cy=N, angle=-head)
 
+        # collision risk
+        if plot_CR:
+            CR = self._get_CR(OS=self.OS, TS=vessel)
+
         if self.plot_in_latlon:
 
             # convert them to lat/lon
@@ -1006,8 +1144,18 @@ class HHOS_Env(gym.Env):
             lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
             lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
             ax.plot(lons, lats, color=color, linewidth=2.0)
+
+            if plot_CR:
+                ax.text(min(lons) - np.abs(min(lons) - max(lons)), min(lats), f"CR: {np.round(CR, 4)}", fontsize=7,\
+                     horizontalalignment='center', verticalalignment='center', color=color)
         else:
-            ax.plot([A[0], B[0], D[0], C[0], A[0]], [A[1], B[1], D[1], C[1], A[1]], color=color, linewidth=2.0)
+            xs = [A[0], B[0], D[0], C[0], A[0]]
+            ys = [A[1], B[1], D[1], C[1], A[1]]
+            ax.plot(xs, ys, color=color, linewidth=2.0)
+
+            if plot_CR:
+                ax.text(min(xs) - np.abs(min(xs) - max(xs)), min(ys), f"CR: {np.round(CR, 4)}", fontsize=7, horizontalalignment='center', \
+                    verticalalignment='center', color=color)
         return ax
 
 
@@ -1024,7 +1172,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 5 == 0:
+        if self.step_cnt % 1 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
@@ -1105,10 +1253,17 @@ class HHOS_Env(gym.Env):
                                 length=4, barbcolor="goldenrod")
 
                 #------------------ set ships ------------------------
-                ax = self._render_ship(ax=ax, vessel=self.OS, color="red")
-                for TS in self.TSs:
-                    ax = self._render_ship(ax=ax, vessel=TS, color="salmon")
+                ax = self._render_ship(ax=ax, vessel=self.OS, color="red", plot_CR=False)
 
+                #xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
+                #xs = [xy[0] for xy in xys]
+                #ys = [xy[1] for xy in xys]
+                #ax.plot(xs, ys, color="black", alpha=0.7)
+
+                for TS in self.TSs:
+                    N, E, _ = TS.eta
+                    col = "black"
+                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Desired path ------------------------
                 if self.plot_path:
@@ -1214,8 +1369,8 @@ class HHOS_Env(gym.Env):
                     _, lidar_lat_lon = self._sense_LiDAR()
 
                     for _, latlon in enumerate(lidar_lat_lon):
-                        ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.75)#, alpha=(idx+1)/len(lidar_lat_lon))
-            
+                        ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))
+
             # ------------------------------ reward plot --------------------------------
             if self.plot_reward:
                 if self.step_cnt == 0:
