@@ -16,7 +16,7 @@ from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
                                         to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
-                                         angle_to_pi, bng_abs, dtr, rtd,
+                                         angle_to_pi, bng_abs, dtr, rtd, tcpa,
                                          xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
@@ -24,7 +24,7 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
 
-    def __init__(self, mode="validate", N_TSs_max=10, N_TSs_random=False):
+    def __init__(self, mode="train", N_TSs_max=10, N_TSs_random=False):
         super().__init__()
 
         # simulation settings
@@ -53,11 +53,13 @@ class HHOS_Env(gym.Env):
         self.lat_range = self.lat_lims[1] - self.lat_lims[0]
 
         # data loading
-        self._load_desired_path(path_to_desired_path="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS")
-        self._load_depth_data(path_to_depth_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/DepthData")
-        self._load_wind_data(path_to_wind_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/winds")
-        self._load_current_data(path_to_current_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/currents")
-        self._load_wave_data(path_to_wave_data="C:/Users/MWaltz/Desktop/Forschung/RL_packages/HHOS/waves")
+        path_to_HHOS = "C:/Users/localadm/Desktop/Forschung/RL_packages/HHOS"
+
+        self._load_desired_path(path_to_HHOS)
+        self._load_depth_data(path_to_HHOS + "/DepthData")
+        self._load_wind_data(path_to_HHOS + "/winds")
+        self._load_current_data(path_to_HHOS + "/currents")
+        self._load_wave_data(path_to_HHOS + "/waves")
 
         # setting
         assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
@@ -89,6 +91,7 @@ class HHOS_Env(gym.Env):
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
+        self.TCPA_respawn = 120   # (negative) TCPA in seconds considered as respawning condition
 
         # CR calculation
         self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
@@ -160,7 +163,8 @@ class HHOS_Env(gym.Env):
 
 
     def _sample_desired_path(self, l=0.01):
-        """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system."""
+        """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
+        The agent should follows the path always in direction of increasing indices."""
         self.DesiredPath = {"n_wps" : self.n_wps}
 
         # do it until we have a path whichs stays in our simulation domain
@@ -423,6 +427,15 @@ class HHOS_Env(gym.Env):
         self.WaveData["northward"] = n
 
 
+    def _add_rev_path(self):
+        """Sets the reversed version of the path."""
+        self.RevPath = {"n_wps" : self.DesiredPath["n_wps"]}
+        self.RevPath["lat"] = np.flip(self.DesiredPath["lat"])
+        self.RevPath["lon"] = np.flip(self.DesiredPath["lon"])
+        self.RevPath["north"] = np.flip(self.DesiredPath["north"])
+        self.RevPath["east"]  = np.flip(self.DesiredPath["east"])
+
+
     def _depth_at_latlon(self, lat_q, lon_q):
         """Computes the water depth at a (queried) longitude-latitude position based on linear interpolation."""
         return Z_at_latlon(Z=self.DepthData["data"], lat_array=self.DepthData["lat"], lon_array=self.DepthData["lon"],
@@ -526,6 +539,9 @@ class HHOS_Env(gym.Env):
             self._sample_current_data()
             self._sample_wave_data()
 
+            # add reversed path (necessary for opposing target ships)
+            self._add_rev_path()
+
         # init OS
         wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
@@ -614,31 +630,55 @@ class HHOS_Env(gym.Env):
             raise ValueError("The agent should spawn at least two waypoints away from the goal.")
 
 
-    def _wp_dist(self, wp1_idx, wp2_idx):
+    def _wp_dist(self, wp1_idx, wp2_idx, use_rev_path=False):
         """Computes the euclidean distance between two waypoints of the desired path."""
         if wp1_idx not in range(self.n_wps) or wp2_idx not in range(self.n_wps):
             raise ValueError("Your path index is out of order. Please check your sampling strategy.")
 
-        return ED(N0=self.DesiredPath["north"][wp1_idx], E0=self.DesiredPath["east"][wp1_idx], \
-            N1=self.DesiredPath["north"][wp2_idx], E1=self.DesiredPath["east"][wp2_idx])
+        if use_rev_path:
+            return ED(N0=self.RevPath["north"][wp1_idx], E0=self.RevPath["east"][wp1_idx], \
+                N1=self.RevPath["north"][wp2_idx], E1=self.RevPath["east"][wp2_idx])
+        else:
+            return ED(N0=self.DesiredPath["north"][wp1_idx], E0=self.DesiredPath["east"][wp1_idx], \
+                N1=self.DesiredPath["north"][wp2_idx], E1=self.DesiredPath["east"][wp2_idx])
+
+
+    def _get_rev_path_wps(self, wp1_idx, wp2_idx):
+        """Computes the waypoints from the reversed version of the desired path based on indices from the real path.
+        Returns: wp1_rev_idx, wp1_rev_N, wp1_rev_E, wp2_rev_idx, wp2_rev_N, wp2_rev_E."""
+
+        wp1_rev = self.n_wps - (wp2_idx+1)
+        wp2_rev = self.n_wps - (wp1_idx+1)
+
+        return wp1_rev, wp2_rev
 
 
     def _get_TS(self):
         """Places a target ship by sampling a 
             1) traveling direction,
             2) distance on the path.
+        All ships spawn in front of the agent.
         Returns: 
             KVLCC2."""
         # sample distance
-        d = np.random.uniform(NM_to_meter(0.1), NM_to_meter(1.0))
+        d = np.random.uniform(NM_to_meter(0.25), NM_to_meter(1.5))
+
+        # sample direction
+        rev_dir = bool(random.getrandbits(1))
+
+        # get wps
+        wp1 = self.wp1_idx
+        wp1_N = self.wp1_N
+        wp1_E = self.wp1_E
+
+        wp2 = self.wp2_idx
+        wp2_N = self.wp2_N
+        wp2_E = self.wp2_E
 
         # determine starting position
-        ate_12 = ate(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E,\
-                NA=self.OS.eta[0], EA=self.OS.eta[1], pi_path=self.pi_path)
-
-        wp1 = self.wp1_idx
-        wp2 = self.wp2_idx
-        d_to_nxt_wp = self._wp_dist(wp1, wp2) - ate_12
+        ate_init = ate(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
+        d_to_nxt_wp = self._wp_dist(wp1, wp2) - ate_init
+        orig_seg = True
 
         while True:
             if d > d_to_nxt_wp:
@@ -646,41 +686,51 @@ class HHOS_Env(gym.Env):
                 wp1 += 1
                 wp2 += 1
                 d_to_nxt_wp = self._wp_dist(wp1, wp2)
+                orig_seg = False
             else:
                 break
 
+        # path angle
         pi_path_spwn = bng_abs(N0=self.DesiredPath["north"][wp1], E0=self.DesiredPath["east"][wp1], \
             N1=self.DesiredPath["north"][wp2], E1=self.DesiredPath["east"][wp2])
-        E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
-        
+
+        # still in original segment
+        if orig_seg:
+            E_add, N_add = xy_from_polar(r=ate_init+d, angle=pi_path_spwn)
+        else:
+            E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
+
         # include random disturbances
         N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 50)
         E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 50)
 
-        # sample direction
-        direc_as_OS = bool(random.getrandbits(1))
-
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
-                    psi_init  = pi_path_spwn if direc_as_OS else angle_to_2pi(pi_path_spwn + math.pi),
+                    psi_init  = angle_to_2pi(pi_path_spwn + math.pi) if rev_dir else pi_path_spwn,
                     u_init    = 0.0,
                     v_init    = 0.0,
                     r_init    = 0.0,
                     delta_t   = self.delta_t,
                     N_max     = np.infty,
                     E_max     = np.infty,
-                    nps       = np.random.uniform(0.3, 1.0) * self.OS.nps,
+                    nps       = np.random.uniform(0.3, 0.8) * self.OS.nps,
                     full_ship = False)
         TS.utm_number = 32
 
         # store waypoint information
-        TS.direc_as_OS = direc_as_OS
+        TS.rev_dir = rev_dir
 
-        if direc_as_OS:
+        if rev_dir:
+            TS.wp1_idx, TS.wp2_idx = self._get_rev_path_wps(wp1, wp2)
+            TS.wp3_idx = TS.wp2_idx + 1
+            path = self.RevPath
+        else:
             TS.wp1_idx, TS.wp2_idx, TS.wp3_idx = wp1, wp2, wp2 + 1
-            TS.wp1_N, TS.wp1_E = self.DesiredPath["north"][TS.wp1_idx], self.DesiredPath["east"][TS.wp1_idx]
-            TS.wp2_N, TS.wp2_E = self.DesiredPath["north"][TS.wp2_idx], self.DesiredPath["east"][TS.wp2_idx]
-            TS.wp3_N, TS.wp3_E = self.DesiredPath["north"][TS.wp3_idx], self.DesiredPath["east"][TS.wp3_idx]
+            path = self.DesiredPath
+    
+        TS.wp1_N, TS.wp1_E = path["north"][TS.wp1_idx], path["east"][TS.wp1_idx]
+        TS.wp2_N, TS.wp2_E = path["north"][TS.wp2_idx], path["east"][TS.wp2_idx]
+        TS.wp3_N, TS.wp3_E = path["north"][TS.wp3_idx], path["east"][TS.wp3_idx]
 
         # predict converged speed of sampled TS
         TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
@@ -764,52 +814,57 @@ class HHOS_Env(gym.Env):
 
 
     def _update_TS_wps(self, TS):
-        """Updates the waypoints of the TS for following the desired path."""
-        # we only update waypoints (and thus heading) of TS traveling in the same direction as the OS since otherwise 
-        # the TS gets respawned anyways
-        if TS.direc_as_OS:
+        """Updates the waypoints of the TS for following the (potentially reversed) path."""
+        # check whether we need to switch wps
+        switch = switch_wp(wp1_N = TS.wp1_N, 
+                           wp1_E = TS.wp1_E, 
+                           wp2_N = TS.wp2_N, 
+                           wp2_E = TS.wp2_E, 
+                           a_N   = TS.eta[0], 
+                           a_E   = TS.eta[1])
+        path = self.RevPath if TS.rev_dir else self.DesiredPath
 
-            # check whether we need to switch wps
-            switch = switch_wp(wp1_N = TS.wp1_N, 
-                               wp1_E = TS.wp1_E, 
-                               wp2_N = TS.wp2_N, 
-                               wp2_E = TS.wp2_E, 
-                               a_N   = TS.eta[0], 
-                               a_E   = TS.eta[1])
+        if switch and (TS.wp3_idx != (path["n_wps"]-1)):
+            # update waypoint 1
+            TS.wp1_idx += 1
+            TS.wp1_N = TS.wp2_N
+            TS.wp1_E = TS.wp2_E
 
-            if switch and (TS.wp3_idx != (self.DesiredPath["n_wps"]-1)):
-                # update waypoint 1
-                TS.wp1_idx += 1
-                TS.wp1_N = TS.wp2_N
-                TS.wp1_E = TS.wp2_E
+            # update waypoint 2
+            TS.wp2_idx += 1
+            TS.wp2_N = TS.wp3_N
+            TS.wp2_E = TS.wp3_E
 
-                # update waypoint 2
-                TS.wp2_idx += 1
-                TS.wp2_N = TS.wp3_N
-                TS.wp2_E = TS.wp3_E
-
-                # update waypoint 3
-                TS.wp3_idx += 1
-                TS.wp3_N = self.DesiredPath["north"][TS.wp3_idx]
-                TS.wp3_E = self.DesiredPath["east"][TS.wp3_idx]
+            # update waypoint 3
+            TS.wp3_idx += 1
+            TS.wp3_N = path["north"][TS.wp3_idx]
+            TS.wp3_E = path["east"][TS.wp3_idx]
         return TS
 
 
     def _heading_control(self, TS):
-        """Controls the heading of the target ship to smoothly follow the path."""
+        """Controls the heading of the target ship to smoothly follow the (potentially reversed) path."""
+        pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
+        pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
 
-        if TS.direc_as_OS:
-            pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
-            pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
+        ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
+        dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx, TS.rev_dir)
 
-            ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
-            dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx)
+        frac = ate_TS/dist_12
+        w23 = frac**15
 
-            frac = ate_TS/dist_12
-            w23 = frac**15
-
-            TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
+        TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
         return TS
+
+    def _handle_respawn(self, TS):
+        """Checks whether the respawning condition of the target ship is fulfilled."""
+        TCPA = tcpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1],\
+            chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V())
+
+        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn:
+            return self._get_TS()
+        else:
+            return TS
 
 
     def step(self, a):
@@ -846,6 +901,9 @@ class HHOS_Env(gym.Env):
 
         # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
         [TS._upd_dynamics() for TS in self.TSs]
+
+        # check respawn
+        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
         # update waypoints for other vessels
         self.TSs = [self._update_TS_wps(TS) for TS in self.TSs]

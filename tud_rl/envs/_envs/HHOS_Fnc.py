@@ -248,6 +248,29 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
     return ye, angle_to_2pi(pi_path_up - math.atan(ye * K)), pi_path_12
 
 
+def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
+    """Decides whether we should move on to the next pair of waypoints. Returns a boolean, True if we should switch.
+
+    Args:
+        wp1_N (float): N of first wp
+        wp1_E (float): E of first wp
+        wp2_N (float): N of second wp
+        wp2_E (float): E of second wp
+        a_N (float): agent N
+        a_E (float): agent E
+    """
+    # path angle
+    pi_path = bng_abs(N0=wp1_N, E0=wp1_E, N1=wp2_N, E1=wp2_E)
+
+    # check relative bearing
+    bng_rel_p = angle_to_pi(bng_rel(N0=a_N, E0=a_E, N1=wp2_N, E1=wp2_E, head0=pi_path))
+
+    if abs(rtd(bng_rel_p)) > 90:
+        return True
+    else:
+        return False
+
+
 def get_init_two_wp(lat_array, lon_array, a_n, a_e):
     """Returns for a given set of waypoints and an agent position the coordinates of the first two waypoints.
 
@@ -273,42 +296,20 @@ def get_init_two_wp(lat_array, lon_array, a_n, a_e):
         idx1 = min_idx
         idx2 = min_idx + 1
 
-    # the second wp is constituted by the smaller ED of the surrounding wps surrounding the min-ED wp
-    if EDs[min_idx-1] < EDs[min_idx+1]:
-        idx1 = min_idx - 1
-        idx2 = min_idx
-    else:
-        idx1 = min_idx
-        idx2 = min_idx + 1
-    
-    # return both wps
+    # arbitrarily select prior index as current set of wps
+    idx1 = min_idx - 1
+    idx2 = min_idx
     wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
     wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
 
+    # check whether waypoints should be switched
+    if switch_wp(wp1_N=wp1_N, wp1_E=wp1_E, wp2_N=wp2_N, wp2_E=wp2_E, a_N=a_n, a_E=a_e):
+        idx1 += 1
+        idx2 += 1
+        wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
+        wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+
     return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
-
-
-def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
-    """Decides whether we should move on to the next pair of waypoints. Returns a boolean, True if we should switch.
-
-    Args:
-        wp1_N (float): N of first wp
-        wp1_E (float): E of first wp
-        wp2_N (float): N of second wp
-        wp2_E (float): E of second wp
-        a_N (float): agent N
-        a_E (float): agent E
-    """
-    # path angle
-    pi_path = bng_abs(N0=wp1_N, E0=wp1_E, N1=wp2_N, E1=wp2_E)
-
-    # check relative bearing
-    bng_rel_p = angle_to_pi(bng_rel(N0=a_N, E0=a_E, N1=wp2_N, E1=wp2_E, head0=pi_path))
-
-    if abs(rtd(bng_rel_p)) > 90:
-        return True
-    else:
-        return False
 
 
 def fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value):
