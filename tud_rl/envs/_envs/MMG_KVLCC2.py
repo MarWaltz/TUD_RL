@@ -157,9 +157,9 @@ class KVLCC2:
 
         # in [m]
         if cont_acts:
-            self.ship_domain_A = 0.5 * self.Lpp + 0.5 * self.Lpp
-            self.ship_domain_B = 0.5 * self.B + 0.5 * self.B   
-            self.ship_domain_C = self.ship_domain_A
+            self.ship_domain_A = 1 * self.Lpp + 0.5 * self.Lpp
+            self.ship_domain_B = 1 * self.B + 0.5 * self.B   
+            self.ship_domain_C = 1 * self.B + 0.5 * self.Lpp
             self.ship_domain_D = self.ship_domain_B
         else:
             self.ship_domain_A = 3 * self.Lpp + 0.5 * self.Lpp

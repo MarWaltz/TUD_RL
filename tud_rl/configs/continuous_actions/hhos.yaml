@@ -7,6 +7,8 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     mode: train
+    N_TSs_max: 3
+    N_TSs_random: true 
   info: MDP
 agent:
   DDPG: {}

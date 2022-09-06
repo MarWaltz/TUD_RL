@@ -25,7 +25,7 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
 
-    def __init__(self, mode="train", N_TSs_max=3, N_TSs_random=False):
+    def __init__(self, mode="train", N_TSs_max=3, N_TSs_random=True):
         super().__init__()
 
         # simulation settings
@@ -80,11 +80,12 @@ class HHOS_Env(gym.Env):
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
-        self.plot_wind = False
-        self.plot_current = False
+        self.plot_wind = True
+        self.plot_current = True
         self.plot_waves = True
         self.plot_lidar = True
-        self.plot_reward = False
+        self.plot_reward = True
+        self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
@@ -95,15 +96,16 @@ class HHOS_Env(gym.Env):
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
-        self.TCPA_respawn = 120   # (negative) TCPA in seconds considered as respawning condition
+        self.TCPA_respawn = 120                        # (negative) TCPA in seconds considered as respawning condition
+        self.TS_spawn_dists = [NM_to_meter(0.1), NM_to_meter(0.75)]
 
         # CR calculation
-        self.CR_rec_dist = NM_to_meter(2.0)      # collision risk distance
+        self.CR_rec_dist = 300                   # collision risk distance [m]
         self.CR_al = 0.1                         # collision risk metric normalization
 
         # gym inherits
         path_info_size = 16
-        TS_info_size = 7
+        TS_info_size = 5
         obs_size = path_info_size + self.lidar_n_beams + TS_info_size * self.N_TSs_max
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
@@ -113,6 +115,8 @@ class HHOS_Env(gym.Env):
         self.r = 0
         self.r_ye = 0
         self.r_ce = 0
+        self.r_coll = 0
+        self.r_comf = 0
         self._max_episode_steps = 1_000
 
 
@@ -592,8 +596,8 @@ class HHOS_Env(gym.Env):
                          nps       = 3.0,
                          full_ship = False,
                          cont_acts = True)
-        # init waypoints
-        self._init_wps()
+        # init waypoints of OS
+        self._init_OS_wps()
 
         # init cross-track error
         self._set_cte()
@@ -632,6 +636,13 @@ class HHOS_Env(gym.Env):
         # set course error
         self._set_ce()
 
+        # initially compute ship domain for plotting
+        rads  = np.linspace(0.0, 2*math.pi, 100)
+        dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+            OS=None, TS=None, ang=rad) for rad in rads]
+        self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.domain_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
+
         # init other vessels
         if self.N_TSs_random:
             self.N_TSs = np.random.choice(self.N_TSs_max)
@@ -649,13 +660,14 @@ class HHOS_Env(gym.Env):
         return self.state
 
 
-    def _init_wps(self):
+    def _init_OS_wps(self):
         """Initializes the two waypoints based on the initial position of the agent."""
-        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
+        self.OS.rev_dir = False
+        self.OS.wp1_idx, self.OS.wp1_N, self.OS.wp1_E, self.OS.wp2_idx, self.OS.wp2_N, self.OS.wp2_E = get_init_two_wp(lat_array=self.DesiredPath["lat"], \
             lon_array=self.DesiredPath["lon"], a_n=self.OS.eta[0], a_e=self.OS.eta[1])
         try:
-            self.wp3_idx = self.wp2_idx + 1
-            self.wp3_N, self.wp3_E, _ = to_utm(self.DesiredPath["lat"][self.wp3_idx], self.DesiredPath["lon"][self.wp3_idx])
+            self.OS.wp3_idx = self.OS.wp2_idx + 1
+            self.OS.wp3_N, self.OS.wp3_E, _ = to_utm(self.DesiredPath["lat"][self.OS.wp3_idx], self.DesiredPath["lon"][self.OS.wp3_idx])
         except:
             raise ValueError("The agent should spawn at least two waypoints away from the goal.")
 
@@ -691,19 +703,19 @@ class HHOS_Env(gym.Env):
         Returns: 
             KVLCC2."""
         # sample distance
-        d = np.random.uniform(NM_to_meter(0.25), NM_to_meter(1.5))
+        d = np.random.uniform(*self.TS_spawn_dists)
 
         # sample direction
         rev_dir = bool(random.getrandbits(1))
 
         # get wps
-        wp1 = self.wp1_idx
-        wp1_N = self.wp1_N
-        wp1_E = self.wp1_E
+        wp1 = self.OS.wp1_idx
+        wp1_N = self.OS.wp1_N
+        wp1_E = self.OS.wp1_E
 
-        wp2 = self.wp2_idx
-        wp2_N = self.wp2_N
-        wp2_E = self.wp2_E
+        wp2 = self.OS.wp2_idx
+        wp2_N = self.OS.wp2_N
+        wp2_E = self.OS.wp2_E
 
         # determine starting position
         ate_init = ate(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
@@ -731,8 +743,8 @@ class HHOS_Env(gym.Env):
             E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
 
         # include random disturbances
-        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 100)
-        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 100)
+        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 50)
+        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 50)
 
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
@@ -854,14 +866,14 @@ class HHOS_Env(gym.Env):
     def _set_cte(self, smooth_dc=False):
         """Sets the cross-track error based on VFG."""
         if smooth_dc:
-            N3, E3 = self.wp3_N, self.wp3_E
+            N3, E3 = self.OS.wp3_N, self.OS.wp3_E
         else:
             N3, E3 = None, None
 
-        self.ye, self.desired_course, self.pi_path = VFG(N1 = self.wp1_N, 
-                                                         E1 = self.wp1_E, 
-                                                         N2 = self.wp2_N, 
-                                                         E2 = self.wp2_E,
+        self.ye, self.desired_course, self.pi_path = VFG(N1 = self.OS.wp1_N, 
+                                                         E1 = self.OS.wp1_E, 
+                                                         N2 = self.OS.wp2_N, 
+                                                         E2 = self.OS.wp2_E,
                                                          NA = self.OS.eta[0], 
                                                          EA = self.OS.eta[1], 
                                                          K  = self.VFG_K, 
@@ -872,70 +884,58 @@ class HHOS_Env(gym.Env):
         self.course_error = angle_to_pi(self.desired_course - self.OS._get_course())
 
 
-    def _update_OS_wps(self):
-        """Updates the waypoints of the OS for following the desired path."""
+    def _update_wps(self, vessel):
+        """Updates the waypoints for following the (potentially reversed) path."""
         # check whether we need to switch wps
-        switch = switch_wp(wp1_N=self.wp1_N, wp1_E=self.wp1_E, wp2_N=self.wp2_N, wp2_E=self.wp2_E, a_N=self.OS.eta[0], a_E=self.OS.eta[1])
+        switch = switch_wp(wp1_N = vessel.wp1_N, 
+                           wp1_E = vessel.wp1_E, 
+                           wp2_N = vessel.wp2_N, 
+                           wp2_E = vessel.wp2_E, 
+                           a_N   = vessel.eta[0], 
+                           a_E   = vessel.eta[1])
+        path = self.RevPath if vessel.rev_dir else self.DesiredPath
 
-        if switch and (self.wp3_idx != (self.DesiredPath["n_wps"]-1)):
+        if switch and (vessel.wp3_idx != (path["n_wps"]-1)):
             # update waypoint 1
-            self.wp1_idx += 1
-            self.wp1_N = self.wp2_N
-            self.wp1_E = self.wp2_E
+            vessel.wp1_idx += 1
+            vessel.wp1_N = vessel.wp2_N
+            vessel.wp1_E = vessel.wp2_E
 
             # update waypoint 2
-            self.wp2_idx += 1
-            self.wp2_N = self.wp3_N
-            self.wp2_E = self.wp3_E
+            vessel.wp2_idx += 1
+            vessel.wp2_N = vessel.wp3_N
+            vessel.wp2_E = vessel.wp3_E
 
             # update waypoint 3
-            self.wp3_idx += 1
-            self.wp3_N = self.DesiredPath["north"][self.wp3_idx]
-            self.wp3_E = self.DesiredPath["east"][self.wp3_idx]
+            vessel.wp3_idx += 1
+            vessel.wp3_N = path["north"][vessel.wp3_idx]
+            vessel.wp3_E = path["east"][vessel.wp3_idx]
+        return vessel
 
 
-    def _update_TS_wps(self, TS):
-        """Updates the waypoints of the TS for following the (potentially reversed) path."""
-        # check whether we need to switch wps
-        switch = switch_wp(wp1_N = TS.wp1_N, 
-                           wp1_E = TS.wp1_E, 
-                           wp2_N = TS.wp2_N, 
-                           wp2_E = TS.wp2_E, 
-                           a_N   = TS.eta[0], 
-                           a_E   = TS.eta[1])
-        path = self.RevPath if TS.rev_dir else self.DesiredPath
+    def _heading_control(self, vessel):
+        """Controls the heading of a to smoothly follow the (potentially reversed) path."""
+        # angles of the two segments
+        pi_path_12 = bng_abs(N0=vessel.wp1_N, E0=vessel.wp1_E, N1=vessel.wp2_N, E1=vessel.wp2_E)
+        pi_path_23 = bng_abs(N0=vessel.wp2_N, E0=vessel.wp2_E, N1=vessel.wp3_N, E1=vessel.wp3_E)
 
-        if switch and (TS.wp3_idx != (path["n_wps"]-1)):
-            # update waypoint 1
-            TS.wp1_idx += 1
-            TS.wp1_N = TS.wp2_N
-            TS.wp1_E = TS.wp2_E
+        ate_TS = ate(N1=vessel.wp1_N, E1=vessel.wp1_E, N2=vessel.wp2_N, E2=vessel.wp2_E, NA=vessel.eta[0], EA=vessel.eta[1], pi_path=pi_path_12)
+        dist_12 = self._wp_dist(vessel.wp1_idx, vessel.wp2_idx, vessel.rev_dir)
 
-            # update waypoint 2
-            TS.wp2_idx += 1
-            TS.wp2_N = TS.wp3_N
-            TS.wp2_E = TS.wp3_E
-
-            # update waypoint 3
-            TS.wp3_idx += 1
-            TS.wp3_N = path["north"][TS.wp3_idx]
-            TS.wp3_E = path["east"][TS.wp3_idx]
-        return TS
-
-
-    def _heading_control(self, TS):
-        """Controls the heading of the target ship to smoothly follow the (potentially reversed) path."""
-        pi_path_12 = bng_abs(N0=TS.wp1_N, E0=TS.wp1_E, N1=TS.wp2_N, E1=TS.wp2_E)
-        pi_path_23 = bng_abs(N0=TS.wp2_N, E0=TS.wp2_E, N1=TS.wp3_N, E1=TS.wp3_E)
-
-        ate_TS = ate(N1=TS.wp1_N, E1=TS.wp1_E, N2=TS.wp2_N, E2=TS.wp2_E, NA=TS.eta[0], EA=TS.eta[1], pi_path=pi_path_12)
-        dist_12 = self._wp_dist(TS.wp1_idx, TS.wp2_idx, TS.rev_dir)
-
-        frac = ate_TS/dist_12
+        # weighting
+        frac = np.clip(ate_TS/dist_12, 0.0, 1.0)
         w23 = frac**15
 
-        TS.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
-        return TS
+        # adjustment to avoid boundary issues at 2pi
+        if abs(pi_path_12-pi_path_23) >= math.pi:
+            if pi_path_12 >= pi_path_23:
+                pi_path_12 = angle_to_pi(pi_path_12)
+            else:
+                pi_path_23 = angle_to_pi(pi_path_23)
+
+        # heading construction
+        vessel.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
+        return vessel
 
 
     def _handle_respawn(self, TS):
@@ -945,7 +945,7 @@ class HHOS_Env(gym.Env):
         TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
              VOS=self.OS._get_V(), VTS=TS._get_V())
 
-        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= 3*self.OS.Lpp:
+        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= 7*self.OS.Lpp:
             return self._get_TS()
         else:
             return TS
@@ -975,7 +975,7 @@ class HHOS_Env(gym.Env):
         Returns new_state, r, done, {}."""
 
         # perform control action
-        a = int(a)
+        a = float(a)
         self.OS._control(a)
 
         # update agent dynamics
@@ -986,14 +986,14 @@ class HHOS_Env(gym.Env):
         self._update_disturbances()
 
         # update waypoints of path
-        self._update_OS_wps()
+        self.OS = self._update_wps(self.OS)
 
         # compute new cross-track error and course error
         self._set_cte()
         self._set_ce()
 
-        # simple heading control of target ships
-        self.TSs = [self._heading_control(TS) for TS in self.TSs]
+        # HEADING CONTROL OS
+        #self.OS = self._heading_control(self.OS)
 
         # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
         [TS._upd_dynamics() for TS in self.TSs]
@@ -1002,7 +1002,10 @@ class HHOS_Env(gym.Env):
         self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
         # update waypoints for other vessels
-        self.TSs = [self._update_TS_wps(TS) for TS in self.TSs]
+        self.TSs = [self._update_wps(TS) for TS in self.TSs]
+
+        # simple heading control of target ships
+        self.TSs = [self._heading_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -1010,7 +1013,7 @@ class HHOS_Env(gym.Env):
 
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward()
+        self._calculate_reward(a)
         d = self._done()
         return self.state, self.r, d, {}
 
@@ -1043,7 +1046,7 @@ class HHOS_Env(gym.Env):
         DCPA = max([0.0, DCPA-domain_tcpa])
 
         if TCPA >= 0.0:
-            cr_cpa = math.exp((DCPA + 1.5 * TCPA) * math.log(self.CR_al) / self.CR_rec_dist)
+            cr_cpa = math.exp((DCPA + 0.75 * TCPA) * math.log(self.CR_al) / self.CR_rec_dist)
         else:
             cr_cpa = math.exp((DCPA + 20.0 * abs(TCPA)) * math.log(self.CR_al) / self.CR_rec_dist)
 
@@ -1053,7 +1056,9 @@ class HHOS_Env(gym.Env):
         return min([1.0, max([cr_cpa, cr_ed])])
 
 
-    def _calculate_reward(self):
+    def _calculate_reward(self, a):
+
+        # ----------------------- Path-following reward --------------------
         # cross-track error
         k_ye = 0.05
         self.r_ye = math.exp(-k_ye * abs(self.ye))
@@ -1062,8 +1067,26 @@ class HHOS_Env(gym.Env):
         k_ce = 5.0
         self.r_ce = math.exp(-k_ce * abs(self.course_error))
 
-        weights = np.array([0.5, 0.5])
-        self.r = np.sum(weights * np.array([self.r_ye, self.r_ce])) / np.sum(weights)
+        # ---------------------- Collision Avoidance reward -----------------
+        self.r_coll = 0
+
+        for TS in self.TSs:
+            CR = self._get_CR(OS=self.OS, TS=TS)
+            if CR == 1.0:
+                self.r_coll -= 10.0
+            else:
+                self.r_coll -= CR
+
+        if self.H <= self.OS.critical_depth:
+            self.r_coll -= 10.0
+
+        # -------------------------- Comfort reward -------------------------
+        self.r_comf = -a**4
+
+        # ---------------------------- Aggregation --------------------------
+        weights = np.array([0.5, 0.5, 0.5, 0.02])
+        rews = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_comf])
+        self.r = np.sum(weights * rews) / np.sum(weights)
 
 
     def _done(self):
@@ -1115,6 +1138,7 @@ class HHOS_Env(gym.Env):
         l = vessel.Lpp/2
         b = vessel.B/2
         N, E, head = vessel.eta
+        N0, E0, head0 = self.OS.eta
 
         # get rectangle/polygon end points in UTM
         A = (E - b, N + l)
@@ -1128,9 +1152,18 @@ class HHOS_Env(gym.Env):
         C = rotate_point(x=C[0], y=C[1], cx=E, cy=N, angle=-head)
         D = rotate_point(x=D[0], y=D[1], cx=E, cy=N, angle=-head)
 
-        # collision risk
+        # collision risk and metrics
         if plot_CR:
             CR = self._get_CR(OS=self.OS, TS=vessel)
+
+            DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=self.OS._get_course(),\
+                chiTS=vessel._get_course(), VOS=self.OS._get_V(), VTS=vessel._get_V(), get_positions=True)
+
+            # substract ship domain at TCPA = 0 from DCPA
+            bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+            domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,\
+                D=self.OS.ship_domain_D, OS=None, TS=None, ang=bng_rel_tcpa_from_OS_pers)
+            DCPA = max([0.0, DCPA-domain_tcpa])
 
         if self.plot_in_latlon:
 
@@ -1146,16 +1179,28 @@ class HHOS_Env(gym.Env):
             ax.plot(lons, lats, color=color, linewidth=2.0)
 
             if plot_CR:
-                ax.text(min(lons) - np.abs(min(lons) - max(lons)), min(lats), f"CR: {np.round(CR, 4)}", fontsize=7,\
-                     horizontalalignment='center', verticalalignment='center', color=color)
+                CR_x = min(lons) - np.abs(min(lons) - max(lons))
+                CR_y = min(lats)
+                ax.text(CR_x, CR_y, f"CR: {CR:.2f}" + "\n" + f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
+                     fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         else:
             xs = [A[0], B[0], D[0], C[0], A[0]]
             ys = [A[1], B[1], D[1], C[1], A[1]]
             ax.plot(xs, ys, color=color, linewidth=2.0)
 
             if plot_CR:
-                ax.text(min(xs) - np.abs(min(xs) - max(xs)), min(ys), f"CR: {np.round(CR, 4)}", fontsize=7, horizontalalignment='center', \
-                    verticalalignment='center', color=color)
+                CR_x = min(xs) - np.abs(min(xs) - max(xs))
+                CR_y = min(ys)
+                ax.text(CR_x, CR_y, f"CR: {CR:.2f}" + "\n" + f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
+                     fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
+        return ax
+
+
+    def _render_wps(self, ax, vessel, color):
+        """Renders the current waypoints of a vessel."""
+        wp1_lat, wp1_lon = to_latlon(north=vessel.wp1_N, east=vessel.wp1_E, number=vessel.utm_number)
+        wp2_lat, wp2_lon = to_latlon(north=vessel.wp2_N, east=vessel.wp2_E, number=vessel.utm_number)
+        ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color=color, linewidth=1.0, markersize=3)
         return ax
 
 
@@ -1224,7 +1269,7 @@ class HHOS_Env(gym.Env):
 
                     # colorbar as legend
                     if self.step_cnt == 0:
-                        cbar = self.f.colorbar(con, ticks=self.con_ticks)
+                        cbar = self.f.colorbar(con, ticks=self.con_ticks, ax=ax)
                         cbar.ax.set_yticklabels(self.con_ticklabels)
 
                 #--------------- wind plot ---------------------
@@ -1253,16 +1298,25 @@ class HHOS_Env(gym.Env):
                                 length=4, barbcolor="goldenrod")
 
                 #------------------ set ships ------------------------
+                # OS
                 ax = self._render_ship(ax=ax, vessel=self.OS, color="red", plot_CR=False)
 
-                #xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
-                #xs = [xy[0] for xy in xys]
-                #ys = [xy[1] for xy in xys]
-                #ax.plot(xs, ys, color="black", alpha=0.7)
+                # ship domain
+                xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
 
-                for TS in self.TSs:
-                    N, E, _ = TS.eta
-                    col = "black"
+                if self.plot_in_latlon:
+                    lat_lon_tups = [to_latlon(north=y, east=x, number=self.OS.utm_number)[:2] for x, y in xys]
+                    lats = [e[0] for e in lat_lon_tups]
+                    lons = [e[1] for e in lat_lon_tups]
+                    ax.plot(lons, lats, color="red", alpha=0.7)
+                else:
+                    xs = [xy[0] for xy in xys]
+                    ys = [xy[1] for xy in xys]
+                    ax.plot(xs, ys, color="red", alpha=0.7)
+
+                # TSs
+                for i, TS in enumerate(self.TSs):
+                    col = self.default_cols[i] if i <= (len(self.default_cols)-1) else "black"
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Desired path ------------------------
@@ -1271,20 +1325,23 @@ class HHOS_Env(gym.Env):
                     if self.plot_in_latlon:
                         ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
-                        # current waypoints
-                        wp1_lat, wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=self.OS.utm_number)
-                        wp2_lat, wp2_lon = to_latlon(north=self.wp2_N, east=self.wp2_E, number=self.OS.utm_number)
-                        ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color="springgreen", linewidth=1.0, markersize=3)
+                        # wps of OS
+                        self._render_wps(ax=ax, vessel=self.OS, color="black")
+
+                        # wps of TSs
+                        for i, TS in enumerate(self.TSs):
+                            col = self.default_cols[i] if i <= (len(self.default_cols)-1) else "black"
+                            ax = self._render_wps(ax=ax, vessel=TS, color=col)
 
                         # wp switching line
-                        #pi_path = bng_abs(N0=self.wp1_N, E0=self.wp1_E, N1=self.wp2_N, E1=self.wp2_E)
+                        #pi_path = bng_abs(N0=self.OS.wp1_N, E0=self.OS.wp1_E, N1=self.OS.wp2_N, E1=self.OS.wp2_E)
                         #pi_lot = angle_to_2pi(pi_path + dtr(90.0))
                         #delta_E, delta_N = xy_from_polar(r=100000, angle=pi_lot)
-                        #end_lat, end_lon = to_latlon(north=self.wp2_N + delta_N, east=self.wp2_E + delta_E, number=self.OS.utm_number)
+                        #end_lat, end_lon = to_latlon(north=self.OS.wp2_N + delta_N, east=self.OS.wp2_E + delta_E, number=self.OS.utm_number)
                         #ax.plot([wp2_lon, end_lon], [wp2_lat, end_lat])
 
                         # desired course
-                        #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                        #ye, dc, pi_path = VFG(N1=self.OS.wp1_N, E1=self.OS.wp1_E, N2=self.OS.wp2_N, E2=self.OS.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
                         #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
                         #dc_lat, dc_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
                         #ax.arrow(x=OS_lon, y=OS_lat, dx=dc_lon-OS_lon, dy=dc_lat-OS_lat, length_includes_head=True,
@@ -1308,10 +1365,10 @@ class HHOS_Env(gym.Env):
                         ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
                         # current waypoints
-                        ax.plot([self.wp1_E, self.wp2_E], [self.wp1_N, self.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
+                        ax.plot([self.OS.wp1_E, self.OS.wp2_E], [self.OS.wp1_N, self.OS.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
 
                         # desired course
-                        #ye, dc, pi_path = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
+                        #ye, dc, pi_path = VFG(N1=self.OS.wp1_N, E1=self.OS.wp1_E, N2=self.OS.wp2_N, E2=self.OS.wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1], K= self.VFG_K)
                         #dE, dN = xy_from_polar(r=3*self.OS.Lpp, angle=dc)
                         #ax.arrow(x=E0, y=N0, dx=dE, dy=dN, length_includes_head=True,
                         #        width=0.0004, head_width=0.002, head_length=0.003, color="salmon")
@@ -1378,14 +1435,20 @@ class HHOS_Env(gym.Env):
                     self.ax2.old_time = 0
                     self.ax2.old_r_ye = 0
                     self.ax2.old_r_ce = 0
+                    self.ax2.old_r_coll = 0
+                    self.ax2.old_r_comf = 0
+                    self.ax2.r = 0
 
                 self.ax2.set_xlim(0, self._max_episode_steps)
-                self.ax2.set_ylim(0, 1)
+                #self.ax2.set_ylim(0, 1)
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("Reward")
 
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "grey", label="Course error")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "red", label="Course error")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_comf, self.r_comf], color = "blue", label="Comfort")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "orange", label="Aggregated")
                 
                 if self.step_cnt == 0:
                     self.ax2.legend()
@@ -1393,6 +1456,9 @@ class HHOS_Env(gym.Env):
                 self.ax2.old_time = self.step_cnt
                 self.ax2.old_r_ye = self.r_ye
                 self.ax2.old_r_ce = self.r_ce
+                self.ax2.old_r_coll = self.r_coll
+                self.ax2.old_r_comf = self.r_comf
+                self.ax2.r = self.r
 
             #plt.gca().set_aspect('equal')
             plt.pause(0.001)
