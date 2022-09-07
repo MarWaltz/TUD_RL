@@ -623,7 +623,7 @@ class KVLCC2:
             return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi,
                                       beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
 
-        return newton(func=to_find_root_of, x0=5.0)
+        return newton(func=to_find_root_of, x0=5.0, maxiter=10_000)
 
 
     def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0,
@@ -635,4 +635,4 @@ class KVLCC2:
             return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi,
                                       beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
 
-        return newton(func=to_find_root_of, x0=2.0)
+        return newton(func=to_find_root_of, x0=2.0, maxiter=10_000)
