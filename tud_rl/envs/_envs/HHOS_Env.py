@@ -53,20 +53,20 @@ class HHOS_Env(gym.Env):
         self.lon_range = self.lon_lims[1] - self.lon_lims[0]
         self.lat_range = self.lat_lims[1] - self.lat_lims[0]
 
-        # data loading
-        path_to_HHOS = "C:/Users/localadm/Desktop/Forschung/RL_packages/HHOS"
-
-        self._load_desired_path(path_to_HHOS)
-        self._load_depth_data(path_to_HHOS + "/DepthData")
-        self._load_wind_data(path_to_HHOS + "/winds")
-        self._load_current_data(path_to_HHOS + "/currents")
-        self._load_wave_data(path_to_HHOS + "/waves")
-
         # setting
         assert mode in ["train", "validate"], "Unknown HHOS mode. Can either train or validate."
         self.mode = mode
 
-        if self.mode == "train":
+        # data loading
+        if self.mode == "validate":
+            path_to_HHOS = "C:/Users/localadm/Desktop/Forschung/RL_packages/HHOS"
+
+            self._load_desired_path(path_to_HHOS)
+            self._load_depth_data(path_to_HHOS + "/DepthData")
+            self._load_wind_data(path_to_HHOS + "/winds")
+            self._load_current_data(path_to_HHOS + "/currents")
+            self._load_wave_data(path_to_HHOS + "/waves")
+        else:
             self.n_wps = 250
             self.river_dist_loc = 70 # 10_000
             self.river_dist_sca = 20  # 2_000
@@ -226,7 +226,7 @@ class HHOS_Env(gym.Env):
 
     def _sample_depth_data(self, OS_lat, OS_lon):
         """Generates random depth data by overwriting the real data information."""
-        # clear real data
+        self.DepthData = {}
         self.DepthData["lat"] = np.linspace(self.lat_lims[0], self.lat_lims[1] + self.off, num=500)
         self.DepthData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=500)
         self.DepthData["data"] = np.ones((len(self.DepthData["lat"]), len(self.DepthData["lon"])))
@@ -316,7 +316,7 @@ class HHOS_Env(gym.Env):
 
     def _sample_wind_data(self):
         """Generates random wind data by overwriting the real data information."""
-        # clear real data
+        self.WindData = {}
         self.WindData["lat"] = np.linspace(self.lat_lims[0], self.lat_lims[1], num=10)
         self.WindData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=10)
   
@@ -366,7 +366,7 @@ class HHOS_Env(gym.Env):
 
     def _sample_current_data(self):
         """Generates random current data by overwriting the real data information."""
-        # clear real data
+        self.CurrentData = {}
         self.CurrentData["lat"] = np.linspace(self.lat_lims[0], self.lat_lims[1], num=10)
         self.CurrentData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=10)
 
@@ -415,7 +415,7 @@ class HHOS_Env(gym.Env):
 
     def _sample_wave_data(self):
         """Generates random wave data by overwriting the real data information."""
-        # clear real data
+        self.WaveData = {}
         self.WaveData["lat"] = np.linspace(self.lat_lims[0], self.lat_lims[1], num=10)
         self.WaveData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=10)
 
