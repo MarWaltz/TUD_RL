@@ -30,7 +30,7 @@ To use basic functions of this package you need to have at least installed
 - [OpenAI Gym](https://github.com/openai/gym)
 - [PyTorch](https://github.com/pytorch/pytorch)
 
-In order to use the package to its full capabilites it is recommended to also install the following dependencies:
+In order to use the package to its full capabilites, it is recommended to install the following dependencies:
 
 - [MinAtar](https://github.com/kenjyoung/MinAtar)
 - [PyGame Learning Environment](https://pygame-learning-environment.readthedocs.io/en/latest/user/games.html)
@@ -54,21 +54,21 @@ $ pip install -e .
 
 ### Configuration files
 
-In order to train an environment using this package you must specify a training configuration `.yaml` file and place it in one of the two folders in `/tud_rl/configs` dependening on the type of action space (discrete, continuous) your environment implements.
+In order to train in an environment using this package, you must specify a training configuration `.yaml` file and place it in one of the two folders in `/tud_rl/configs` depending on the type of action space (discrete, continuous).
 
-In this folder you also find a variety of different example configuration files.
+You also find a variety of different example configuration files in this folder.
 
-For an increased flexibility, please make yourself familiar with the different additional parameters each algorithm offers.
+For an increased flexibility, please make yourself familiar with the parameters each algorithm offers.
 
 ### Training
 
 The recommended way to train or visualize your environment is to use the `tud_rl` package as a module using the `python -m` flag.
 
-In order to run the package, you have to supply the following flags to the module:
+To run the package, you have to supply the following flags to the module:
 
 ##### -m [--mode=]
 
-Training mode can be either `train` or `visualize`. If you want to visulaize your environment you must make sure that training weights are supplied in the config file:
+Training mode can be either `train` or `visualize`. If you want to visualize your environment, you must ensure that training weights are supplied in the config file:
 
 For discrete training the config entry looks like:
 
@@ -105,7 +105,7 @@ This package provides an interface to specify your own custom training environme
 
 ### Structure
 
-In order to integrate your own environment you have to create a new file in `/tud_rl/envs/_envs`. In that file you need to specify a class for your environment that at least implements three methods as seen in the following blueprint:
+In order to integrate your own environment you have to create a new file in `/tud_rl/envs/_envs`. There you need to specify a class for your environment that implements at least three methods as seen in the following blueprint:
 
 #### Empty custom env [minimal example]
 
@@ -134,7 +134,7 @@ See this [blog article](https://towardsdatascience.com/beginners-guide-to-custom
 
 ### Integration of custom environment into TUD_RL
 
-Once your environment is specified you need to register it with gym in order to add it to the list of callable environments. The registration is done in the `/tud_rl/__init__.py` file by selecting the name your environment will be called with, and the entry point for gym to know where your custom environment is located (loc is the fixed base location while the rest is the class name of your environment):
+Once your environment is specified, you need to register it with gym in order to add it to the list of callable environments. The registration is done in the `/tud_rl/__init__.py` file by selecting the name your environment will be called with, and the entry point for gym to know where your custom environment is located (loc is the fixed base location while the rest is the class name of your environment):
 
 ```python
 register(
@@ -143,7 +143,7 @@ register(
 )
 ```
 
-You are now able to select your environment in your configuration file under the `env` cateory.
+You can now select your environment in your configuration file under the `env` category.
 
 Example (incomplete):
 
