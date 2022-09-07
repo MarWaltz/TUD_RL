@@ -859,7 +859,7 @@ class HHOS_Env(gym.Env):
         state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1])).flatten()
 
         # ------------------------- aggregate information ------------------------
-        self.state = np.concatenate([state_OS, state_path, state_env, state_LiDAR, state_TSs])
+        self.state = np.concatenate([state_OS, state_path, state_env, state_LiDAR, state_TSs], dtype=np.float32)
 
 
     def _set_cte(self, smooth_dc=False):

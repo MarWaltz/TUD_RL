@@ -562,7 +562,7 @@ class MMG_Env(gym.Env):
             state_TSs = np.array(state_TSs[-1])
 
         #------------------------------- combine state ------------------------------
-        self.state = np.concatenate([state_OS, state_goal, state_TSs])
+        self.state = np.concatenate([state_OS, state_goal, state_TSs], dtype=np.float32)
 
 
     def step(self, a):
