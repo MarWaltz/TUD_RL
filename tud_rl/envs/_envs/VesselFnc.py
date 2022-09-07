@@ -1,7 +1,6 @@
 import math
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 COLREG_NAMES  = {0 : "Null", 
                  1 : "Head-on", 
@@ -14,33 +13,37 @@ COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in r
 #------------------- Helper functions with angles, mainly following Benjamin (2017) ----------------
 def dtr(angle):
     """Takes angle in degree an transforms it to radiant."""
-    return angle * np.pi / 180
+    return angle * math.pi / 180
 
 
 def rtd(angle):
     """Takes angle in degree an transforms it to radiant."""
-    return angle * 180 / np.pi
+    return angle * 180 / math.pi
 
 
 def angle_to_2pi(angle):
     """Transforms an angle to [0, 2pi)."""
     if angle >= 0:
-        return angle - np.floor(angle / (2*np.pi)) * 2*np.pi
+        return angle - math.floor(angle / (2*math.pi)) * 2*math.pi
     else:
-        return angle + (np.floor(-angle / (2*np.pi)) + 1) * 2*np.pi
+        return angle + (math.floor(-angle / (2*math.pi)) + 1) * 2*math.pi
 
 
 def angle_to_pi(angle):
     """Transforms an angle to [-pi, pi)."""
     if angle >= 0:
-        return angle - np.floor((angle + np.pi) / (2*np.pi)) * 2*np.pi
+        return angle - math.floor((angle + math.pi) / (2*math.pi)) * 2*math.pi
     else:
-        return angle + np.floor((-angle + np.pi)  / (2*np.pi)) * 2*np.pi
+        return angle + math.floor((-angle + math.pi)  / (2*math.pi)) * 2*math.pi
 
 
-def head_inter(head_OS, head_TS):
-    """Computes the intersection angle between headings in radiant (in [0, 2pi)). Corresponds to C_T in Xu et al. (2022, Neurocomputing)."""
-    return angle_to_2pi(head_TS - head_OS)
+def head_inter(head_OS, head_TS, to_2pi=True):
+    """Computes the intersection angle between headings in radiant (in [0, 2pi) if to_2pi, else [-pi, pi)).
+    Corresponds to C_T in Xu et al. (2022, Neurocomputing)."""
+    if to_2pi:
+        return angle_to_2pi(head_TS - head_OS)
+    else:
+        return angle_to_pi(head_TS - head_OS)
 
 
 def ED(N0, E0, N1, E1, sqrt=True):
@@ -75,9 +78,13 @@ def bng_abs(N0, E0, N1, E1):
     return polar_from_xy(x=E1-E0, y=N1-N0, with_r=False, with_angle=True)[1]
 
 
-def bng_rel(N0, E0, N1, E1, head0):
-    """Computes the relative bearing (in radiant, [0, 2pi)) of (N1, E1) from perspective of (N0, E0) and heading head0."""
-    return angle_to_2pi(bng_abs(N0, E0, N1, E1) - head0)
+def bng_rel(N0, E0, N1, E1, head0, to_2pi=True):
+    """Computes the relative bearing (in radiant in [0, 2pi) if to_2pi, else [-pi, pi)) of 
+    (N1, E1) from perspective of (N0, E0) and heading head0."""
+    if to_2pi:
+        return angle_to_2pi(bng_abs(N0, E0, N1, E1) - head0)
+    else:
+        return angle_to_pi(bng_abs(N0, E0, N1, E1) - head0)
 
 
 def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):

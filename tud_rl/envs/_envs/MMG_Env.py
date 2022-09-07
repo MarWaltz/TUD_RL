@@ -477,7 +477,7 @@ class MMG_Env(gym.Env):
 
         #------------------------------ goal related ---------------------------------
         OS_goal_ED = ED(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"])
-        state_goal = np.array([angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0)) / (math.pi), 
+        state_goal = np.array([bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0, to_2pi=False) / (math.pi), 
                                OS_goal_ED / self.E_max])
 
 
@@ -499,10 +499,10 @@ class MMG_Env(gym.Env):
                 ED_OS_TS_norm = (ED_OS_TS-D) / self.E_max
 
                 # relative bearing
-                bng_rel_TS = angle_to_pi(bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0)) / (math.pi)
+                bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0, to_2pi=False) / (math.pi)
 
                 # heading intersection angle
-                C_TS = angle_to_pi(head_inter(head_OS=head0, head_TS=headTS)) / (math.pi)
+                C_TS = head_inter(head_OS=head0, head_TS=headTS, to_2pi=False) / (math.pi)
 
                 # speed
                 V_TS = TS._get_V() / 7.0
@@ -655,7 +655,7 @@ class MMG_Env(gym.Env):
         DCPA = max([0.0, DCPA-domain_tcpa])
 
         # check whether OS will be in front of TS when TCPA = 0
-        bng_rel_tcpa_from_TS_pers = abs(angle_to_pi(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=head1)))
+        bng_rel_tcpa_from_TS_pers = abs(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=head1, to_2pi=False))
 
         if TCPA >= 0.0 and bng_rel_tcpa_from_TS_pers <= dtr(30.0):
             DCPA = DCPA * (1.2-math.exp(-math.log(5.0)/dtr(30.0)*bng_rel_tcpa_from_TS_pers))
@@ -760,7 +760,7 @@ class MMG_Env(gym.Env):
         self.OS_goal_old = OS_goal_ED
 
         # Heading reward
-        r_head = -abs(angle_to_pi(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0))) / math.pi
+        r_head = -abs(bng_rel(N0=N0, E0=E0, N1=self.goal["N"], E1=self.goal["E"], head0=head0, to_2pi=False)) / math.pi
 
         # --------------------------------- 3./4. Collision/COLREG reward --------------------------------
         r_coll = 0
@@ -971,7 +971,7 @@ class MMG_Env(gym.Env):
                             chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS, get_positions=True)
 
                         # check whether OS will be in front of TS when TCPA = 0
-                        bng_rel_tcpa_TS = abs(angle_to_pi(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=chiTS)))
+                        bng_rel_tcpa_TS = abs(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=chiTS, to_2pi=False))
                         col = "salmon" if bng_rel_tcpa_TS <= dtr(30.0) else col
                         ax.scatter(ETS_tcpa, NTS_tcpa, color=col, s=10)
                         ax.scatter(EOS_tcpa, NOS_tcpa, color="black", s=10)

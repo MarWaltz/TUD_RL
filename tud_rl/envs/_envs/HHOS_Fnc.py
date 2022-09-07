@@ -3,8 +3,7 @@ import math
 import numpy as np
 import utm
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
-                                         bng_abs, bng_rel, dtr, rtd)
-from utm import latlon_to_zone_number
+                                         bng_abs, bng_rel, rtd)
 
 
 def to_latlon(north, east, number):
@@ -571,8 +570,8 @@ def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, l
     # detect non-shadow region
     N_WX = np.cos(beta_w)
     N_WY = np.sin(beta_w)
-    alphas = [angle_to_pi(a) for a in np.arccos(hull.N_Xs*N_WX/hull.dls + hull.N_Ys*N_WY/hull.dls)]
-    non_shadow = (np.abs(alphas) <= math.pi/2)
+    alphas = np.arccos(hull.N_Xs*N_WX/hull.dls + hull.N_Ys*N_WY/hull.dls)
+    non_shadow = (alphas <= math.pi/2)
 
     # compute integration block components
     inner_terms = np.sin(hull.thetas + beta_w)**2 + 2*omega_0*U/g * (np.cos(beta_w) - hull.cos_thetas*np.cos(hull.thetas + beta_w))
