@@ -1,6 +1,6 @@
 ---
 env:
-  name: MMGSEval-v0
+  name: MMGWorld-v0
   max_episode_steps: 10_000
   state_type: feature
   wrappers: []

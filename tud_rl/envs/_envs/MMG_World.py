@@ -1,9 +1,8 @@
 from tud_rl.envs._envs.MMG_Imazu import *
-from tud_rl.envs._envs.VesselFnc import dtr
 
 
-class MMG_SEval(MMG_Env):
-    """Implements 24 systematic one-ship evaluation scenarios."""
+class MMG_World(MMG_Env):
+    """Implements 24 systematic one-ship evaluation scenarios, called Around The World.."""
 
     def __init__(self, pdf_traj, eval_situation, state_design, w_dist, w_head, w_coll, w_COLREG, w_comf):
 

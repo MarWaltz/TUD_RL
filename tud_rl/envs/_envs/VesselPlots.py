@@ -187,7 +187,8 @@ class TrajPlotter:
                       r_coll   = None,
                       r_COLREG = None, 
                       r_comf   = None, 
-                      star     = False):
+                      star     = False,
+                      world    = False):
         if ax is None:
             _, ax = plt.subplots()
             create_pdf = True
@@ -209,8 +210,12 @@ class TrajPlotter:
         if not star:
             ax.scatter(goal["E"], goal["N"])
         else:
-            for g in goals:
-                ax.scatter(g["E"], g["N"])
+            for i, g in enumerate(goals):
+                if i == 0:
+                    col = "black"
+                else:
+                    col = COLREG_COLORS[i-1]
+                ax.scatter(g["E"], g["N"], c=col)
         
         # OS trajectory
         ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
@@ -282,6 +287,11 @@ class TrajPlotter:
             ax.grid(linewidth=1.0, alpha=0.425)
 
             if not star:
+                if not world:
+                    xlab_boxs = [20, 21, 22, 23]
+                else:
+                    xlab_boxs = [21, 22, 23, 24]
+                ylab_boxs = [1, 5, 9, 13, 17, 21]
 
                 #if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
                     #ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
@@ -293,18 +303,17 @@ class TrajPlotter:
                 
                 ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-                if sit not in [20, 21, 22, 23]:
+                if sit not in xlab_boxs:
                     ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
                     ax.set_xlabel("")
                 else:
                     ax.tick_params(axis='x', labelsize=8)
 
-                if sit not in [1, 5, 9, 13, 17, 21]:
+                if sit not in ylab_boxs:
                     ax.tick_params(axis='y', labelsize=8, which='both', left=False, right=False, labelleft=False)
                     ax.set_ylabel("")
                 else:
                     ax.tick_params(axis='y', labelsize=8)
-            
             return ax
 
 
@@ -313,7 +322,7 @@ class TrajPlotter:
         return t * self.delta_t / 60.0
 
 
-    def plot_dist(self, ax, sit, N_max, ship_domain_A, ship_domain_B, ship_domain_C, ship_domain_D):
+    def plot_dist(self, ax, sit, N_max, ship_domain_A, ship_domain_B, ship_domain_C, ship_domain_D, world=False):
         """Adds the distance plot to a given axis."""
 
         # Time axis
@@ -376,7 +385,12 @@ class TrajPlotter:
 
         ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
-        if sit not in [20, 21, 22, 23]:
+        if not world:
+            xlab_boxs = [20, 21, 22, 23]
+        else:
+            xlab_boxs = [21, 22, 23, 24]
+
+        if sit not in xlab_boxs:
             ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
             ax.set_xlabel("")
         else:
@@ -391,7 +405,7 @@ class TrajPlotter:
         return ax
 
 
-    def plot_rudder(self, ax, sit, rud_angle_max):
+    def plot_rudder(self, ax, sit, rud_angle_max, world=False):
         """Adds the trajectory plot to a given axis."""
 
         # Time axis
@@ -412,7 +426,12 @@ class TrajPlotter:
 
         ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
 
-        if sit not in [20, 21, 22, 23]:
+        if not world:
+            xlab_boxs = [20, 21, 22, 23]
+        else:
+            xlab_boxs = [21, 22, 23, 24]
+
+        if sit not in xlab_boxs:
             ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
             ax.set_xlabel("")
         else:
