@@ -75,7 +75,7 @@ class HHOS_Env(gym.Env):
             self.river_min = 5
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.7
+        self.show_lon_lat = 0.02
 
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
@@ -343,11 +343,11 @@ class HHOS_Env(gym.Env):
                 lon_area = int(lon_idx / idx_freq_lon)
                 lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
-                speed_mps[lat_idx, lon_idx] = max([0.0, V_const[lat_area, lon_area] + np.random.normal(0.0, 1.0)])
+                speed_mps[lat_idx, lon_idx] = V_const[lat_area, lon_area] + np.random.normal(0.0, 1.0)
                 angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
-        self.WindData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[5, 5], mode="constant"), 0.0, np.infty)
+        self.WindData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[5, 5], mode="constant"), 0.0, 15.0)
         self.WindData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
         # overwrite other entries
@@ -394,11 +394,11 @@ class HHOS_Env(gym.Env):
                 lon_area = int(lon_idx / idx_freq_lon)
                 lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
-                speed_mps[lat_idx, lon_idx] = np.clip(V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25), 0.0, 0.5)
+                speed_mps[lat_idx, lon_idx] = V_const[lat_area, lon_area] + np.random.normal(0.0, 0.25)
                 angle[lat_idx, lon_idx] = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
-        self.CurrentData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[1, 1], mode="constant"), 0.0, np.infty)
+        self.CurrentData["speed_mps"] = np.clip(scipy.ndimage.gaussian_filter(speed_mps, sigma=[1, 1], mode="constant"), 0.0, 0.5)
         self.CurrentData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
         # overwrite other entries
@@ -449,15 +449,15 @@ class HHOS_Env(gym.Env):
                 lon_area = int(lon_idx / idx_freq_lon)
                 lon_area = int(lon_n_areas-1 if lon_area >= lon_n_areas else lon_area)
 
-                height[lat_idx, lon_idx] = np.clip(height_const[lat_area, lon_area] + np.random.normal(0.0, 0.05), 0.0, 0.5)
-                length[lat_idx, lon_idx] = np.clip(length_const[lat_area, lon_area] + np.random.normal(0.0, 5.0), 0.0, 100.0)
-                period[lat_idx, lon_idx] = np.clip(period_const[lat_area, lon_area] + np.random.normal(0.0, 0.5), 0.0, 10.0)
+                height[lat_idx, lon_idx] = height_const[lat_area, lon_area] + np.random.normal(0.0, 0.05)
+                length[lat_idx, lon_idx] = length_const[lat_area, lon_area] + np.random.normal(0.0, 5.0)
+                period[lat_idx, lon_idx] = period_const[lat_area, lon_area] + np.random.normal(0.0, 0.5)
                 angle[lat_idx, lon_idx]  = angle_to_2pi(angle_const[lat_area, lon_area] + dtr(np.random.normal(0.0, 5.0)))
 
         # smoothing things
-        self.WaveData["height"] = np.clip(scipy.ndimage.gaussian_filter(height, sigma=[0.01, 0.01], mode="constant"), 0.0001, np.infty)
-        self.WaveData["length"] = np.clip(scipy.ndimage.gaussian_filter(length, sigma=[1, 1], mode="constant"), 0.0001, np.infty)
-        self.WaveData["period"] = np.clip(scipy.ndimage.gaussian_filter(period, sigma=[0.1, 0.1], mode="constant"), 0.0001, np.infty)
+        self.WaveData["height"] = np.clip(scipy.ndimage.gaussian_filter(height, sigma=[0.01, 0.01], mode="constant"), 0.01, 2.0)
+        self.WaveData["length"] = np.clip(scipy.ndimage.gaussian_filter(length, sigma=[1, 1], mode="constant"), 1.0, 100.0)
+        self.WaveData["period"] = np.clip(scipy.ndimage.gaussian_filter(period, sigma=[0.1, 0.1], mode="constant"), 0.5, 7.0)
         self.WaveData["angle"] = scipy.ndimage.gaussian_filter(angle, sigma=[0.2, 0.2], mode="constant")
 
         # overwrite other entries
