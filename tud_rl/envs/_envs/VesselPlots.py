@@ -288,7 +288,7 @@ class TrajPlotter:
 
             if not star:
                 if not world:
-                    xlab_boxs = [20, 21, 22, 23]
+                    xlab_boxs = [19, 20, 21, 22]
                 else:
                     xlab_boxs = [21, 22, 23, 24]
                 ylab_boxs = [1, 5, 9, 13, 17, 21]
@@ -386,7 +386,7 @@ class TrajPlotter:
         ax.text(self.step_to_minute(100), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
         if not world:
-            xlab_boxs = [20, 21, 22, 23]
+            xlab_boxs = [19, 20, 21, 22]
         else:
             xlab_boxs = [21, 22, 23, 24]
 
@@ -427,7 +427,7 @@ class TrajPlotter:
         ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
 
         if not world:
-            xlab_boxs = [20, 21, 22, 23]
+            xlab_boxs = [19, 20, 21, 22]
         else:
             xlab_boxs = [21, 22, 23, 24]
 

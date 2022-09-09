@@ -24,8 +24,14 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
-
-    def __init__(self, mode="train", N_TSs_max=3, N_TSs_random=True):
+    def __init__(self, 
+                 mode="train", 
+                 N_TSs_max=3, 
+                 N_TSs_random=True, 
+                 w_ye=0.5, 
+                 w_ce=0.5, 
+                 w_coll=0.5, 
+                 w_comf=0.02):
         super().__init__()
 
         # simulation settings
@@ -104,6 +110,18 @@ class HHOS_Env(gym.Env):
         self.CR_rec_dist = 300                   # collision risk distance [m]
         self.CR_al = 0.1                         # collision risk metric normalization
 
+        # reward setup
+        self.w_ye = w_ye
+        self.w_ce = w_ce
+        self.w_coll = w_coll
+        self.w_comf = w_comf
+       
+        self.r = 0
+        self.r_ye = 0
+        self.r_ce = 0
+        self.r_coll = 0
+        self.r_comf = 0
+
         # gym inherits
         path_info_size = 16
         TS_info_size = 5
@@ -113,11 +131,6 @@ class HHOS_Env(gym.Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
-        self.r = 0
-        self.r_ye = 0
-        self.r_ce = 0
-        self.r_coll = 0
-        self.r_comf = 0
         self._max_episode_steps = 1500
 
 
@@ -1080,10 +1093,14 @@ class HHOS_Env(gym.Env):
             self.r_coll -= 10.0
 
         # -------------------------- Comfort reward -------------------------
+        # steering-based
         self.r_comf = -a**4
 
+        # drift-based
+        self.r_comf -= abs(self.OS.nu[1])
+
         # ---------------------------- Aggregation --------------------------
-        weights = np.array([0.5, 0.5, 0.5, 0.02])
+        weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_comf])
         rews = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_comf])
         self.r = np.sum(weights * rews) / np.sum(weights)
 

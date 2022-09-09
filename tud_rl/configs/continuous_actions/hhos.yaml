@@ -9,6 +9,10 @@ env:
     mode: train
     N_TSs_max: 3
     N_TSs_random: true 
+    w_ye : 0.5
+    w_ce : 0.5
+    w_coll : 1.0
+    w_comf : 0.02
   info: MDP
 agent:
   DDPG: {}
