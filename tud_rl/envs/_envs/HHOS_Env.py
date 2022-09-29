@@ -81,7 +81,7 @@ class HHOS_Env(gym.Env):
             self.river_min = 5
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.02
+        self.show_lon_lat = 0.05
 
         # visualization
         self.plot_in_latlon = True         # if false, plots in UTM coordinates
@@ -91,7 +91,7 @@ class HHOS_Env(gym.Env):
         self.plot_current = True
         self.plot_waves = True
         self.plot_lidar = True
-        self.plot_reward = False
+        self.plot_reward = True
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
 
         if not self.plot_in_latlon:
@@ -131,7 +131,7 @@ class HHOS_Env(gym.Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
-        self._max_episode_steps = 1500
+        self._max_episode_steps = 5_000
 
 
     def _load_desired_path(self, path_to_desired_path):
@@ -591,10 +591,12 @@ class HHOS_Env(gym.Env):
         # sample path in training
         if self.mode == "train":
             self._sample_desired_path()
-            self._add_rev_path()
+
+        # add reversed path for TSs
+        self._add_rev_path()
 
         # init OS
-        wp_idx = 20 #np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
+        wp_idx = 1 #np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
         lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
@@ -875,7 +877,7 @@ class HHOS_Env(gym.Env):
         self.state = np.concatenate([state_OS, state_path, state_env, state_LiDAR, state_TSs], dtype=np.float32)
 
 
-    def _set_cte(self, smooth_dc=False):
+    def _set_cte(self, smooth_dc=True):
         """Sets the cross-track error based on VFG."""
         if smooth_dc:
             N3, E3 = self.OS.wp3_N, self.OS.wp3_E
@@ -1077,7 +1079,10 @@ class HHOS_Env(gym.Env):
 
         # course error
         k_ce = 5.0
-        self.r_ce = math.exp(-k_ce * abs(self.course_error))
+        if abs(rtd(self.course_error)) >= 90.0:
+            self.r_ce = -10
+        else:
+            self.r_ce = math.exp(-k_ce * abs(self.course_error))
 
         # ---------------------- Collision Avoidance reward -----------------
         self.r_coll = 0
@@ -1233,7 +1238,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 1 == 0:
+        if self.step_cnt % 3 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
@@ -1325,7 +1330,7 @@ class HHOS_Env(gym.Env):
                         ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
 
                         # wps of OS
-                        self._render_wps(ax=ax, vessel=self.OS, color="black")
+                        self._render_wps(ax=ax, vessel=self.OS, color="springgreen")
 
                         # wps of TSs
                         for i, TS in enumerate(self.TSs):
@@ -1399,7 +1404,7 @@ class HHOS_Env(gym.Env):
                     self.ax2.old_r_comf = 0
                     self.ax2.r = 0
 
-                self.ax2.set_xlim(0, self._max_episode_steps)
+                #self.ax2.set_xlim(0, self._max_episode_steps)
                 #self.ax2.set_ylim(0, 1)
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("Reward")

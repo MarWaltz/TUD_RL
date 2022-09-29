@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-v0
-  max_episode_steps: 1500
+  max_episode_steps: 5_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
