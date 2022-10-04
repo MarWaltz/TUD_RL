@@ -43,8 +43,8 @@ gym.register(
     entry_point=loc + "MMG_Imazu"
 )
 gym.register(
-    id="MMGSEval-v0",
-    entry_point=loc + "MMG_SEval"
+    id="MMGWorld-v0",
+    entry_point=loc + "MMG_World"
 )
 gym.register(
     id="HHOS-v0",
