@@ -35,7 +35,7 @@ class HHOS_Env(gym.Env):
         super().__init__()
 
         # simulation settings
-        self.delta_t = 3.0   # simulation time interval (in s)
+        self.delta_t = 5.0   # simulation time interval (in s)
 
         # LiDAR
         self.lidar_range       = NM_to_meter(1.0)                                                # range of LiDAR sensoring in m
@@ -75,10 +75,12 @@ class HHOS_Env(gym.Env):
         else:
             self.n_wps = 250
             self.l_seg_path = 0.001
-            self.river_dist_loc = 70 # 10_000
-            self.river_dist_sca = 20  # 2_000
-            self.river_dist_noise_loc = 5 # 100
-            self.river_dist_noise_sca = 2 # 50
+            self.river_dist_left_loc  = 150
+            self.river_dist_right_loc = 70
+            self.river_dist_sca = 20
+            self.river_dist_noise_loc = 5
+            self.river_dist_noise_sca = 2
+            self.dist_des_rev_path = 1.5*self.river_dist_left_loc
             self.river_min = 5
 
         # how many longitude/latitude degrees to show for the visualization
@@ -92,7 +94,7 @@ class HHOS_Env(gym.Env):
         self.plot_current = True
         self.plot_waves = True
         self.plot_lidar = True
-        self.plot_reward = True
+        self.plot_reward = False
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
 
         if not self.plot_in_latlon:
@@ -105,7 +107,7 @@ class HHOS_Env(gym.Env):
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
         self.TCPA_respawn = 120                        # (negative) TCPA in seconds considered as respawning condition
-        self.TS_spawn_dists = [NM_to_meter(0.1), NM_to_meter(0.75)]
+        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(1.25)]
 
         # CR calculation
         self.CR_rec_dist = 300                   # collision risk distance [m]
@@ -253,16 +255,16 @@ class HHOS_Env(gym.Env):
 
             for i in range(self.n_wps):
                 if i == 0:
-                    d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
-                    d_right[i] = np.clip(np.random.normal(loc=self.river_dist_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                    d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                    d_right[i] = np.clip(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
                     depth[i] = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
                 else:
                     d_left[i]  = np.clip(
                                     d_left[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
-                                self.river_min, 3*self.river_dist_loc)
+                                self.river_min, 3*self.river_dist_left_loc)
                     d_right[i] = np.clip(
                                     d_right[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
-                                self.river_min, 3*self.river_dist_loc)
+                                self.river_min, 3*self.river_dist_right_loc)
                     depth[i] = np.clip(depth[i-1] + np.random.normal(loc=0.0, scale=10.0), 20, 100)
 
             # fill close points at that distance away from the path
@@ -487,12 +489,30 @@ class HHOS_Env(gym.Env):
 
 
     def _add_rev_path(self):
-        """Sets the reversed version of the path."""
+        """Sets the reversed version of the path based on a constant offset to the desired path."""
         self.RevPath = {"n_wps" : self.DesiredPath["n_wps"]}
-        self.RevPath["lat"] = np.flip(self.DesiredPath["lat"])
-        self.RevPath["lon"] = np.flip(self.DesiredPath["lon"])
-        self.RevPath["north"] = np.flip(self.DesiredPath["north"])
-        self.RevPath["east"]  = np.flip(self.DesiredPath["east"])
+        self.RevPath["north"] = np.zeros_like(self.DesiredPath["north"])
+        self.RevPath["east"] = np.zeros_like(self.DesiredPath["east"])
+        self.RevPath["lat"] = np.zeros_like(self.DesiredPath["lat"])
+        self.RevPath["lon"] = np.zeros_like(self.DesiredPath["lon"])
+
+        for i in range(self.n_wps):
+            n = np.flip(self.DesiredPath["north"])[i]
+            e = np.flip(self.DesiredPath["east"])[i]
+
+            if i != (self.n_wps-1):
+                n_nxt = np.flip(self.DesiredPath["north"])[i+1]
+                e_nxt = np.flip(self.DesiredPath["east"])[i+1]
+                ang = angle_to_2pi(bng_abs(N0=n, E0=e, N1=n_nxt, E1=e_nxt) + math.pi/2)
+            else:
+                n_last = np.flip(self.DesiredPath["north"])[i-1]
+                e_last = np.flip(self.DesiredPath["east"])[i-1]
+                ang = angle_to_2pi(bng_abs(N0=n_last, E0=e_last, N1=n, E1=e) + math.pi/2)
+
+            e_add, n_add = xy_from_polar(r=self.dist_des_rev_path, angle=ang)
+            self.RevPath["north"][i] = n + n_add
+            self.RevPath["east"][i] = e + e_add
+            self.RevPath["lat"][i], self.RevPath["lon"][i] = to_latlon(north=n + n_add, east=e + e_add, number=32)
 
 
     def _depth_at_latlon(self, lat_q, lon_q):
@@ -597,7 +617,7 @@ class HHOS_Env(gym.Env):
         self._add_rev_path()
 
         # init OS
-        wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.5), size=(1,)).astype(int)[0]
+        wp_idx = np.random.uniform(low=int(self.n_wps*0.1), high=int(self.n_wps*0.3), size=(1,)).astype(int)[0]
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
         lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
@@ -757,9 +777,23 @@ class HHOS_Env(gym.Env):
         else:
             E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
 
-        # include random disturbances
-        N_TS = self.DesiredPath["north"][wp1] + N_add + np.random.normal(0.0, 50)
-        E_TS = self.DesiredPath["east"][wp1] + E_add + np.random.normal(0.0, 50)
+        # determine position
+        N_TS = self.DesiredPath["north"][wp1] + N_add
+        E_TS = self.DesiredPath["east"][wp1] + E_add
+        
+        # potentially place vessel on reversed path
+        if rev_dir:
+            E_add_rev, N_add_rev = xy_from_polar(r=self.dist_des_rev_path, angle=angle_to_2pi(pi_path_spwn-math.pi/2))
+            N_TS += N_add_rev
+            E_TS += E_add_rev
+
+        # include random disturbances, which are larger in reversed direction
+        if rev_dir:
+            N_TS += np.random.normal(0.0, 50)
+            E_TS += np.random.normal(0.0, 50)
+        else:
+            N_TS += np.random.normal(0.0, 10)
+            E_TS += np.random.normal(0.0, 10)
 
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
@@ -770,7 +804,7 @@ class HHOS_Env(gym.Env):
                     delta_t   = self.delta_t,
                     N_max     = np.infty,
                     E_max     = np.infty,
-                    nps       = np.random.uniform(0.3, 0.8) * self.OS.nps,
+                    nps       = np.random.uniform(0.1, 0.8) * self.OS.nps,
                     full_ship = False)
         TS.utm_number = 32
 
@@ -1008,7 +1042,7 @@ class HHOS_Env(gym.Env):
         self._set_ce()
 
         # HEADING CONTROL OS
-        #self.OS = self._heading_control(self.OS)
+        self.OS = self._heading_control(self.OS)
 
         # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
         [TS._upd_dynamics() for TS in self.TSs]
@@ -1100,14 +1134,16 @@ class HHOS_Env(gym.Env):
 
         # -------------------------- Comfort reward -------------------------
         # steering-based
-        self.r_comf = -a**4
+        #self.r_comf = -a**4
 
         # drift-based
-        self.r_comf -= abs(self.OS.nu[1])
+        #self.r_comf -= abs(self.OS.nu[1])
+
+        self.r_comf = 0.0
 
         # ---------------------------- Aggregation --------------------------
-        weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_comf])
-        rews = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_comf])
+        weights = np.array([self.w_ye, self.w_ce, self.w_coll])
+        rews = np.array([self.r_ye, self.r_ce, self.r_coll])
         self.r = np.sum(weights * rews) / np.sum(weights)
 
 
@@ -1324,8 +1360,8 @@ class HHOS_Env(gym.Env):
                     ax.plot(xs, ys, color="red", alpha=0.7)
 
                 # TSs
-                for i, TS in enumerate(self.TSs):
-                    col = self.default_cols[i] if i <= (len(self.default_cols)-1) else "black"
+                for TS in self.TSs:
+                    col = "purple" if TS.rev_dir else "salmon"
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Desired path ------------------------
@@ -1333,14 +1369,10 @@ class HHOS_Env(gym.Env):
 
                     if self.plot_in_latlon:
                         ax.plot(self.DesiredPath["lon"], self.DesiredPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+                        ax.plot(self.RevPath["lon"], self.RevPath["lat"], marker='o', color="purple", linewidth=1.0, markersize=3)
 
                         # wps of OS
                         self._render_wps(ax=ax, vessel=self.OS, color="springgreen")
-
-                        # wps of TSs
-                        for i, TS in enumerate(self.TSs):
-                            col = self.default_cols[i] if i <= (len(self.default_cols)-1) else "black"
-                            ax = self._render_wps(ax=ax, vessel=TS, color=col)
 
                         # cross-track error
                         if self.ye < 0:
@@ -1352,6 +1384,7 @@ class HHOS_Env(gym.Env):
 
                     else:
                         ax.plot(self.DesiredPath["east"], self.DesiredPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3)
+                        ax.plot(self.RevPath["east"], self.RevPath["north"], marker='o', color="purple", linewidth=1.0, markersize=3)
 
                         # current waypoints
                         ax.plot([self.OS.wp1_E, self.OS.wp2_E], [self.OS.wp1_N, self.OS.wp2_N], color="springgreen", linewidth=1.0, markersize=3)
