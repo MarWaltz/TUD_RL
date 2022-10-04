@@ -74,6 +74,7 @@ class HHOS_Env(gym.Env):
             self._load_wave_data(path_to_HHOS + "/waves")
         else:
             self.n_wps = 250
+            self.l_seg_path = 0.001
             self.river_dist_loc = 70 # 10_000
             self.river_dist_sca = 20  # 2_000
             self.river_dist_noise_loc = 5 # 100
@@ -184,7 +185,7 @@ class HHOS_Env(gym.Env):
             self.WaveData = pickle.load(f)
 
 
-    def _sample_desired_path(self, l=0.001):
+    def _sample_desired_path(self):
         """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
         The agent should follows the path always in direction of increasing indices."""
         self.DesiredPath = {"n_wps" : self.n_wps}
@@ -210,7 +211,7 @@ class HHOS_Env(gym.Env):
                 ang = angle_to_2pi(ang + ang_diff)
 
                 # next point
-                lon_diff, lat_diff = xy_from_polar(r=l, angle=ang)
+                lon_diff, lat_diff = xy_from_polar(r=self.l_seg_path, angle=ang)
                 lat[n] = lat[n-1] + lat_diff
                 lon[n] = lon[n-1] + lon_diff
 
@@ -232,7 +233,7 @@ class HHOS_Env(gym.Env):
         self.DesiredPath["east"] = path_e
 
         # overwrite data range
-        self.off = 15*l
+        self.off = 15*self.l_seg_path
         self.lat_lims = [np.min(lat)-self.off, np.max(lat)+self.off]
         self.lon_lims = [np.min(lon)-self.off, np.max(lon)+self.off]
 
@@ -596,7 +597,7 @@ class HHOS_Env(gym.Env):
         self._add_rev_path()
 
         # init OS
-        wp_idx = 1 #np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.75), size=(1,)).astype(int)[0]
+        wp_idx = np.random.uniform(low=int(self.n_wps*0.25), high=int(self.n_wps*0.5), size=(1,)).astype(int)[0]
         lat_init = self.DesiredPath["lat"][wp_idx]# if self.mode == "train" else 56.635
         lon_init = self.DesiredPath["lon"][wp_idx]# if self.mode == "train" else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
@@ -1120,6 +1121,10 @@ class HHOS_Env(gym.Env):
         elif self.H <= self.OS.critical_depth:
             return True
 
+        # OS reached final waypoint
+        if any([i >= int(0.9*self.n_wps) for i in (self.OS.wp1_idx, self.OS.wp2_idx, self.OS.wp3_idx)]):
+            return True
+
         # artificial done signal
         elif self.step_cnt >= self._max_episode_steps:
             return True
@@ -1238,7 +1243,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 3 == 0:
+        if self.step_cnt % 1 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
