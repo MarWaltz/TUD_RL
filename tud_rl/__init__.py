@@ -50,7 +50,14 @@ gym.register(
     id="HHOS-v0",
     entry_point=loc + "HHOS_Env"
 )
-
+gym.register(
+    id="HHOS-PathFollowing-v0",
+    entry_point=loc + "HHOS_PathFollowing_Env"
+)
+gym.register(
+    id="HHOS-PathPlanning-v0",
+    entry_point=loc + "HHOS_PathPlanning_Env"
+)
 
 # Initialize logger
 logger = logging.getLogger(__name__)

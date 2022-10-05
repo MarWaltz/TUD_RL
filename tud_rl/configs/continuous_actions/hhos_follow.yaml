@@ -1,17 +1,14 @@
 ---
 env:
-  name: HHOS-v0
+  name: HHOS-PathFollowing-v0
   max_episode_steps: 5_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
     data: sampled
-    N_TSs_max: 3
-    N_TSs_random: true 
     w_ye : 0.5
     w_ce : 0.5
-    w_coll : 1.0
     w_comf : 0.02
   info: MDP
 agent:
@@ -72,7 +69,7 @@ optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001
 lr_critic: 0.0001
-buffer_length: 100_000
+buffer_length: 500_000
 grad_clip: false
 grad_rescale: false
 act_start_step: 5000
