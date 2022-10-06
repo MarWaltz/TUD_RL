@@ -8,7 +8,7 @@ env:
   env_kwargs:
     data: sampled
     N_TSs_max: 2
-    N_TSs_random: true 
+    N_TSs_random: true
     w_ye : 1.0
     w_ce : 1.0
     w_coll : 1.0

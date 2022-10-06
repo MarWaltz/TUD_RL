@@ -21,8 +21,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.d_head_scale = math.pi/4
         self._max_episode_steps = 5_000
 
-    def _add_local_path(self):
-        self.LocalPath = copy.deepcopy(self.GlobalPath)
+    def reset(self):
+        s = super().reset()
+
+        # we can delete the local path and its characteritics
+        del [self.LocalPath, self.loc_ye, self.loc_desired_course, self.loc_pi_path][:]
+        return s
 
     def _update_local_path(self):
         pass
@@ -189,7 +193,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             return True
 
         # OS reached final waypoint
-        elif any([i >= int(0.9*self.n_wps) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        elif any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal

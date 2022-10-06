@@ -1,9 +1,20 @@
+import torch
+from tud_rl.common.nets import MLP
 from tud_rl.envs._envs.HHOS_Env import *
+from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
 
 
 class HHOS_PathFollowing_Env(HHOS_Env):
-    def __init__(self, data="sampled", w_ye=0.5, w_ce=0.5, w_comf=0.05):
-        super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_comf=w_comf, N_TSs_max=0, N_TSs_random=False, w_coll=0.0)
+    def __init__(self, planner_weights=None, data="sampled", N_TSs_max=0, N_TSs_random=False, w_ye=0.5, w_ce=0.5, w_comf=0.05):
+        super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_comf=w_comf, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_coll=0.0)
+
+        if planner_weights is not None:
+            plan_in_size = 3 + self.lidar_n_beams + 4 * self.N_TSs_max
+            self.planner = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+            self.planner.load_state_dict(torch.load(planner_weights))
+            self.planning_env = HHOS_PathPlanning_Env(data=data, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0)
+        else:
+            self.planner = None
 
         # gym inherits
         path_info_size = 16
@@ -15,11 +26,95 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                                        high=np.array([1], dtype=np.float32))
         self._max_episode_steps = 5_000
     
-    def _add_local_path(self):
-        self.LocalPath = copy.deepcopy(self.GlobalPath)
+
+    def reset(self):
+        # the local path equals the first couple of entries of the global paths after the super().reset() call
+        s = super().reset()
+
+        if self.planner is None:
+            return s
+        
+        # we override the local path since our planning agent should work from the beginning
+        self.planning_env.reset()
+        self.setup_planning_env(initial=True)
+        self._update_local_path()
+
+        # update wps and error
+        self._init_OS_wps(path_level="local")
+        self._set_cte(path_level="local")
+        self._set_ce(path_level="local")
+
+        # init state
+        self._set_state()
+        self.state_init = self.state
+        return self.state
+
+
+    def setup_planning_env(self, initial : bool):
+        """Sets the relevant characteristics of the planning env to the status of self, the PathFollowing Env. The planner will execute its actions there, and a 
+        set of waypoints constituting the local path is returned. The follower's object is to follow this local path.
+        If initial is True, the global path is also set."""
+
+        if initial:        
+            # global path and its characteristics
+            self.planning_env.GlobalPath = copy.deepcopy(self.GlobalPath)
+            self.planning_env.RevGlobalPath = copy.deepcopy(self.RevGlobalPath)
+            self.planning_env.glo_ye = self.glo_ye
+            self.planning_env.glo_desired_course = self.glo_desired_course
+            self.planning_env.glo_pi_path = self.glo_pi_path
+
+            # environmental disturbances (although not need for dynamics, only for depth-checking)
+            self.planning_env.DepthData = copy.deepcopy(self.DepthData)
+            self.planning_env.WindData = copy.deepcopy(self.WindData)
+            self.planning_env.CurrentData = copy.deepcopy(self.CurrentData)
+            self.planning_env.WaveData = copy.deepcopy(self.WaveData)
+        else:
+            # OS and TSs
+            self.planning_env.OS = copy.deepcopy(self.OS)
+            self.planning_env.TSs = copy.deepcopy(self.TSs)
+            self.planning_env.H = copy.copy(self.H)
+
+            # set state in planning env and return it
+            self.planning_env._set_state()
+            return self.planning_env.state
+
 
     def _update_local_path(self):
-        pass
+        if self.planner is not None:
+            if self.step_cnt % 25 == 0:
+
+                # prep planning env
+                s = self.setup_planning_env(initial=False)
+
+                # setup wps
+                ns, es = [self.OS.eta[0]], [self.OS.eta[1]]
+
+                # planning loop
+                for _ in range(self.n_wps_loc-1):
+                    # planner's move
+                    s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
+                    a = self.planner(s)
+
+                    # planning env's reaction
+                    s, _, d, _ = self.planning_env.step(a.item())
+
+                    # store wps
+                    ns.append(self.planning_env.OS.eta[0])
+                    es.append(self.planning_env.OS.eta[1])
+
+                    if d:
+                        break
+                
+                # set it as local path
+                self.LocalPath["north"] = np.array(ns)
+                self.LocalPath["east"] = np.array(es)
+                self.LocalPath["lat"] = np.zeros_like(self.LocalPath["north"])
+                self.LocalPath["lon"] = np.zeros_like(self.LocalPath["north"])
+
+                for i in range(len(ns)):
+                    self.LocalPath["lat"][i], self.LocalPath["lon"][i] = to_latlon(north=ns[i], east=es[i], number=32)
+        else:
+            super()._update_local_path()
 
     def _set_state(self):
         #--------------------------- OS information ----------------------------
@@ -88,7 +183,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             return True
 
         # OS reaches end of global waypoints
-        if any([i >= int(0.9*self.n_wps) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal

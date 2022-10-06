@@ -69,8 +69,10 @@ class HHOS_Env(gym.Env):
             self._load_current_data(path_to_HHOS + "/currents")
             self._load_wave_data(path_to_HHOS + "/waves")
         else:
-            self.n_wps = 250
-            self.l_seg_path = 0.0025
+            self.n_wps_glo = 250            # number of wps of the global path
+            self.l_seg_path = 0.0025        # wp distance of the global path in °Lat
+
+            # depth data sampling parameters
             self.river_dist_left_loc  = 150
             self.river_dist_right_loc = 70
             self.river_dist_sca = 20
@@ -78,6 +80,9 @@ class HHOS_Env(gym.Env):
             self.river_dist_noise_sca = 2
             self.dist_des_rev_path = 1.5*self.river_dist_left_loc
             self.river_min = 5
+
+        # number of wps of the local path
+        self.n_wps_loc = 10
 
         # how many longitude/latitude degrees to show for the visualization
         self.show_lon_lat = 0.05
@@ -103,7 +108,7 @@ class HHOS_Env(gym.Env):
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
         self.TCPA_respawn = 120                        # (negative) TCPA in seconds considered as respawning condition
-        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(1.25)]
+        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(0.75)]
 
         # CR calculation
         #self.CR_rec_dist = 300                   # collision risk distance [m]
@@ -128,7 +133,7 @@ class HHOS_Env(gym.Env):
         
         # store number of waypoints
         self.GlobalPath["n_wps"] = len(self.GlobalPath["lat"])
-        self.n_wps = self.GlobalPath["n_wps"]
+        self.n_wps_glo = self.GlobalPath["n_wps"]
 
         # add utm coordinates
         path_n = np.zeros_like(self.GlobalPath["lat"])
@@ -175,14 +180,14 @@ class HHOS_Env(gym.Env):
     def _sample_global_path(self):
         """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
         The agent should follows the path always in direction of increasing indices."""
-        self.GlobalPath = {"n_wps" : self.n_wps}
+        self.GlobalPath = {"n_wps" : self.n_wps_glo}
 
         # do it until we have a path whichs stays in our simulation domain
         while True:
 
             # sample starting point
-            lat = np.zeros(self.n_wps)
-            lon = np.zeros(self.n_wps)
+            lat = np.zeros(self.n_wps_glo)
+            lon = np.zeros(self.n_wps_glo)
             lat[0] = 56.0
             lon[0] = 9.0
 
@@ -190,7 +195,7 @@ class HHOS_Env(gym.Env):
             ang = np.random.uniform(0, 2*math.pi)
             ang_diff = dtr(np.random.uniform(-20., 20.))
             ang_diff2 = 0.0
-            for n in range(1, self.n_wps):
+            for n in range(1, self.n_wps_glo):
                 
                 # next angle
                 ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
@@ -234,11 +239,11 @@ class HHOS_Env(gym.Env):
 
         while True:
             # sample distances to waypoints
-            d_left  = np.zeros(self.n_wps)
-            d_right = np.zeros(self.n_wps)
-            depth = np.zeros(self.n_wps)
+            d_left  = np.zeros(self.n_wps_glo)
+            d_right = np.zeros(self.n_wps_glo)
+            depth = np.zeros(self.n_wps_glo)
 
-            for i in range(self.n_wps):
+            for i in range(self.n_wps_glo):
                 if i == 0:
                     d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
                     d_right[i] = np.clip(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
@@ -258,7 +263,7 @@ class HHOS_Env(gym.Env):
 
             for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
                 
-                if i != self.n_wps-1:
+                if i != self.n_wps_glo-1:
 
                     # go to utm
                     n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
@@ -481,11 +486,11 @@ class HHOS_Env(gym.Env):
         self.RevGlobalPath["lat"] = np.zeros_like(self.GlobalPath["lat"])
         self.RevGlobalPath["lon"] = np.zeros_like(self.GlobalPath["lon"])
 
-        for i in range(self.n_wps):
+        for i in range(self.n_wps_glo):
             n = np.flip(self.GlobalPath["north"])[i]
             e = np.flip(self.GlobalPath["east"])[i]
 
-            if i != (self.n_wps-1):
+            if i != (self.n_wps_glo-1):
                 n_nxt = np.flip(self.GlobalPath["north"])[i+1]
                 e_nxt = np.flip(self.GlobalPath["east"])[i+1]
                 ang = angle_to_2pi(bng_abs(N0=n, E0=e, N1=n_nxt, E1=e_nxt) + math.pi/2)
@@ -601,11 +606,8 @@ class HHOS_Env(gym.Env):
         # add reversed global path for TS spawning
         self._add_rev_global_path()
 
-        # add local path
-        self._add_local_path()
-
         # init OS
-        wp_idx = np.random.uniform(low=int(self.n_wps*0.1), high=int(self.n_wps*0.3), size=(1,)).astype(int)[0]
+        wp_idx = np.random.uniform(low=int(self.n_wps_glo*0.1), high=int(self.n_wps_glo*0.3), size=(1,)).astype(int)[0]
         lat_init = self.GlobalPath["lat"][wp_idx]# if self.data == data else 56.635
         lon_init = self.GlobalPath["lon"][wp_idx]# if self.data == data else 7.421
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
@@ -622,8 +624,15 @@ class HHOS_Env(gym.Env):
                          nps       = 3.0,
                          full_ship = False,
                          cont_acts = True)
-        # init waypoints of OS for local and global path
-        self._init_OS_wps()
+
+        # init waypoints of OS for global path
+        self._init_OS_wps(path_level="global")
+
+        # init local path
+        self._init_local_path()
+
+        # init waypoints of OS for local path
+        self._init_OS_wps(path_level="local")
 
         # init cross-track error
         self._set_cte(path_level="global")
@@ -685,35 +694,37 @@ class HHOS_Env(gym.Env):
         return self.state
 
 
-    def _init_OS_wps(self):
+    def _init_OS_wps(self, path_level):
         """Initializes the waypoints on the global and local path, respectively, based on the initial position of the agent."""
+        assert path_level in ["global", "local"], "Choose between the global and local path for waypoint updating."
+        
         # for wp updating
         self.OS.rev_dir = False
 
-        # init global wps
-        self.OS.glo_wp1_idx, self.OS.glo_wp1_N, self.OS.glo_wp1_E, self.OS.glo_wp2_idx, self.OS.glo_wp2_N, \
-            self.OS.glo_wp2_E = get_init_two_wp(lat_array=self.GlobalPath["lat"], lon_array=self.GlobalPath["lon"], \
-                a_n=self.OS.eta[0], a_e=self.OS.eta[1])
-        try:
-            self.OS.glo_wp3_idx = self.OS.glo_wp2_idx + 1
-            self.OS.glo_wp3_N, self.OS.glo_wp3_E, _ = to_utm(self.GlobalPath["lat"][self.OS.glo_wp3_idx], self.GlobalPath["lon"][self.OS.glo_wp3_idx])
-        except:
-            raise ValueError("The agent should spawn at least two waypoints away from the global goal.")
+        if path_level == "global":
+            self.OS.glo_wp1_idx, self.OS.glo_wp1_N, self.OS.glo_wp1_E, self.OS.glo_wp2_idx, self.OS.glo_wp2_N, \
+                self.OS.glo_wp2_E = get_init_two_wp(lat_array=self.GlobalPath["lat"], lon_array=self.GlobalPath["lon"], \
+                    a_n=self.OS.eta[0], a_e=self.OS.eta[1])
+            try:
+                self.OS.glo_wp3_idx = self.OS.glo_wp2_idx + 1
+                self.OS.glo_wp3_N, self.OS.glo_wp3_E, _ = to_utm(self.GlobalPath["lat"][self.OS.glo_wp3_idx], self.GlobalPath["lon"][self.OS.glo_wp3_idx])
+            except:
+                raise ValueError("The agent should spawn at least two waypoints away from the global goal.")
 
-        # init local wps
-        self.OS.loc_wp1_idx, self.OS.loc_wp1_N, self.OS.loc_wp1_E, self.OS.loc_wp2_idx, self.OS.loc_wp2_N, \
-            self.OS.loc_wp2_E = get_init_two_wp(lat_array=self.LocalPath["lat"], lon_array=self.LocalPath["lon"], \
-                a_n=self.OS.eta[0], a_e=self.OS.eta[1])
-        try:
-            self.OS.loc_wp3_idx = self.OS.loc_wp2_idx + 1
-            self.OS.loc_wp3_N, self.OS.loc_wp3_E, _ = to_utm(self.LocalPath["lat"][self.OS.loc_wp3_idx], self.LocalPath["lon"][self.OS.loc_wp3_idx])
-        except:
-            raise ValueError("The agent should spawn at least two waypoints away from the local goal.")
+        else:
+            self.OS.loc_wp1_idx, self.OS.loc_wp1_N, self.OS.loc_wp1_E, self.OS.loc_wp2_idx, self.OS.loc_wp2_N, \
+                self.OS.loc_wp2_E = get_init_two_wp(lat_array=self.LocalPath["lat"], lon_array=self.LocalPath["lon"], \
+                    a_n=self.OS.eta[0], a_e=self.OS.eta[1])
+            try:
+                self.OS.loc_wp3_idx = self.OS.loc_wp2_idx + 1
+                self.OS.loc_wp3_N, self.OS.loc_wp3_E, _ = to_utm(self.LocalPath["lat"][self.OS.loc_wp3_idx], self.LocalPath["lon"][self.OS.loc_wp3_idx])
+            except:
+                raise ValueError("The agent should spawn at least two waypoints away from the local goal.")
 
 
     def _wp_dist(self, wp1_idx, wp2_idx, path):
         """Computes the euclidean distance between two waypoints on a path."""
-        if wp1_idx not in range(self.n_wps) or wp2_idx not in range(path["n_wps"]):
+        if wp1_idx not in range(path["n_wps"]) or wp2_idx not in range(path["n_wps"]):
             raise ValueError("Your path index is out of order. Please check your sampling strategy.")
 
         return ED(N0=path["north"][wp1_idx], E0=path["east"][wp1_idx], N1=path["north"][wp2_idx], E1=path["east"][wp2_idx])
@@ -728,24 +739,31 @@ class HHOS_Env(gym.Env):
         return wp1_rev, wp2_rev
 
 
-    def _add_local_path(self):
-        """Generates a local path."""
-        self.LocalPath = copy.deepcopy(self.GlobalPath)
-        self.LocalPath["lat"] -= 0.003
+    def _init_local_path(self):
+        """Generates a local path based on the global one."""
+        self.LocalPath = {"n_wps" : self.n_wps_loc}
+        i = self.OS.glo_wp1_idx
+
+        self.LocalPath["lat"] = self.GlobalPath["lat"][i:i+self.n_wps_loc]
+        self.LocalPath["lon"] = self.GlobalPath["lon"][i:i+self.n_wps_loc]
+        self.LocalPath["north"] = self.GlobalPath["north"][i:i+self.n_wps_loc]
+        self.LocalPath["east"] = self.GlobalPath["east"][i:i+self.n_wps_loc]
+
+        #self.LocalPath["lat"] -= 0.003
 
         # add utm coordinates
-        path_n = np.zeros_like(self.LocalPath["lat"])
-        path_e = np.zeros_like(self.LocalPath["lon"])
+        #path_n = np.zeros_like(self.LocalPath["lat"])
+        #path_e = np.zeros_like(self.LocalPath["lon"])
 
-        for idx in range(len(path_n)):
-            path_n[idx], path_e[idx], _ = to_utm(lat=self.LocalPath["lat"][idx], lon=self.LocalPath["lon"][idx])
+        #for idx in range(len(path_n)):
+        #    path_n[idx], path_e[idx], _ = to_utm(lat=self.LocalPath["lat"][idx], lon=self.LocalPath["lon"][idx])
         
-        self.LocalPath["north"] = path_n
-        self.LocalPath["east"] = path_e
+        #self.LocalPath["north"] = path_n
+        #self.LocalPath["east"] = path_e
 
 
     def _update_local_path(self):
-        pass
+        self._init_local_path()
 
 
     def _get_TS(self):
@@ -919,6 +937,7 @@ class HHOS_Env(gym.Env):
                 vessel.glo_wp3_N = path["north"][vessel.glo_wp3_idx]
                 vessel.glo_wp3_E = path["east"][vessel.glo_wp3_idx]
         else:
+            raise ValueError("Waypoint updating for the local path by the switch-check is deprecated. Use 'self._init_OS_wps()' instead.")
             switch = switch_wp(wp1_N = vessel.loc_wp1_N, 
                                wp1_E = vessel.loc_wp1_E, 
                                wp2_N = vessel.loc_wp2_N, 
@@ -1018,9 +1037,18 @@ class HHOS_Env(gym.Env):
         # environmental effects
         self._update_disturbances()
 
+        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
+        [TS._upd_dynamics() for TS in self.TSs]
+
+        # check respawn
+        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
+
+        # set the local path
+        self._update_local_path()
+
         # update OS waypoints of global and local path
-        self.OS = self._update_wps(self.OS, path_level="local")
         self.OS = self._update_wps(self.OS, path_level="global")
+        self._init_OS_wps(path_level="local")
 
         # compute new cross-track error and course error (for local and global path)
         self._set_cte(path_level="global")
@@ -1028,17 +1056,8 @@ class HHOS_Env(gym.Env):
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
 
-        # update local path
-        self._update_local_path()
-
         # heading control OS
         #self.OS = self._heading_control_glo(self.OS)
-
-        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
-        [TS._upd_dynamics() for TS in self.TSs]
-
-        # check respawn
-        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
         # update waypoints for other vessels
         self.TSs = [self._update_wps(TS, path_level="global") for TS in self.TSs]
@@ -1279,7 +1298,8 @@ class HHOS_Env(gym.Env):
                         ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
-                        ax.plot(self.LocalPath["lon"], self.LocalPath["lat"], marker='o', color="black", linewidth=1.0, markersize=3, label="Local Path")
+                        if hasattr(self, "LocalPath"):
+                            ax.plot(self.LocalPath["lon"], self.LocalPath["lat"], marker='o', color="black", linewidth=1.0, markersize=3, label="Local Path")
                         ax.legend(loc="lower left")
 
                         # wps of OS
