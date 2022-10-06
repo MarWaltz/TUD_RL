@@ -9,7 +9,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_comf=w_comf, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_coll=0.0)
 
         if planner_weights is not None:
-            plan_in_size = 3 + self.lidar_n_beams + 4 * self.N_TSs_max
+            plan_in_size = 3 + self.lidar_n_beams + 5 * self.N_TSs_max
             self.planner = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             self.planner.load_state_dict(torch.load(planner_weights))
             self.planning_env = HHOS_PathPlanning_Env(data=data, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0)

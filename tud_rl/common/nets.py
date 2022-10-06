@@ -602,10 +602,10 @@ class TQC_Critics(nn.Module):
         return quantiles
 
 
-#------------------------------- RecDQN for FossenEnv --------------------------------
+#------------------------------- RecDQN for MMGEnv --------------------------------
 
 class RecDQN(nn.Module):
-    """Defines a Recursive-DQN particularly designed for the FossenEnv. The recursive part is not for sequential observations,
+    """Defines a Recursive-DQN particularly designed for the MMGEnv. The recursive part is not for sequential observations,
     but for different vessels inside one observation."""
     
     def __init__(self, num_actions, num_obs_OS=7, num_obs_TS=6) -> None:
@@ -701,10 +701,10 @@ class RecDQN(nn.Module):
         return x
 
 
-#------------------------------- LSTM-RecDQN for FossenEnv --------------------------------
+#------------------------------- LSTM-RecDQN for MMGEnv --------------------------------
 
 class LSTMRecDQN(RecDQN):
-    """Defines an LSTM-Recursive-DQN particularly designed for the FossenEnv. There are two recursive parts:
+    """Defines an LSTM-Recursive-DQN particularly designed for the MMGEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
     def __init__(self, num_actions, use_past_actions=False, num_obs_OS=7, num_obs_TS=6) -> None:
@@ -811,7 +811,7 @@ class LSTMRecDQN(RecDQN):
         s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
         s_TS = s[:, self.num_obs_OS:]
 
-        # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selction or training
+        # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selection or training
         first_dim = s_TS.shape[0]
 
         # ----------------- preprocess s_TS -------------------        
@@ -859,3 +859,391 @@ class LSTMRecDQN(RecDQN):
             x_TS = F.relu(self.denseTS_inner2(x_TS))
 
         return torch.cat([x_OS, x_TS], dim=1)
+
+
+#------------------------------- LSTM-RecActor for HHOSEnv --------------------------------
+
+class LSTMRecActor(nn.Module):
+    """Defines a spatial-temporal recursive actor particularly designed for the MMGEnv. There are two recursive parts:
+    one for different vessels inside one observation, one for sequential observations."""
+    
+    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5) -> None:
+        super(LSTMRecActor, self).__init__()
+
+        self.action_dim = action_dim
+        self.num_obs_OS = num_obs_OS
+        self.num_obs_TS = num_obs_TS
+
+        if use_past_actions:
+            raise NotImplementedError("Using past actions for LSTMRecActor is not available yet.")
+
+        # t-2
+        self.denseOS_inner2 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner2    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner2 = nn.Linear(64, 64)
+
+        # t-1
+        self.denseOS_inner1 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner1    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner1 = nn.Linear(64, 64)
+
+        # t
+        self.denseOS_inner0 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner0    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner0 = nn.Linear(64, 64)
+
+        # sequential observations
+        self.LSTM_outer = nn.LSTM(input_size = 128, hidden_size = 64, num_layers = 1, batch_first = True)
+
+        # PI
+        self.PI_dense1 = nn.Linear(64, 64)
+        self.PI_dense2 = nn.Linear(64, action_dim)
+
+    def forward(self, s, s_hist, a_hist, hist_len) -> tuple:
+        """s, s_hist are torch tensors. Using a_hist is not implemented yet.
+
+        Args:
+            s:        torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+            s_hist:   torch.Size([batch_size, history_length, num_obs_OS + num_obs_TS * N_TSs])
+            hist_len: torch.Size(batch_size)
+            log_info: Bool, whether to return logging dict
+        
+        Returns: 
+            torch.Size([batch_size, action_dim]), critic_net_info (dict) (if log_info)"""
+
+        # setup x_tilde which comes into outer LSTM
+        batch_size, history_length, _ = s_hist.shape
+        x_tilde = torch.zeros((batch_size, history_length + 1, 128))
+
+        # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
+        s_t2 = s_hist[:, 0, :]
+        s_t2[hist_len < 2, :] = 0.0
+        
+        t1_idx = hist_len - 1
+        t1_idx[t1_idx < 0] = 0
+
+        s_t1 = s_hist[torch.arange(batch_size), t1_idx, :]
+        s_t1[hist_len < 1, :] = 0.0
+
+        # spatial recurrence: t-2
+        x_tilde[:, 0, :] = self._inner_rec(s_t2, time=2)
+
+        # spatial recurrence: t-1
+        x_tilde[:, 1, :] = self._inner_rec(s_t1, time=1)
+       
+        # spatial recurrence: t
+        x_tilde[:, 2, :] = self._inner_rec(s, time=0)
+
+        # roll entries according to hist_len
+        if batch_size == 1:
+            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+        else:
+            if sum(hist_len != 2):
+                x_tilde_f = torch.zeros_like(x_tilde)
+                for b_idx in range(batch_size):
+                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
+            else:
+                x_tilde_f = x_tilde
+
+        # push through outer LSTM
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
+
+        # Note: No-history cases are not possible since there is always at least the current time step.
+
+        # select LSTM output, resulting shape is (batch_size, hidden_dim)
+        hidden_mem = extracted_mem[torch.arange(batch_size), hist_len]
+
+        # final dense layers
+        x = F.relu(self.PI_dense1(hidden_mem))
+        x = torch.tanh(self.PI_dense2(x))
+
+        # create dict with dummy entries for logging
+        act_net_info = dict(Actor_CurFE = 0.0, Actor_ExtMemory = 0.0)
+
+        # return output
+        return x, act_net_info
+
+    def _inner_rec(self, s, time):
+        """Computes the inner recurrence for temporal information about target ships.
+        s:      torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+        time:   int in [0, 1, 2]
+
+        returns: torch.Size([batch_size, 128])
+        """
+
+        assert time in [0, 1, 2], "Unknown time step."
+
+        # extract OS and TS states
+        s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
+        s_TS = s[:, self.num_obs_OS:]
+
+        # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selection or training
+        first_dim = s_TS.shape[0]
+
+        # ----------------- preprocess s_TS -------------------        
+        s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
+        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+
+        # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
+        N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+
+        if torch.sum(N_TS_obs == 0).item() != 0:
+            raise Exception("There is no TS, something went wrong here!")
+
+        # get selection index according to number of TSs
+        h_idx = copy.deepcopy(N_TS_obs)
+        h_idx -= 1
+
+        # padd nan's to zeroes to avoid LSTM-issues
+        s_TS[torch.isnan(s_TS)] = 0.0
+
+        # ------------------- calculations ---------------------
+        if time == 0:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner0(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner0(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner0(x_TS))
+
+        elif time == 1:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner1(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner1(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner1(x_TS))
+
+        elif time == 2:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner2(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner2(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner2(x_TS))
+
+        return torch.cat([x_OS, x_TS], dim=1)
+
+
+#------------------------------- LSTM-RecCritic for HHOSEnv --------------------------------
+
+class LSTMRecCritic(nn.Module):
+    """Defines a spatial-temporal recursive critic particularly designed for the MMGEnv. There are two recursive parts:
+    one for different vessels inside one observation, one for sequential observations."""
+    
+    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5) -> None:
+        super(LSTMRecCritic, self).__init__()
+
+        self.action_dim = action_dim
+        self.num_obs_OS = num_obs_OS
+        self.num_obs_TS = num_obs_TS
+
+        if use_past_actions:
+            raise NotImplementedError("Using past actions for LSTMRecCritic is not available yet.")
+
+        # t-2
+        self.denseOS_inner2 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner2    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner2 = nn.Linear(64, 64)
+
+        # t-1
+        self.denseOS_inner1 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner1    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner1 = nn.Linear(64, 64)
+
+        # t
+        self.denseOS_inner0 = nn.Linear(num_obs_OS, 64)
+        self.LSTM_inner0    = nn.LSTM(input_size = num_obs_TS, hidden_size = 64, num_layers = 1, batch_first = True)
+        self.denseTS_inner0 = nn.Linear(64, 64)
+
+        # sequential observations
+        self.LSTM_outer = nn.LSTM(input_size = 128, hidden_size = 64, num_layers = 1, batch_first = True)
+
+        # PI
+        self.PI_dense1 = nn.Linear(action_dim + 64, 64)
+        self.PI_dense2 = nn.Linear(64, 1)
+
+    def forward(self, s, a, s_hist, a_hist, hist_len, log_info=True) -> tuple:
+        """s, s_hist are torch tensors. Using a_hist is not implemented yet.
+
+        Args:
+            s:        torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+            a:        torch.Size([batch_size, action_dim])
+            s_hist:   torch.Size([batch_size, history_length, num_obs_OS + num_obs_TS * N_TSs])
+            hist_len: torch.Size(batch_size)
+            log_info: Bool, whether to return logging dict
+        
+        Returns: 
+            torch.Size([batch_size, 1]), critic_net_info (dict) (if log_info)"""
+
+        # setup x_tilde which comes into outer LSTM
+        batch_size, history_length, _ = s_hist.shape
+        x_tilde = torch.zeros((batch_size, history_length + 1, 128))
+
+        # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
+        s_t2 = s_hist[:, 0, :]
+        s_t2[hist_len < 2, :] = 0.0
+        
+        t1_idx = hist_len - 1
+        t1_idx[t1_idx < 0] = 0
+
+        s_t1 = s_hist[torch.arange(batch_size), t1_idx, :]
+        s_t1[hist_len < 1, :] = 0.0
+
+        # spatial recurrence: t-2
+        x_tilde[:, 0, :] = self._inner_rec(s_t2, time=2)
+
+        # spatial recurrence: t-1
+        x_tilde[:, 1, :] = self._inner_rec(s_t1, time=1)
+       
+        # spatial recurrence: t
+        x_tilde[:, 2, :] = self._inner_rec(s, time=0)
+
+        # roll entries according to hist_len
+        if batch_size == 1:
+            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+        else:
+            if sum(hist_len != 2):
+                x_tilde_f = torch.zeros_like(x_tilde)
+                for b_idx in range(batch_size):
+                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
+            else:
+                x_tilde_f = x_tilde
+
+        # push through outer LSTM
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
+
+        # Note: No-history cases are not possible since there is always at least the current time step.
+
+        # select LSTM output, resulting shape is (batch_size, hidden_dim)
+        hidden_mem = extracted_mem[torch.arange(batch_size), hist_len]
+
+        # final dense layers
+        x = torch.cat([a, hidden_mem], dim=1)
+        x = F.relu(self.PI_dense1(x))
+        x = self.PI_dense2(x)
+
+        # create dict for logging
+        if log_info:
+            critic_net_info = dict(Critic_CurFE = 0.0, Critic_ExtMemory = 0.0)
+            return x, critic_net_info
+        else:
+            return x
+ 
+    def _inner_rec(self, s, time):
+        """Computes the inner recurrence for temporal information about target ships.
+        s:      torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
+        time:   int in [0, 1, 2]
+
+        returns: torch.Size([batch_size, 128])
+        """
+
+        assert time in [0, 1, 2], "Unknown time step."
+
+        # extract OS and TS states
+        s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
+        s_TS = s[:, self.num_obs_OS:]
+
+        # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selection or training
+        first_dim = s_TS.shape[0]
+
+        # ----------------- preprocess s_TS -------------------        
+        s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
+        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+
+        # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
+        N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
+
+        if torch.sum(N_TS_obs == 0).item() != 0:
+            raise Exception("There is no TS, something went wrong here!")
+
+        # get selection index according to number of TSs
+        h_idx = copy.deepcopy(N_TS_obs)
+        h_idx -= 1
+
+        # padd nan's to zeroes to avoid LSTM-issues
+        s_TS[torch.isnan(s_TS)] = 0.0
+
+        # ------------------- calculations ---------------------
+        if time == 0:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner0(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner0(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner0(x_TS))
+
+        elif time == 1:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner1(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner1(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner1(x_TS))
+
+        elif time == 2:
+            # process OS
+            x_OS = F.relu(self.denseOS_inner2(s_OS))
+
+            # process TS
+            x_TS, (_, _) = self.LSTM_inner2(s_TS)
+
+            # select LSTM output, resulting shape is torch.Size([batch_size, hidden_dim])
+            x_TS = x_TS[torch.arange(x_TS.size(0)), h_idx]
+
+            # dense TS
+            x_TS = F.relu(self.denseTS_inner2(x_TS))
+
+        return torch.cat([x_OS, x_TS], dim=1)
+
+
+class LSTMRec_Double_Critic(nn.Module):
+    def __init__(self, action_dim, use_past_actions, num_obs_OS=13, num_obs_TS=5) -> None:
+        super(LSTMRec_Double_Critic, self).__init__()
+
+        self.LSTMRec_Q1 = LSTMRecCritic(action_dim = action_dim,
+                                        use_past_actions = use_past_actions, 
+                                        num_obs_OS = num_obs_OS, 
+                                        num_obs_TS = num_obs_TS)
+
+        self.LSTMRec_Q2 = LSTMRecCritic(action_dim = action_dim,
+                                        use_past_actions = use_past_actions, 
+                                        num_obs_OS = num_obs_OS, 
+                                        num_obs_TS = num_obs_TS)
+
+    def forward(self, s, a, s_hist, a_hist, hist_len) -> tuple:
+        q1                  = self.LSTMRec_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)
+        q2, critic_net_info = self.LSTMRec_Q2(s, a, s_hist, a_hist, hist_len, log_info=True)
+
+        return q1, q2, critic_net_info
+
+
+    def single_forward(self, s, a, s_hist, a_hist, hist_len):
+        q1 = self.LSTMRec_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)
+
+        return q1

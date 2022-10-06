@@ -6,10 +6,10 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: 
+    planner_weights:
     data: sampled
     N_TSs_max : 2
-    N_TSs_random : true
+    N_TSs_random : false
     w_ye : 0.5
     w_ce : 0.5
     w_comf : 0.02
@@ -24,6 +24,12 @@ agent:
     history_length: 2
     use_past_actions: false
   LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 2
+    use_past_actions: false
+  LSTMRecTD3:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2

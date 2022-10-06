@@ -91,11 +91,11 @@ class HHOS_Env(gym.Env):
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
         self.plot_depth = True
         self.plot_path = True
-        self.plot_wind = True
-        self.plot_current = True
-        self.plot_waves = True
+        self.plot_wind = False
+        self.plot_current = False
+        self.plot_waves = False
         self.plot_lidar = True
-        self.plot_reward = True
+        self.plot_reward = False
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
 
         if not self.plot_in_latlon:
@@ -1160,7 +1160,7 @@ class HHOS_Env(gym.Env):
 
             if plot_CR:
                 CR_x = min(lons) - np.abs(min(lons) - max(lons))
-                CR_y = min(lats)
+                CR_y = min(lats) - 2*np.abs(min(lats) - max(lats))
                 ax.text(CR_x, CR_y, f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
                      fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         else:
@@ -1170,7 +1170,7 @@ class HHOS_Env(gym.Env):
 
             if plot_CR:
                 CR_x = min(xs) - np.abs(min(xs) - max(xs))
-                CR_y = min(ys)
+                CR_y = min(ys) - 2*np.abs(min(ys) - max(ys))
                 ax.text(CR_x, CR_y, f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
                      fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         return ax
@@ -1286,7 +1286,7 @@ class HHOS_Env(gym.Env):
 
                 # TSs
                 for TS in self.TSs:
-                    col = "purple" if TS.rev_dir else "salmon"
+                    col = "purple" if TS.rev_dir else "yellow"
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Path ------------------------
@@ -1303,7 +1303,7 @@ class HHOS_Env(gym.Env):
                         ax.legend(loc="lower left")
 
                         # wps of OS
-                        self._render_wps(ax=ax, vessel=self.OS, path_level="global", color="springgreen")
+                        #self._render_wps(ax=ax, vessel=self.OS, path_level="global", color="springgreen")
 
                         # cross-track error
                         if self.glo_ye < 0:

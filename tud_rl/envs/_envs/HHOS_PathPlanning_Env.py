@@ -7,18 +7,18 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
 
         # forward run
-        self.n_loops = int(30.0/self.delta_t)
+        self.n_loops = int(60.0/self.delta_t)
 
         # gym inherits
         OS_path_info_size = 3
-        TS_info_size = 4
-        obs_size = OS_path_info_size + self.lidar_n_beams + TS_info_size * self.N_TSs_max
+        self.num_obs_TS = 5
+        obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
-        self.d_head_scale = math.pi/4
+        self.d_head_scale = dtr(10.0)
         self._max_episode_steps = 5_000
 
     def reset(self):
@@ -115,11 +115,14 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # speed
             V_TS = TS._get_V() / 7.0
 
-            # store it
-            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS_path, V_TS])
+            # direction
+            TS_dir = -1.0 if TS.rev_dir else 1.0
 
-        # need always same state size, thus we pad ghost ships
-        while len(state_TSs) != self.N_TSs_max:
+            # store it
+            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS_path, V_TS, TS_dir])
+
+        # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agents
+        if len(state_TSs) == 0:
             # ED
             ED_ghost = 0.0
 
@@ -132,17 +135,25 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # speed
             V_ghost = 0.0
 
-            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost])
+            # direction
+            TS_dir = -1.0
+
+            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, TS_dir])
 
         # sort according to euclidean distance (descending, larger is more dangerous)
         state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten()
+
+        # at least one since there is always the ghost ship
+        desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
+
+        state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
+            'constant', constant_values=np.nan).astype(np.float32)
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
 
 
     def _calculate_reward(self, a):
-
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
         k_ye = 0.05
