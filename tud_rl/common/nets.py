@@ -816,7 +816,7 @@ class LSTMRecDQN(RecDQN):
 
         # ----------------- preprocess s_TS -------------------        
         s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
-        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+        # Note: The target ships are ordered in ascending priority, with nan's at the end of each batch element.
 
         # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
         N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
@@ -974,15 +974,18 @@ class LSTMRecActor(nn.Module):
         assert time in [0, 1, 2], "Unknown time step."
 
         # extract OS and TS states
-        s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
-        s_TS = s[:, self.num_obs_OS:]
+        OS_slize = [i for i in range(self.num_obs_OS)]
+        TS_slize = [i for i in range(self.num_obs_OS, s.shape[1])]
+
+        s_OS = s[:, OS_slize]              # torch.Size([batch_size, num_obs_OS])
+        s_TS = s[:, TS_slize]
 
         # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selection or training
         first_dim = s_TS.shape[0]
 
         # ----------------- preprocess s_TS -------------------        
         s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
-        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+        # Note: The target ships are ordered in ascending priority, with nan's at the end of each batch element.
 
         # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
         N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)
@@ -1156,15 +1159,18 @@ class LSTMRecCritic(nn.Module):
         assert time in [0, 1, 2], "Unknown time step."
 
         # extract OS and TS states
-        s_OS = s[:, :self.num_obs_OS]              # torch.Size([batch_size, num_obs_OS])
-        s_TS = s[:, self.num_obs_OS:]
+        OS_slize = [i for i in range(self.num_obs_OS)]
+        TS_slize = [i for i in range(self.num_obs_OS, s.shape[1])]
+
+        s_OS = s[:, OS_slize]              # torch.Size([batch_size, num_obs_OS])
+        s_TS = s[:, TS_slize]
 
         # check whether we have 1 or 'batch_size' as first dimension, depending on whether we are in action selection or training
         first_dim = s_TS.shape[0]
 
         # ----------------- preprocess s_TS -------------------        
         s_TS = s_TS.view(first_dim, -1, self.num_obs_TS)     # torch.Size([batch_size or 1, N_TSs, num_obs_TS])
-        # Note: The target ships are ordered in descending priority, with nan's at the end of each batch element.
+        # Note: The target ships are ordered in ascending priority, with nan's at the end of each batch element.
 
         # identify number of observed N_TSs for each batch element, results in torch.Size([batch_size])
         N_TS_obs = torch.sum(torch.logical_not(torch.isnan(s_TS))[:, :, 0], dim=1)

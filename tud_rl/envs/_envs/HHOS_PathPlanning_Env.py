@@ -140,7 +140,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, TS_dir])
 
-        # sort according to euclidean distance (descending, larger is more dangerous)
+        # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
         state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten()
 
         # at least one since there is always the ghost ship
