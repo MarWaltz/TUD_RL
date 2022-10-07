@@ -3,8 +3,11 @@ from tud_rl.envs._envs.HHOS_Env import *
 
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
-    def __init__(self, data="sampled", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
+    def __init__(self, data="sampled", state_design="recursive", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
         super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
+
+        assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
+        self.state_design = state_design
 
         # forward run
         self.n_loops = int(60.0/self.delta_t)
@@ -119,35 +122,29 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             TS_dir = -1.0 if TS.rev_dir else 1.0
 
             # store it
-            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS_path, V_TS, TS_dir])
+            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS_path, V_TS, TS_dir])          
+        
+        if self.state_design == "recursive":
+            # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
+            if len(state_TSs) == 0:
+                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0])
 
-        # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agents
-        if len(state_TSs) == 0:
-            # ED
-            ED_ghost = 0.0
+            # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten()
 
-            # relative bearing
-            bng_rel_ghost = -1.0
+            # at least one since there is always the ghost ship
+            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
 
-            # heading intersection angle
-            C_ghost = -1.0
+            state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
+                'constant', constant_values=np.nan).astype(np.float32)
+        
+        else:
+            # pad ghost ships
+            while len(state_TSs) != self.N_TSs_max:
+                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0])
 
-            # speed
-            V_ghost = 0.0
-
-            # direction
-            TS_dir = -1.0
-
-            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, TS_dir])
-
-        # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
-        state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten()
-
-        # at least one since there is always the ghost ship
-        desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
-
-        state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
-            'constant', constant_values=np.nan).astype(np.float32)
+            # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten().astype(np.float32)
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
