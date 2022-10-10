@@ -3,7 +3,7 @@ from tud_rl.envs._envs.HHOS_Env import *
 
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
-    def __init__(self, data="sampled", state_design="recursive", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
+    def __init__(self, data="sampled", state_design="conventional", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
         super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
@@ -191,7 +191,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
         rews = np.array([self.r_ye, self.r_ce, self.r_coll])
-        self.r = np.sum(weights * rews) / np.sum(weights)
+        self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
 
 
     def _done(self):

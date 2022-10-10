@@ -28,15 +28,19 @@ class HHOS_PathFollowing_Env(HHOS_Env):
     
 
     def reset(self):
-        # the local path equals the first couple of entries of the global paths after the super().reset() call
+        # the local path equals the first couple of entries of the global path after the super().reset() call
         s = super().reset()
 
         if self.planner is None:
             return s
         
-        # we override the local path since our planning agent should work from the beginning
-        self.planning_env.reset()
+        # prepare planning env
         self.setup_planning_env(initial=True)
+        self.setup_planning_env(initial=False)
+        self.planning_env.step_cnt = 0
+        self.planning_env.sim_t = 0.0
+
+        # override the local path since our planning agent should work from the beginning
         self._update_local_path()
 
         # update wps and error
@@ -55,24 +59,42 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         set of waypoints constituting the local path is returned. The follower's object is to follow this local path.
         If initial is True, the global path is also set."""
 
-        if initial:        
-            # global path and its characteristics
+        if initial:      
+            # number of TS
+            self.planning_env.N_TSs = self.N_TSs
+
+            # global path
             self.planning_env.GlobalPath = copy.deepcopy(self.GlobalPath)
             self.planning_env.RevGlobalPath = copy.deepcopy(self.RevGlobalPath)
-            self.planning_env.glo_ye = self.glo_ye
-            self.planning_env.glo_desired_course = self.glo_desired_course
-            self.planning_env.glo_pi_path = self.glo_pi_path
 
-            # environmental disturbances (although not need for dynamics, only for depth-checking)
+            # environmental disturbances (although not needed for dynamics, only for depth-checking)
             self.planning_env.DepthData = copy.deepcopy(self.DepthData)
+            self.planning_env.log_Depth = copy.deepcopy(self.log_Depth)
             self.planning_env.WindData = copy.deepcopy(self.WindData)
             self.planning_env.CurrentData = copy.deepcopy(self.CurrentData)
             self.planning_env.WaveData = copy.deepcopy(self.WaveData)
+
+            # visualization specs
+            self.planning_env.domain_xs = self.domain_xs
+            self.planning_env.domain_ys = self.domain_ys
+            self.planning_env.con_ticks = self.con_ticks
+            self.planning_env.con_ticklabels = self.con_ticklabels
+            self.planning_env.clev = self.clev
         else:
             # OS and TSs
             self.planning_env.OS = copy.deepcopy(self.OS)
             self.planning_env.TSs = copy.deepcopy(self.TSs)
             self.planning_env.H = copy.copy(self.H)
+
+            # guarantee OS moves linearly
+            self.planning_env.OS.nu[2] = 0.0
+            self.planning_env.OS.rud_angle = 0.0
+
+            # global path error
+            self.planning_env.glo_ye = self.glo_ye
+            self.planning_env.glo_desired_course = self.glo_desired_course
+            self.planning_env.glo_course_error = self.glo_course_error
+            self.planning_env.glo_pi_path = self.glo_pi_path
 
             # set state in planning env and return it
             self.planning_env._set_state()
@@ -87,7 +109,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 s = self.setup_planning_env(initial=False)
 
                 # setup wps
-                ns, es = [self.OS.eta[0]], [self.OS.eta[1]]
+                ns, es = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]]
 
                 # planning loop
                 for _ in range(self.n_wps_loc-1):
@@ -96,7 +118,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                     a = self.planner(s)
 
                     # planning env's reaction
-                    s, _, d, _ = self.planning_env.step(a.item())
+                    s, _, d, _ = self.planning_env.step(a)
 
                     # store wps
                     ns.append(self.planning_env.OS.eta[0])

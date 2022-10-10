@@ -78,11 +78,11 @@ class HHOS_Env(gym.Env):
             self.river_dist_sca = 20
             self.river_dist_noise_loc = 5
             self.river_dist_noise_sca = 2
-            self.dist_des_rev_path = 1.5*self.river_dist_left_loc
             self.river_min = 5
 
-        # number of wps of the local path
+        # path characteristics
         self.n_wps_loc = 10
+        self.dist_des_rev_path = 200
 
         # how many longitude/latitude degrees to show for the visualization
         self.show_lon_lat = 0.05
@@ -1286,20 +1286,21 @@ class HHOS_Env(gym.Env):
 
                 # TSs
                 for TS in self.TSs:
-                    col = "purple" if TS.rev_dir else "yellow"
+                    col = "greenyellow" if TS.rev_dir else "yellow"
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Path ------------------------
                 if self.plot_path:
+                    loc_path_col = "midnightblue" if self.data == "sampled" else "lightsteelblue"
 
                     if self.plot_in_latlon:
                         # global
                         ax.plot(self.GlobalPath["lon"], self.GlobalPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3, label="Global Path")
-                        ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                        ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="greenyellow", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
-                            ax.plot(self.LocalPath["lon"], self.LocalPath["lat"], marker='o', color="black", linewidth=1.0, markersize=3, label="Local Path")
+                            ax.plot(self.LocalPath["lon"], self.LocalPath["lat"], marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label="Local Path")
                         ax.legend(loc="lower left")
 
                         # wps of OS
@@ -1316,10 +1317,10 @@ class HHOS_Env(gym.Env):
                     else:
                         # global
                         ax.plot(self.GlobalPath["east"], self.GlobalPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3, label="Global Path")
-                        ax.plot(self.RevGlobalPath["east"], self.RevGlobalPath["north"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                        ax.plot(self.RevGlobalPath["east"], self.RevGlobalPath["north"], marker='o', color="greenyellow", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
-                        ax.plot(self.LocalPath["east"], self.LocalPath["north"], marker='o', color="black", linewidth=1.0, markersize=3, label="Local Path")
+                        ax.plot(self.LocalPath["east"], self.LocalPath["north"], marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label="Local Path")
                         ax.legend(loc="lower left")
 
                         # current global waypoints
