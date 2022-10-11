@@ -25,7 +25,8 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
     def __init__(self, 
-                 data="sampled", 
+                 data="sampled",
+                 scenario_based=True, 
                  N_TSs_max=3, 
                  N_TSs_random=True, 
                  w_ye=0.5, 
@@ -104,6 +105,8 @@ class HHOS_Env(gym.Env):
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # other ships
+        assert not (scenario_based is True and N_TSs_max < 4), "You need at least four TSs in scenario-based spawning."
+        self.scenario_based = scenario_based           # whether to spawn agent in specific scenarios (arg True), or all random (arg False)
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
@@ -678,15 +681,7 @@ class HHOS_Env(gym.Env):
         self.domain_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
         # init other vessels
-        if self.N_TSs_random:
-            self.N_TSs = np.random.choice(self.N_TSs_max)
-        else:
-            self.N_TSs = self.N_TSs_max
-
-        # no list comprehension since we need access to previously spawned TS
-        self.TSs = []
-        for _ in range(self.N_TSs):
-            self.TSs.append(self._get_TS())
+        self._init_TSs()
 
         # init state
         self._set_state()
@@ -766,18 +761,142 @@ class HHOS_Env(gym.Env):
         self._init_local_path()
 
 
-    def _get_TS(self):
-        """Places a target ship by sampling a 
+    def _init_TSs(self):
+        if self.scenario_based:
+            p_scene = [0.5, 0.125, 0.125, 0.125, 0.125]
+        else:
+            p_scene = [1.0, 0.0, 0.0, 0.0, 0.0]
+
+        # sample scenario
+        self.scene = np.random.choice([0, 1, 2, 3, 4], p=p_scene)
+        self.scene = 3
+
+        # all random
+        if self.scene == 0.0:
+            if self.N_TSs_random:
+                self.N_TSs = np.random.choice(self.N_TSs_max)
+            else:
+                self.N_TSs = self.N_TSs_max
+
+        # vessel train
+        elif self.scene == 1:
+            self.N_TSs = self.N_TSs_max
+        
+        # overtake the overtaker
+        elif self.scene == 2:
+            self.N_TSs = 2
+
+        # overtaking under oncoming traffic
+        elif self.scene == 3:
+            self.N_TSs = 5
+        
+        # overtake the overtaker under oncoming traffic
+        elif self.scene == 4:
+            self.N_TSs = 3
+
+        # no list comprehension since we need access to previously spawned TS
+        self.TSs = []
+        for n in range(self.N_TSs):
+            self.TSs.append(self._get_TS(scene=self.scene, n=n))
+
+
+    def _get_TS(self, scene, n=None):
+        """Places a target ship by setting a 
             1) traveling direction,
-            2) distance on the global path.
-        All ships spawn in front of the agent.
+            2) distance on the global path,
+        depending on the scene. All ships spawn in front of the agent.
+        Args:
+            scene (int):  considered scenario
+            n (int):      index of the spawned vessel
         Returns: 
             KVLCC2."""
-        # sample distance
-        d = np.random.uniform(*self.TS_spawn_dists)
+        assert not (scene != 0 and n is None), "Need to provide index in non-random scenario-based spawning."
 
-        # sample direction
-        rev_dir = bool(random.getrandbits(1))
+        #------------------ set distances, directions, offsets from path, and nps ----------------------
+        # Note: An offset is some float. If it is negative (positive), the vessel is placed on the 
+        #       right (left) side of the global path.
+
+        # random
+        if scene == 0:
+            d = np.random.uniform(*self.TS_spawn_dists)
+            rev_dir = bool(random.getrandbits(1))
+            offset = np.random.uniform(-20.0, 50.0)
+            nps = np.random.uniform(0.1, 0.8) * self.OS.nps
+
+        # vessel train
+        if scene == 1:
+            if n == 0:
+                d = NM_to_meter(0.5)
+            else:
+                d = NM_to_meter(0.5) + n*NM_to_meter(0.1)
+            rev_dir = False
+            offset = 0.0
+            nps = np.random.uniform(0.4, 0.5) * self.OS.nps
+
+        # overtake the overtaker
+        elif scene == 2:
+            d = NM_to_meter(0.5)
+            rev_dir = False
+            offset = 0.0 if n == 0 else 100.0
+            if n == 0:
+                nps = np.random.uniform(0.4, 0.45) * self.OS.nps
+            else:
+                nps = np.random.uniform(0.45, 0.5) * self.OS.nps
+
+        # overtaking under oncoming traffic
+        elif scene == 3:
+            if n == 0:
+                d = NM_to_meter(0.5)
+                rev_dir = False
+                offset = 0.0
+                nps = np.random.uniform(0.4, 0.5) * self.OS.nps
+
+            elif n == 1:
+                d = NM_to_meter(1.5)
+                rev_dir = True
+                offset = 50.0
+                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+
+            elif n == 2:
+                d = NM_to_meter(1.5)
+                rev_dir = True
+                offset = 0.0
+                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+
+            elif n == 3:
+                d = NM_to_meter(1.7)
+                rev_dir = True
+                offset = 0.0
+                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+
+            elif n == 4:
+                d = NM_to_meter(1.7)
+                rev_dir = True
+                offset = 50.0
+                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+
+        # overtake the overtaker under oncoming traffic
+        elif scene == 4:
+            if n == 0:
+                d = NM_to_meter(0.5)
+                rev_dir = False
+                offset = 0.0
+                nps = np.random.uniform(0.4, 0.45) * self.OS.nps
+
+            elif n == 1:
+                d = NM_to_meter(0.5)
+                rev_dir = False
+                offset = 50.0
+                nps = np.random.uniform(0.45, 0.5) * self.OS.nps
+
+            elif n == 2:
+                d = NM_to_meter(1.5)
+                rev_dir = True
+                offset = 0.0
+                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+
+        # add some noise to distance
+        pass
 
         # get wps
         wp1 = self.OS.glo_wp1_idx
@@ -823,24 +942,26 @@ class HHOS_Env(gym.Env):
             N_TS += N_add_rev
             E_TS += E_add_rev
 
-        # include random disturbances, which are larger in reversed direction
-        if rev_dir:
-            N_TS += np.random.normal(0.0, 50)
-            E_TS += np.random.normal(0.0, 50)
-        else:
-            N_TS += np.random.normal(0.0, 10)
-            E_TS += np.random.normal(0.0, 10)
+        # consider offset
+        TS_head = angle_to_2pi(pi_path_spwn + math.pi) if rev_dir else pi_path_spwn
 
+        if offset != 0.0:
+            ang = TS_head - math.pi/2 if offset > 0.0 else TS_head + math.pi/2
+            E_add_rev, N_add_rev = xy_from_polar(r=offset, angle=angle_to_2pi(ang))
+            N_TS += N_add_rev
+            E_TS += E_add_rev
+
+        # generate TS
         TS = KVLCC2(N_init    = N_TS,
                     E_init    = E_TS,
-                    psi_init  = angle_to_2pi(pi_path_spwn + math.pi) if rev_dir else pi_path_spwn,
+                    psi_init  = TS_head,
                     u_init    = 0.0,
                     v_init    = 0.0,
                     r_init    = 0.0,
                     delta_t   = self.delta_t,
                     N_max     = np.infty,
                     E_max     = np.infty,
-                    nps       = np.random.uniform(0.1, 0.8) * self.OS.nps,
+                    nps       = nps,
                     full_ship = False)
         TS.utm_number = 32
 
@@ -994,13 +1115,15 @@ class HHOS_Env(gym.Env):
         """Checks whether the respawning condition of the target ship is fulfilled."""
         N0, E0, _ = self.OS.eta
         N1, E1, _ = TS.eta
-        TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
-             VOS=self.OS._get_V(), VTS=TS._get_V())
 
-        if TCPA < 0.0 and abs(TCPA) > self.TCPA_respawn and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= 7*self.OS.Lpp:
-            return self._get_TS()
-        else:
-            return TS
+        # respawn only oncoming traffic
+        if TS.rev_dir:
+            TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
+                VOS=self.OS._get_V(), VTS=TS._get_V())
+
+            if TCPA < 0.0 and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= NM_to_meter(0.5):
+                return self._get_TS(scene=0, n=None)
+        return TS
 
 
     def _update_disturbances(self, OS_lat=None, OS_lon=None):
@@ -1286,7 +1409,7 @@ class HHOS_Env(gym.Env):
 
                 # TSs
                 for TS in self.TSs:
-                    col = "greenyellow" if TS.rev_dir else "yellow"
+                    col = "darkgoldenrod" if TS.rev_dir else "purple"
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                 #--------------------- Path ------------------------
@@ -1295,8 +1418,8 @@ class HHOS_Env(gym.Env):
 
                     if self.plot_in_latlon:
                         # global
-                        ax.plot(self.GlobalPath["lon"], self.GlobalPath["lat"], marker='o', color="salmon", linewidth=1.0, markersize=3, label="Global Path")
-                        ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="greenyellow", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                        ax.plot(self.GlobalPath["lon"], self.GlobalPath["lat"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
+                        ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
@@ -1312,12 +1435,12 @@ class HHOS_Env(gym.Env):
                         else:
                             dE, dN = xy_from_polar(r=self.glo_ye, angle=angle_to_2pi(self.glo_pi_path - dtr(90.0)))
                         yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
-                        ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="salmon")
+                        ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="purple")
 
                     else:
                         # global
-                        ax.plot(self.GlobalPath["east"], self.GlobalPath["north"], marker='o', color="salmon", linewidth=1.0, markersize=3, label="Global Path")
-                        ax.plot(self.RevGlobalPath["east"], self.RevGlobalPath["north"], marker='o', color="greenyellow", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                        ax.plot(self.GlobalPath["east"], self.GlobalPath["north"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
+                        ax.plot(self.RevGlobalPath["east"], self.RevGlobalPath["north"], marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
                         ax.plot(self.LocalPath["east"], self.LocalPath["north"], marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label="Local Path")
@@ -1331,7 +1454,7 @@ class HHOS_Env(gym.Env):
                             dE, dN = xy_from_polar(r=abs(self.glo_ye), angle=angle_to_2pi(self.glo_pi_path + dtr(90.0)))
                         else:
                             dE, dN = xy_from_polar(r=self.glo_ye, angle=angle_to_2pi(self.glo_pi_path - dtr(90.0)))
-                        ax.plot([E0, E0+dE], [N0, N0+dN], color="salmon")
+                        ax.plot([E0, E0+dE], [N0, N0+dN], color="purple")
 
                 #--------------------- Current data ------------------------
                 if self.plot_current and self.plot_in_latlon:
@@ -1359,7 +1482,7 @@ class HHOS_Env(gym.Env):
                             self.WaveData["lat"][lower_lat_idx:(upper_lat_idx+1)],
                             self.WaveData["eastward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
                             self.WaveData["northward"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            headwidth=2.0, color="salmon", scale=10)
+                            headwidth=2.0, color="purple", scale=10)
 
                 #--------------------- LiDAR sensing ------------------------
                 if self.plot_lidar and self.plot_in_latlon:
@@ -1388,7 +1511,7 @@ class HHOS_Env(gym.Env):
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "red", label="Course error")
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_comf, self.r_comf], color = "blue", label="Comfort")
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "orange", label="Aggregated")
+                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "darkgoldenrod", label="Aggregated")
                 
                 if self.step_cnt == 0:
                     self.ax2.legend()

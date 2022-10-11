@@ -1,12 +1,12 @@
 ---
 env:
   name: HHOS-PathFollowing-v0
-  max_episode_steps: 5_000
+  max_episode_steps: 500
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: TD3_plan_actor.pth
+    planner_weights:
     data: sampled
     N_TSs_max : 5
     N_TSs_random : true

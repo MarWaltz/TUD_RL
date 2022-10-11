@@ -24,7 +24,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
-        self._max_episode_steps = 5_000
+        self._max_episode_steps = 500
     
 
     def reset(self):
@@ -60,8 +60,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         If initial is True, the global path is also set."""
 
         if initial:      
-            # number of TS
+            # number of TS and scene
             self.planning_env.N_TSs = self.N_TSs
+            self.planning_env.scene = self.scene
 
             # global path
             self.planning_env.GlobalPath = copy.deepcopy(self.GlobalPath)
