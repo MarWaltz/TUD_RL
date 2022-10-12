@@ -3,8 +3,8 @@ from tud_rl.envs._envs.HHOS_Env import *
 
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
-    def __init__(self, data="sampled", state_design="conventional", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
-        super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
+    def __init__(self, data="sampled", scenario_based=True, state_design="conventional", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
+        super().__init__(scenario_based=scenario_based, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
         self.state_design = state_design
@@ -66,7 +66,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.TSs = [self._update_wps(TS, path_level="global") for TS in self.TSs]
 
             # simple heading control of target ships
-            self.TSs = [self._heading_control_glo(TS) for TS in self.TSs]
+            self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1

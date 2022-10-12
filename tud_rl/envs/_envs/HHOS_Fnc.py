@@ -214,7 +214,7 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
     The waypoints are (N1, E1) and (N2, E2), while the agent is at (NA, EA). K is the convergence rate of the vector field.
     
     Returns:
-        cte (float), desired_course (float, in radiant), path_angle (float, in radiant)"""
+        cte (float), desired_course (float, rad), path_angle12 (float, rad), smoothed path_angle (float, rad)"""
 
     assert K > 0, "K of VFG must be larger zero."
 
@@ -234,8 +234,15 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
         pi_path_23 = bng_abs(N0=N2, E0=E2, N1=N3, E1=E3)
 
         # percentage of overall distance
-        frac = ate_12 / ED(N0=N1, E0=E1, N1=N2, E1=E2)
+        frac = np.clip(ate_12 / ED(N0=N1, E0=E1, N1=N2, E1=E2), 0.0, 1.0)
         w23 = frac**1
+
+        # adjustment to avoid boundary issues at 2pi
+        if abs(pi_path_12-pi_path_23) >= math.pi:
+            if pi_path_12 >= pi_path_23:
+                pi_path_12 = angle_to_pi(pi_path_12)
+            else:
+                pi_path_23 = angle_to_pi(pi_path_23)
 
         # construct new angle
         pi_path_up = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
@@ -244,7 +251,7 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
         pi_path_up = pi_path_12
 
     # get desired course, which is rotated back to NED
-    return ye, angle_to_2pi(pi_path_up - math.atan(ye * K)), pi_path_12
+    return ye, angle_to_2pi(pi_path_up - math.atan(ye * K)), pi_path_12, pi_path_up
 
 
 def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):

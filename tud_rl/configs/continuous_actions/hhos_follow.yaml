@@ -6,10 +6,11 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights:
+    planner_weights: 
     data: sampled
-    N_TSs_max : 5
-    N_TSs_random : true
+    scenario_based: false
+    N_TSs_max : 2
+    N_TSs_random : false
     w_ye : 0.5
     w_ce : 0.5
     w_comf : 0.02

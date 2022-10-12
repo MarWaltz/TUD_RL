@@ -74,12 +74,12 @@ class HHOS_Env(gym.Env):
             self.l_seg_path = 0.0025        # wp distance of the global path in °Lat
 
             # depth data sampling parameters
-            self.river_dist_left_loc  = 150
-            self.river_dist_right_loc = 70
+            self.river_dist_left_loc  = 300
+            self.river_dist_right_loc = 100
             self.river_dist_sca = 20
-            self.river_dist_noise_loc = 5
+            self.river_dist_noise_loc = 0
             self.river_dist_noise_sca = 2
-            self.river_min = 5
+            self.river_min = 75
 
         # path characteristics
         self.n_wps_loc = 10
@@ -98,6 +98,7 @@ class HHOS_Env(gym.Env):
         self.plot_lidar = True
         self.plot_reward = False
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
+        self.first_init = True
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
@@ -769,7 +770,6 @@ class HHOS_Env(gym.Env):
 
         # sample scenario
         self.scene = np.random.choice([0, 1, 2, 3, 4], p=p_scene)
-        self.scene = 3
 
         # all random
         if self.scene == 0.0:
@@ -821,7 +821,7 @@ class HHOS_Env(gym.Env):
             d = np.random.uniform(*self.TS_spawn_dists)
             rev_dir = bool(random.getrandbits(1))
             offset = np.random.uniform(-20.0, 50.0)
-            nps = np.random.uniform(0.1, 0.8) * self.OS.nps
+            nps = np.random.uniform(0.1, 1.5) * self.OS.nps
 
         # vessel train
         if scene == 1:
@@ -995,30 +995,30 @@ class HHOS_Env(gym.Env):
             else:
                 N3, E3 = None, None
 
-            self.glo_ye, self.glo_desired_course, self.glo_pi_path = VFG(N1 = self.OS.glo_wp1_N, 
-                                                                         E1 = self.OS.glo_wp1_E, 
-                                                                         N2 = self.OS.glo_wp2_N, 
-                                                                         E2 = self.OS.glo_wp2_E,
-                                                                         NA = self.OS.eta[0], 
-                                                                         EA = self.OS.eta[1], 
-                                                                         K  = self.VFG_K, 
-                                                                         N3 = N3,
-                                                                         E3 = E3)
+            self.glo_ye, self.glo_desired_course, self.glo_pi_path, _ = VFG(N1 = self.OS.glo_wp1_N, 
+                                                                            E1 = self.OS.glo_wp1_E, 
+                                                                            N2 = self.OS.glo_wp2_N, 
+                                                                            E2 = self.OS.glo_wp2_E,
+                                                                            NA = self.OS.eta[0], 
+                                                                            EA = self.OS.eta[1], 
+                                                                            K  = self.VFG_K, 
+                                                                            N3 = N3,
+                                                                            E3 = E3)
         else:
             if smooth_dc:
                 N3, E3 = self.OS.loc_wp3_N, self.OS.loc_wp3_E
             else:
                 N3, E3 = None, None
 
-            self.loc_ye, self.loc_desired_course, self.loc_pi_path = VFG(N1 = self.OS.loc_wp1_N, 
-                                                                         E1 = self.OS.loc_wp1_E, 
-                                                                         N2 = self.OS.loc_wp2_N, 
-                                                                         E2 = self.OS.loc_wp2_E,
-                                                                         NA = self.OS.eta[0], 
-                                                                         EA = self.OS.eta[1], 
-                                                                         K  = self.VFG_K, 
-                                                                         N3 = N3,
-                                                                         E3 = E3)
+            self.loc_ye, self.loc_desired_course, self.loc_pi_path, _ = VFG(N1 = self.OS.loc_wp1_N, 
+                                                                            E1 = self.OS.loc_wp1_E, 
+                                                                            N2 = self.OS.loc_wp2_N, 
+                                                                            E2 = self.OS.loc_wp2_E,
+                                                                            NA = self.OS.eta[0], 
+                                                                            EA = self.OS.eta[1], 
+                                                                            K  = self.VFG_K, 
+                                                                            N3 = N3,
+                                                                            E3 = E3)
     def _set_ce(self, path_level):
         """Sets the course error, which is desired course minus course."""
         assert path_level in ["global", "local"], "Choose between the global and local path for waypoint updating."
@@ -1086,28 +1086,66 @@ class HHOS_Env(gym.Env):
         return vessel
 
 
-    def _heading_control_glo(self, vessel):
-        """Controls the heading of a to smoothly follow the (potentially reversed) global path."""
-        # angles of the two segments
-        pi_path_12 = bng_abs(N0=vessel.glo_wp1_N, E0=vessel.glo_wp1_E, N1=vessel.glo_wp2_N, E1=vessel.glo_wp2_E)
-        pi_path_23 = bng_abs(N0=vessel.glo_wp2_N, E0=vessel.glo_wp2_E, N1=vessel.glo_wp3_N, E1=vessel.glo_wp3_E)
+    def _is_overtaking(self, vessel1, vessel2):
+        """Checks whether vessel1 overtakes vessel2. Returns bool."""
+        if vessel1 is vessel2:
+            return False
 
-        ate_TS = ate(N1=vessel.glo_wp1_N, E1=vessel.glo_wp1_E, N2=vessel.glo_wp2_N, E2=vessel.glo_wp2_E, NA=vessel.eta[0], EA=vessel.eta[1], pi_path=pi_path_12)
-        dist_12 = self._wp_dist(vessel.glo_wp1_idx, vessel.glo_wp2_idx, path=self.RevGlobalPath if vessel.rev_dir else self.GlobalPath)
+        dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
+        if (vessel1._get_V() > vessel2._get_V()) and (dist <= 10*max([vessel1.Lpp, vessel2.Lpp])):
+            if 135 <= rtd(bng_rel(N0=vessel2.eta[0], E0=vessel2.eta[1], N1=vessel1.eta[0], E1=vessel1.eta[1], head0=vessel2.eta[2])) <= 270:
+                return True
+        return False
 
-        # weighting
-        frac = np.clip(ate_TS/dist_12, 0.0, 1.0)
-        w23 = frac**15
 
-        # adjustment to avoid boundary issues at 2pi
-        if abs(pi_path_12-pi_path_23) >= math.pi:
-            if pi_path_12 >= pi_path_23:
-                pi_path_12 = angle_to_pi(pi_path_12)
-            else:
-                pi_path_23 = angle_to_pi(pi_path_23)
+    def _is_opposing(self, vessel1, vessel2):
+        """Checks whether the two vessels are in an opposing situation to each other."""
+        dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
+        if (vessel1 is vessel2) or (vessel1.rev_dir == vessel2.rev_dir) or (dist > 10*max([vessel1.Lpp, vessel2.Lpp])):
+            return False
 
-        # heading construction
-        vessel.eta[2] = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)
+        DCPA, TCPA = cpa(NOS=vessel1.eta[0], EOS=vessel1.eta[1], NTS=vessel2.eta[0], ETS=vessel2.eta[1], chiOS=vessel1._get_course(),\
+            chiTS=vessel2._get_course(), VOS=vessel1._get_V(), VTS=vessel2._get_V())
+        
+        if (TCPA > 0.0) and (DCPA < 2*max([vessel1.B, vessel2.B])):
+            return True
+        return False
+
+
+    def _rule_based_control(self, vessel):
+        """Defines a deterministic rule-based target ship controller."""
+        # easy access
+        ye, dc, _, smoothed_path_ang = VFG(N1 = vessel.glo_wp1_N, 
+                                          E1 = vessel.glo_wp1_E, 
+                                          N2 = vessel.glo_wp2_N, 
+                                          E2 = vessel.glo_wp2_E,
+                                          NA = vessel.eta[0], 
+                                          EA = vessel.eta[1], 
+                                          K  = self.VFG_K, 
+                                          N3 = vessel.glo_wp3_N, 
+                                          E3 = vessel.glo_wp3_E)
+        all_vessels = [self.OS] + self.TSs
+
+        # opposing traffic is a threat
+        opposing_traffic = any([self._is_opposing(other_vessel, vessel) for other_vessel in all_vessels])
+        if opposing_traffic:
+            vessel.eta[2] = angle_to_2pi(dc + dtr(5.0))
+            return vessel
+
+        # vessel gets overtaken by other ship
+        gets_overtaken = any([self._is_overtaking(other_vessel, vessel) for other_vessel in all_vessels])
+        if gets_overtaken and ye < 5*vessel.B:
+            vessel.eta[2] = angle_to_2pi(dc + dtr(5.0))
+            return vessel
+        
+        # vessel is overtaking someone else
+        is_overtaking = any([self._is_overtaking(vessel, other_vessel) for other_vessel in all_vessels])
+        if is_overtaking and ye > -5*vessel.B:
+            vessel.eta[2] = angle_to_2pi(dc - dtr(5.0))
+            return vessel
+
+        # otherwise we just use basic heading control        
+        vessel.eta[2] = dc
         return vessel
 
 
@@ -1186,7 +1224,7 @@ class HHOS_Env(gym.Env):
         self.TSs = [self._update_wps(TS, path_level="global") for TS in self.TSs]
 
         # simple heading control of target ships
-        self.TSs = [self._heading_control_glo(TS) for TS in self.TSs]
+        self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -1372,9 +1410,10 @@ class HHOS_Env(gym.Env):
                                     self.clev, cmap=cm.ocean)
 
                     # colorbar as legend
-                    if self.step_cnt == 0:
+                    if self.step_cnt == 0 and self.first_init:
                         cbar = self.f.colorbar(con, ticks=self.con_ticks, ax=ax)
                         cbar.ax.set_yticklabels(self.con_ticklabels)
+                        self.first_init = False
 
                 #--------------- wind plot ---------------------
                 if self.plot_wind and self.plot_in_latlon:
@@ -1401,7 +1440,7 @@ class HHOS_Env(gym.Env):
                     lat_lon_tups = [to_latlon(north=y, east=x, number=self.OS.utm_number)[:2] for x, y in xys]
                     lats = [e[0] for e in lat_lon_tups]
                     lons = [e[1] for e in lat_lon_tups]
-                    ax.plot(lons, lats, color="red", alpha=0.7)
+                    #ax.plot(lons, lats, color="red", alpha=0.7)
                 else:
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
@@ -1410,7 +1449,7 @@ class HHOS_Env(gym.Env):
                 # TSs
                 for TS in self.TSs:
                     col = "darkgoldenrod" if TS.rev_dir else "purple"
-                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
+                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=False)
 
                 #--------------------- Path ------------------------
                 if self.plot_path:

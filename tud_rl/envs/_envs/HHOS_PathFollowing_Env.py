@@ -5,8 +5,8 @@ from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
 
 
 class HHOS_PathFollowing_Env(HHOS_Env):
-    def __init__(self, planner_weights=None, data="sampled", N_TSs_max=0, N_TSs_random=False, w_ye=0.5, w_ce=0.5, w_comf=0.05):
-        super().__init__(data=data, w_ye=w_ye, w_ce=w_ce, w_comf=w_comf, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_coll=0.0)
+    def __init__(self, planner_weights=None, scenario_based=True, data="sampled", N_TSs_max=0, N_TSs_random=False, w_ye=0.5, w_ce=0.5, w_comf=0.05):
+        super().__init__(scenario_based=scenario_based, data=data, w_ye=w_ye, w_ce=w_ce, w_comf=w_comf, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_coll=0.0)
 
         if planner_weights is not None:
             plan_in_size = 3 + self.lidar_n_beams + 5 * self.N_TSs_max
