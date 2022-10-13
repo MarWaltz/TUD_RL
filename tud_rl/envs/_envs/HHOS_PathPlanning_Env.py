@@ -22,7 +22,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
         self.d_head_scale = dtr(10.0)
-        self._max_episode_steps = 5_000
+        self._max_episode_steps = 500
 
     def reset(self):
         s = super().reset()

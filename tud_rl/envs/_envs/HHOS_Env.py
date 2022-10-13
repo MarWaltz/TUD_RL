@@ -818,10 +818,16 @@ class HHOS_Env(gym.Env):
 
         # random
         if scene == 0:
-            d = np.random.uniform(*self.TS_spawn_dists)
-            rev_dir = bool(random.getrandbits(1))
+            speedy = bool(np.random.choice([0, 1], p=[0.8, 0.2]))
+            if speedy: 
+                d = np.random.uniform(self.TS_spawn_dists[0]/2, self.TS_spawn_dists[0])
+                rev_dir = False
+                nps = np.random.uniform(1.3, 1.5) * self.OS.nps
+            else:
+                d = np.random.uniform(*self.TS_spawn_dists)
+                rev_dir = bool(random.getrandbits(1))
+                nps = np.random.uniform(0.3, 0.6) * self.OS.nps
             offset = np.random.uniform(-20.0, 50.0)
-            nps = np.random.uniform(0.1, 1.5) * self.OS.nps
 
         # vessel train
         if scene == 1:
@@ -832,6 +838,7 @@ class HHOS_Env(gym.Env):
             rev_dir = False
             offset = 0.0
             nps = np.random.uniform(0.4, 0.5) * self.OS.nps
+            speedy = False
 
         # overtake the overtaker
         elif scene == 2:
@@ -842,6 +849,7 @@ class HHOS_Env(gym.Env):
                 nps = np.random.uniform(0.4, 0.45) * self.OS.nps
             else:
                 nps = np.random.uniform(0.45, 0.5) * self.OS.nps
+            speedy = False
 
         # overtaking under oncoming traffic
         elif scene == 3:
@@ -874,6 +882,7 @@ class HHOS_Env(gym.Env):
                 rev_dir = True
                 offset = 50.0
                 nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+            speedy = False
 
         # overtake the overtaker under oncoming traffic
         elif scene == 4:
@@ -894,22 +903,32 @@ class HHOS_Env(gym.Env):
                 rev_dir = True
                 offset = 0.0
                 nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+            speedy = False
 
         # add some noise to distance
         pass
 
         # get wps
-        wp1 = self.OS.glo_wp1_idx
-        wp1_N = self.OS.glo_wp1_N
-        wp1_E = self.OS.glo_wp1_E
+        if speedy:
+            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.RevGlobalPath["lat"], 
+                                                                   lon_array = self.RevGlobalPath["lon"], 
+                                                                   a_n       = self.OS.eta[0], 
+                                                                   a_e       = self.OS.eta[1])
+            path = self.RevGlobalPath
+        else:
+            wp1 = self.OS.glo_wp1_idx
+            wp1_N = self.OS.glo_wp1_N
+            wp1_E = self.OS.glo_wp1_E
 
-        wp2 = self.OS.glo_wp2_idx
-        wp2_N = self.OS.glo_wp2_N
-        wp2_E = self.OS.glo_wp2_E
+            wp2 = self.OS.glo_wp2_idx
+            wp2_N = self.OS.glo_wp2_N
+            wp2_E = self.OS.glo_wp2_E
+
+            path = self.GlobalPath
 
         # determine starting position
         ate_init = ate(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
-        d_to_nxt_wp = self._wp_dist(wp1, wp2, path=self.GlobalPath) - ate_init
+        d_to_nxt_wp = self._wp_dist(wp1, wp2, path=path) - ate_init
         orig_seg = True
 
         while True:
@@ -917,14 +936,13 @@ class HHOS_Env(gym.Env):
                 d -= d_to_nxt_wp
                 wp1 += 1
                 wp2 += 1
-                d_to_nxt_wp = self._wp_dist(wp1, wp2, path=self.GlobalPath)
+                d_to_nxt_wp = self._wp_dist(wp1, wp2, path=path)
                 orig_seg = False
             else:
                 break
 
         # path angle
-        pi_path_spwn = bng_abs(N0=self.GlobalPath["north"][wp1], E0=self.GlobalPath["east"][wp1], \
-            N1=self.GlobalPath["north"][wp2], E1=self.GlobalPath["east"][wp2])
+        pi_path_spwn = bng_abs(N0=path["north"][wp1], E0=path["east"][wp1], N1=path["north"][wp2], E1=path["east"][wp2])
 
         # still in original segment
         if orig_seg:
@@ -933,17 +951,17 @@ class HHOS_Env(gym.Env):
             E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
 
         # determine position
-        N_TS = self.GlobalPath["north"][wp1] + N_add
-        E_TS = self.GlobalPath["east"][wp1] + E_add
+        N_TS = path["north"][wp1] + N_add
+        E_TS = path["east"][wp1] + E_add
         
-        # potentially place vessel on reversed path
-        if rev_dir:
+        # jump on the other path: either due to speedy or opposing traffic
+        if speedy or rev_dir:
             E_add_rev, N_add_rev = xy_from_polar(r=self.dist_des_rev_path, angle=angle_to_2pi(pi_path_spwn-math.pi/2))
             N_TS += N_add_rev
             E_TS += E_add_rev
 
         # consider offset
-        TS_head = angle_to_2pi(pi_path_spwn + math.pi) if rev_dir else pi_path_spwn
+        TS_head = angle_to_2pi(pi_path_spwn + math.pi) if rev_dir or speedy else pi_path_spwn
 
         if offset != 0.0:
             ang = TS_head - math.pi/2 if offset > 0.0 else TS_head + math.pi/2
@@ -968,17 +986,33 @@ class HHOS_Env(gym.Env):
         # store waypoint information
         TS.rev_dir = rev_dir
 
-        if rev_dir:
-            TS.glo_wp1_idx, TS.glo_wp2_idx = self._get_rev_path_wps(wp1, wp2, path=self.GlobalPath)
-            TS.glo_wp3_idx = TS.glo_wp2_idx + 1
-            path = self.RevGlobalPath
-        else:
-            TS.glo_wp1_idx, TS.glo_wp2_idx, TS.glo_wp3_idx = wp1, wp2, wp2 + 1
-            path = self.GlobalPath
 
-        TS.glo_wp1_N, TS.glo_wp1_E = path["north"][TS.glo_wp1_idx], path["east"][TS.glo_wp1_idx]
-        TS.glo_wp2_N, TS.glo_wp2_E = path["north"][TS.glo_wp2_idx], path["east"][TS.glo_wp2_idx]
-        TS.glo_wp3_N, TS.glo_wp3_E = path["north"][TS.glo_wp3_idx], path["east"][TS.glo_wp3_idx]
+        if speedy:
+            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.GlobalPath["lat"], 
+                                                                   lon_array = self.GlobalPath["lon"], 
+                                                                   a_n       = TS.eta[0], 
+                                                                   a_e       = TS.eta[1])
+            TS.glo_wp1_idx = wp1
+            TS.glo_wp1_N = wp1_N
+            TS.glo_wp1_E = wp1_E
+            TS.glo_wp2_idx = wp2
+            TS.glo_wp2_N = wp2_N
+            TS.glo_wp2_E = wp2_E
+            TS.glo_wp3_idx = wp2 + 1
+            TS.glo_wp3_N = self.GlobalPath["north"][wp2 + 1]
+            TS.glo_wp3_E = self.GlobalPath["east"][wp2 + 1]
+        else:
+            if rev_dir:
+                TS.glo_wp1_idx, TS.glo_wp2_idx = self._get_rev_path_wps(wp1, wp2, path=self.GlobalPath)
+                TS.glo_wp3_idx = TS.glo_wp2_idx + 1
+                path = self.RevGlobalPath
+            else:
+                TS.glo_wp1_idx, TS.glo_wp2_idx, TS.glo_wp3_idx = wp1, wp2, wp2 + 1
+                path = self.GlobalPath
+
+            TS.glo_wp1_N, TS.glo_wp1_E = path["north"][TS.glo_wp1_idx], path["east"][TS.glo_wp1_idx]
+            TS.glo_wp2_N, TS.glo_wp2_E = path["north"][TS.glo_wp2_idx], path["east"][TS.glo_wp2_idx]
+            TS.glo_wp3_N, TS.glo_wp3_E = path["north"][TS.glo_wp3_idx], path["east"][TS.glo_wp3_idx]
 
         # predict converged speed of sampled TS
         TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
@@ -1093,7 +1127,7 @@ class HHOS_Env(gym.Env):
 
         dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
         if (vessel1._get_V() > vessel2._get_V()) and (dist <= 10*max([vessel1.Lpp, vessel2.Lpp])):
-            if 135 <= rtd(bng_rel(N0=vessel2.eta[0], E0=vessel2.eta[1], N1=vessel1.eta[0], E1=vessel1.eta[1], head0=vessel2.eta[2])) <= 270:
+            if 135 <= rtd(bng_rel(N0=vessel2.eta[0], E0=vessel2.eta[1], N1=vessel1.eta[0], E1=vessel1.eta[1], head0=vessel2.eta[2])) <= 315:
                 return True
         return False
 
@@ -1116,38 +1150,63 @@ class HHOS_Env(gym.Env):
         """Defines a deterministic rule-based target ship controller."""
         # easy access
         ye, dc, _, smoothed_path_ang = VFG(N1 = vessel.glo_wp1_N, 
-                                          E1 = vessel.glo_wp1_E, 
-                                          N2 = vessel.glo_wp2_N, 
-                                          E2 = vessel.glo_wp2_E,
-                                          NA = vessel.eta[0], 
-                                          EA = vessel.eta[1], 
-                                          K  = self.VFG_K, 
-                                          N3 = vessel.glo_wp3_N, 
-                                          E3 = vessel.glo_wp3_E)
+                                           E1 = vessel.glo_wp1_E, 
+                                           N2 = vessel.glo_wp2_N, 
+                                           E2 = vessel.glo_wp2_E,
+                                           NA = vessel.eta[0], 
+                                           EA = vessel.eta[1], 
+                                           K  = self.VFG_K, 
+                                           N3 = vessel.glo_wp3_N, 
+                                           E3 = vessel.glo_wp3_E)
         all_vessels = [self.OS] + self.TSs
+        
+        # consider vessel with smallest euclidean distance
+        EDs = [ED(N0=vessel.eta[0], E0=vessel.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in all_vessels]
+        i = EDs.index(sorted(EDs)[1])
+        other_vessel = all_vessels[i]
 
         # opposing traffic is a threat
-        opposing_traffic = any([self._is_opposing(other_vessel, vessel) for other_vessel in all_vessels])
+        opposing_traffic = self._is_opposing(vessel1=other_vessel, vessel2=vessel)
         if opposing_traffic:
             vessel.eta[2] = angle_to_2pi(dc + dtr(5.0))
             return vessel
 
         # vessel gets overtaken by other ship
-        gets_overtaken = any([self._is_overtaking(other_vessel, vessel) for other_vessel in all_vessels])
-        if gets_overtaken and ye < 5*vessel.B:
-            vessel.eta[2] = angle_to_2pi(dc + dtr(5.0))
+        gets_overtaken = self._is_overtaking(vessel1=other_vessel, vessel2=vessel)
+        if gets_overtaken:
+            ang = smoothed_path_ang if ye > 0.0 else dc
+            delta = self._control_hlp(ye=ye, x1=5*vessel.B, situation="gets_overtaken")
+            vessel.eta[2] = angle_to_2pi(ang + dtr(delta))
             return vessel
         
         # vessel is overtaking someone else
-        is_overtaking = any([self._is_overtaking(vessel, other_vessel) for other_vessel in all_vessels])
-        if is_overtaking and ye > -5*vessel.B:
-            vessel.eta[2] = angle_to_2pi(dc - dtr(5.0))
+        is_overtaking = self._is_overtaking(vessel1=vessel, vessel2=other_vessel)
+        if is_overtaking:
+            ang = dc if ye > 0.0 else smoothed_path_ang
+            delta = self._control_hlp(ye=ye, x1=5*vessel.B, situation="is_overtaking")
+            vessel.eta[2] = angle_to_2pi(ang - dtr(delta))
             return vessel
 
-        # otherwise we just use basic heading control        
+        # otherwise we just use basic VFG control
         vessel.eta[2] = dc
         return vessel
 
+    def _control_hlp(self, situation, ye, x1):
+        """Rule-based control helper fnc to determine the heading adjustment."""
+        assert situation in ["gets_overtaken", "is_overtaking"], "Unknown scenario for rule-based heading control."
+        
+        if situation == "gets_overtaken":
+            y1 = 1
+            y2 = 8
+            if ye < 0.0:
+                return y2
+            return y2 * math.exp(ye/x1 * math.log(y1/y2))
+        else:
+            y1 = 2
+            y2 = 8
+            if ye > 0.0:
+                return y2
+            return y2 * math.exp(ye/x1 * math.log(y2/y1))
 
     def _handle_respawn(self, TS):
         """Checks whether the respawning condition of the target ship is fulfilled."""
