@@ -3,8 +3,9 @@ from tud_rl.envs._envs.HHOS_Env import *
 
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
-    def __init__(self, data="sampled", scenario_based=True, state_design="conventional", N_TSs_max=1, N_TSs_random=False, w_ye=1.0, w_ce=1.0, w_coll=1.0):
-        super().__init__(scenario_based=scenario_based, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_comf=0.0)
+    def __init__(self, state_design, time, data, scenario_based, N_TSs_max, N_TSs_random, w_ye, w_ce, w_coll, w_comf, w_time):
+        super().__init__(time=time, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
+            w_coll=w_coll, w_comf=w_comf, w_time=w_time, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
         self.state_design = state_design
@@ -21,14 +22,22 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
                                        high=np.array([1], dtype=np.float32))
+        # control scales
         self.d_head_scale = dtr(10.0)
-        self._max_episode_steps = 500
+        self.surge_scale = 0.5
+        self.desired_V = 3.0
+
+        self._max_episode_steps = 50
 
     def reset(self):
         s = super().reset()
 
         # we can delete the local path and its characteritics
-        del [self.LocalPath, self.loc_ye, self.loc_desired_course, self.loc_pi_path][:]
+        del self.LocalPath
+        del self.loc_ye 
+        del self.loc_desired_course
+        del self.loc_pi_path
+
         return s
 
     def _update_local_path(self):
@@ -37,10 +46,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def step(self, a):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
-
-        # control action is heading adjustment
-        a = float(a)
-        self.OS = self._manual_heading_control(vessel=self.OS, a=a)
+        # control action
+        self.OS = self._manual_heading_control(vessel=self.OS, a=float(a[0]))
+        if self.time:
+            self.OS = self._manual_surge_control(vessel=self.OS, a=float(a[1]))
 
         # update agent dynamics (independent of environmental disturbances in this module)
         [self.OS._upd_dynamics() for _ in range(self.n_loops)]
@@ -49,7 +58,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._update_disturbances()
 
         # update OS waypoints of global path
-        self.OS = self._update_wps(self.OS, path_level="global")
+        self.OS = self._init_wps(self.OS, "global")
 
         # compute new cross-track error and course error for global path
         self._set_cte(path_level="global")
@@ -63,14 +72,14 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
             # update waypoints for other vessels
-            self.TSs = [self._update_wps(TS, path_level="global") for TS in self.TSs]
+            self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
 
             # simple heading control of target ships
             self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
-        self.sim_t += self.delta_t
+        self.sim_t += self.n_loops * self.delta_t
 
         # compute state, reward, done        
         self._set_state()
@@ -85,10 +94,21 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         vessel.eta[2] = angle_to_2pi(vessel.eta[2] + a*self.d_head_scale)
         return vessel
 
+    def _manual_surge_control(self, vessel : KVLCC2, a):
+        """Adjust the surge of a vessel."""
+        assert -1 <= a <= 1, "Unknown action."
+
+        vessel.nu[0] = np.clip(vessel.nu[0] + a*self.surge_scale, 0.1, 5.0)
+        vessel.nps = vessel._get_nps_from_u(vessel.nu[0])
+        return vessel
+
     def _set_state(self):
         #--------------------------- OS information ----------------------------
         # speed, heading relative to global path
-        state_OS = np.array([self.OS.nu[0]/7.0, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
+        if self.time:
+            state_OS = np.array([(self.OS.nu[0]-self.desired_V)/1.0, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
+        else:
+            state_OS = np.array([self.OS.nu[0]/self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
 
         # ------------------------- path information ---------------------------
         state_path = np.array([self.glo_ye/self.OS.Lpp])
@@ -162,6 +182,14 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         else:
             self.r_ce = 0.0
 
+        # --------------------------- Comfort reward ------------------------
+        if self.time:
+            self.r_comf = -float(a[1])**4
+
+        # -------------------------- Speed reward ---------------------------
+        if self.time:
+            self.r_time = -(self.OS.nu[0]-self.desired_V)**2
+
         # ---------------------- Collision Avoidance reward -----------------
         self.r_coll = 0
 
@@ -191,6 +219,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
         rews = np.array([self.r_ye, self.r_ce, self.r_coll])
+
+        if self.time:
+            weights = np.append(weights, [self.w_comf, self.w_time])
+            rews = np.append(rews, [self.r_comf, self.r_time])
+
         self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
 
 

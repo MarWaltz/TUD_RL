@@ -186,13 +186,8 @@ class KVLCC2:
 
         # actions
         self.cont_acts = cont_acts
-
-        if cont_acts:
-            self.rud_angle_max = dtr(20.0)
-            self.rud_angle_inc = dtr(5.0)
-        else:
-            self.rud_angle_max = dtr(20.0)
-            self.rud_angle_inc = dtr(5.0)
+        self.rud_angle_max = dtr(20.0)
+        self.rud_angle_inc = dtr(5.0)
 
         # init rudder angle
         self.rud_angle = 0.0
@@ -571,9 +566,7 @@ class KVLCC2:
 
         # continuous
         if self.cont_acts:
-            assert -1 <= a <= 1, "Unknown action."
-
-            self.rud_angle += a*self.rud_angle_inc
+            raise NotImplementedError("Continous action updating inside the KVLCC2-object is deprecated.")
 
         # discrete
         else:

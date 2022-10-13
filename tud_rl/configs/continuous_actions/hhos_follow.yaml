@@ -1,19 +1,22 @@
 ---
 env:
   name: HHOS-PathFollowing-v0
-  max_episode_steps: 500
+  max_episode_steps: 100
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: TD3_new_plan_actor.pth
+    planner_weights: 
+    time: true
     data: sampled
-    scenario_based: true
-    N_TSs_max : 5
-    N_TSs_random : true
+    scenario_based: false
+    N_TSs_max : 0
+    N_TSs_random : false
     w_ye : 0.5
     w_ce : 0.5
+    w_coll : None
     w_comf : 0.02
+    w_time: 0.5
   info: MDP
 agent:
   DDPG: {}

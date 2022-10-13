@@ -6,14 +6,17 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
+    time: true
     data: sampled
-    scenario_based: true
+    scenario_based: false
     state_design: conventional
     N_TSs_max: 5
     N_TSs_random: true
     w_ye : 1.0
     w_ce : 1.0
     w_coll : 1.25
+    w_comf : 0.5
+    w_time: 1.0
   info: MDP
 agent:
   DDPG: {}
