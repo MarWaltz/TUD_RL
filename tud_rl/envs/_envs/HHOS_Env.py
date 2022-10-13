@@ -73,7 +73,7 @@ class HHOS_Env(gym.Env):
             self.river_min = 75
 
         # path characteristics
-        self.n_wps_loc = 10
+        self.n_wps_loc = 5
         self.dist_des_rev_path = 200
 
         # how many longitude/latitude degrees to show for the visualization
@@ -734,7 +734,6 @@ class HHOS_Env(gym.Env):
 
         return wp1_rev, wp2_rev
 
-
     def _init_local_path(self):
         """Generates a local path based on the global one."""
         self.LocalPath = {"n_wps" : self.n_wps_loc}
@@ -747,27 +746,10 @@ class HHOS_Env(gym.Env):
         self.LocalPath["east"] = copy(self.GlobalPath["east"][i:i+self.n_wps_loc])
 
         if self.time:
-            # local path starts at the GlobalPath based on the ate of the agent
-            if self.glo_ye < 0:
-                dE, dN = xy_from_polar(r=abs(self.glo_ye), angle=angle_to_2pi(self.glo_pi_path + dtr(90.0)))
-            else:
-                dE, dN = xy_from_polar(r=self.glo_ye, angle=angle_to_2pi(self.glo_pi_path - dtr(90.0)))
-
-            self.LocalPath["north"][0] = self.OS.eta[0] + dN
-            self.LocalPath["east"][0]  = self.OS.eta[1] + dE
-            self.LocalPath["lat"][0], self.LocalPath["lon"][0] = to_latlon(north = self.LocalPath["north"][0], 
-                                                                           east  = self.LocalPath["east"][0], number=32)
-            # set time via desired speed
-            self.LocalPath["t"] = np.zeros_like(self.LocalPath["north"])
-            for t in range(1, self.n_wps_loc):
-                d = ED(N0=self.LocalPath["north"][t-1], E0=self.LocalPath["east"][t-1], 
-                       N1=self.LocalPath["north"][t],   E1=self.LocalPath["east"][t])
-                self.LocalPath["t"][t] = self.LocalPath["t"][t-1] + d / self.desired_V
-
+            self.LocalPath["v"] = np.ones_like(self.LocalPath["lat"]) * self.desired_V * np.random.uniform(0.5, 1.5)
 
     def _update_local_path(self):
         self._init_local_path()
-
 
     def _init_TSs(self):
         if self.scenario_based:

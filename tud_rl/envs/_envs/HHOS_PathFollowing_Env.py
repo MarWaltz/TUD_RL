@@ -23,11 +23,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         path_infos = 2
         env_infos = 9
         obs_size = OS_infos + path_infos + env_infos
+        act_size = 2 if self.time else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
-        self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
-                                       high=np.array([1], dtype=np.float32))
+        self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
+                                       high = np.full(act_size,  1, dtype=np.float32))
         
         # vessel config
         self.desired_V = 3.0
@@ -95,10 +96,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planning_env.con_ticklabels = self.con_ticklabels
             self.planning_env.clev = self.clev
         else:
-            # clear time in trajectory tracking
-            if self.time:
-                self.planning_env.sim_t = 0.0
-
             # OS and TSs
             self.planning_env.OS = deepcopy(self.OS)
             self.planning_env.TSs = deepcopy(self.TSs)
@@ -140,7 +137,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # set the local path
         if self.step_cnt % self.loc_path_upd_freq == 0:
-            self.sim_t = 0.0
             self._update_local_path()
 
         # update OS waypoints of global and local path
@@ -160,8 +156,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
-        if self.step_cnt % self.loc_path_upd_freq != 0:
-            self.sim_t += self.delta_t
+        self.sim_t += self.delta_t
         self.step_cnt += 1
         
         # compute state, reward, done        
@@ -191,7 +186,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             # setup wps and potentially time
             ns, es = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]]
             if self.time:
-                ts = [self.planning_env.sim_t]
+                vs = [self.planning_env.OS._get_V()]
 
             # planning loop
             for _ in range(self.n_wps_loc-1):
@@ -206,14 +201,13 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 ns.append(self.planning_env.OS.eta[0])
                 es.append(self.planning_env.OS.eta[1])
                 if self.time:
-                    ts.append(self.planning_env.sim_t)
-
+                    vs.append(self.planning_env.OS._get_V())
                 if d:
                     break
             
             # set it as local path
             if self.time:
-                self.LocalPath["t"] = ts
+                self.LocalPath["v"] = vs
             self.LocalPath["north"] = np.array(ns)
             self.LocalPath["east"] = np.array(es)
             self.LocalPath["lat"] = np.zeros_like(self.LocalPath["north"])
@@ -232,7 +226,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         state_OS = np.concatenate([cmp1, cmp2])
 
         if self.time:
-            state_OS = np.append(state_OS, [(self._get_t_desired() - self.sim_t)/self.delta_t,
+            state_OS = np.append(state_OS, [(self._get_v_desired() - self.OS._get_V())/1.0,
                                              self.OS.nps / 3.0])
 
         # ------------------------- local path information ---------------------------
@@ -260,10 +254,10 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.state = np.concatenate([state_OS, state_path, state_env], dtype=np.float32)
 
 
-    def _get_t_desired(self):
-        """Computes the desired simulation time at the position of the agent."""
-        t1 = self.LocalPath["t"][self.OS.loc_wp1_idx]
-        t2 = self.LocalPath["t"][self.OS.loc_wp2_idx]
+    def _get_v_desired(self):
+        """Computes the desired velocity time at the position of the agent."""
+        v1 = self.LocalPath["v"][self.OS.loc_wp1_idx]
+        v2 = self.LocalPath["v"][self.OS.loc_wp2_idx]
 
         ate_12 = ate(N1 = self.OS.loc_wp1_N, 
                      E1 = self.OS.loc_wp1_E, 
@@ -273,7 +267,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                      EA = self.OS.eta[1])
         d = self._wp_dist(wp1_idx=self.OS.loc_wp1_idx, wp2_idx=self.OS.loc_wp2_idx, path=self.LocalPath)
         frac = np.clip(ate_12/d, 0.0, 1.0)
-        return frac*t2 + (1-frac)*t1
+        return frac*v2 + (1-frac)*v1
 
 
     def _calculate_reward(self, a):
@@ -302,8 +296,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # ---------------------------- Time reward -------------------------
         if self.time:
-            self.t_des = self._get_t_desired()
-            self.r_time = -abs(self.t_des-self.sim_t)/self.delta_t
+            self.v_des = self._get_v_desired()
+            self.r_time = -abs(self.v_des-self.OS._get_V())/1.0
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_comf])

@@ -17,11 +17,13 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         OS_path_info_size = 3
         self.num_obs_TS = 5
         obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
+        act_size = 2 if self.time else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
-        self.action_space = spaces.Box(low=np.array([-1], dtype=np.float32), 
-                                       high=np.array([1], dtype=np.float32))
+        self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
+                                       high = np.full(act_size,  1, dtype=np.float32))
+
         # control scales
         self.d_head_scale = dtr(10.0)
         self.surge_scale = 0.5
