@@ -15,7 +15,7 @@ env:
     w_ye : 1.0
     w_ce : 1.0
     w_coll : 1.25
-    w_comf : 0.5
+    w_comf : 1.5
     w_time: 1.0
   info: MDP
 agent:

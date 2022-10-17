@@ -1,6 +1,7 @@
 import math
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 COLREG_NAMES  = {0 : "Null", 
                  1 : "Head-on", 
@@ -51,7 +52,7 @@ def ED(N0, E0, N1, E1, sqrt=True):
     d_sq = (N0 - N1)**2 + (E0 - E1)**2
 
     if sqrt:
-        return math.sqrt(d_sq)
+        return np.sqrt(d_sq)
     return d_sq
 
 

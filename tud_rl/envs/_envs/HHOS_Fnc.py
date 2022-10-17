@@ -289,10 +289,10 @@ def get_init_two_wp(lat_array, lon_array, a_n, a_e):
         wp1_idx, wp1_N, wp1_E, wp2_idx, wp2_N, wp2_E
     """
     # transform everything in utm
-    ne_tups = [to_utm(lat=lat_array[idx], lon=lon_array[idx])[0:2] for idx in range(len(lat_array))]
+    n, e, _ = to_utm(lat=lat_array, lon=lon_array)
 
     # compute the smallest euclidean distance
-    EDs = [ED(N0=a_n, E0=a_e, N1=wp_n, E1=wp_e, sqrt=False) for (wp_n, wp_e) in ne_tups]
+    EDs = ED(N0=a_n, E0=a_e, N1=n, E1=e, sqrt=False)
     min_idx = np.argmin(EDs)
 
     # limit case one

@@ -15,7 +15,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # gym inherits
         OS_path_info_size = 3
-        self.num_obs_TS = 5
+        self.num_obs_TS = 6
         obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
         act_size = 2 if self.time else 1
 
@@ -49,6 +49,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
         # control action
+        a = a.flatten()
+        self.a = a
         self.OS = self._manual_heading_control(vessel=self.OS, a=float(a[0]))
         if self.time:
             self.OS = self._manual_surge_control(vessel=self.OS, a=float(a[1]))
@@ -125,11 +127,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         for TS in self.TSs:
             N, E, headTS = TS.eta
 
-            # euclidean distance
+            # closeness
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
                  OS=self.OS, TS=TS)
             ED_OS_TS = (ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) - D) / (20*self.OS.Lpp)
-            ED_OS_TS_norm = np.clip(1-ED_OS_TS, 0.0, 1.0)
+            closeness = np.clip(1-ED_OS_TS, 0.0, 1.0)
 
             # relative bearing
             bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0, to_2pi=False) / (math.pi)
@@ -143,16 +145,21 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # direction
             TS_dir = -1.0 if TS.rev_dir else 1.0
 
+            # speedy
+            TS_speedy = 1.0 if TS.speedy else -1.0
+
             # store it
-            state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS_path, V_TS, TS_dir])          
+            state_TSs.append([closeness, bng_rel_TS, C_TS_path, V_TS, TS_dir, TS_speedy])          
         
         if self.state_design == "recursive":
+            raise NotImplementedError("Recursive state definition not implemented yet.")
+
             # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
             if len(state_TSs) == 0:
-                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0])
+                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0, -1.0])
 
-            # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten()
+            # sort according to closeness (ascending, larger closeness is more dangerous)
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0])).flatten()
 
             # at least one since there is always the ghost ship
             desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
@@ -163,10 +170,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         else:
             # pad ghost ships
             while len(state_TSs) != self.N_TSs_max:
-                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0])
+                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0, -1.0])
 
-            # sort according to euclidean distance (descending euclidean distance, smaller is more dangerous)
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0], reverse=True)).flatten().astype(np.float32)
+            # sort according to closeness (ascending, larger closeness is more dangerous)
+            state_TSs = np.hstack(sorted(state_TSs, key=lambda x: x[0])).astype(np.float32)
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
@@ -186,11 +193,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # --------------------------- Comfort reward ------------------------
         if self.time:
-            self.r_comf = -float(a[1])**4
+            self.r_comf = -abs(float(a[1]))
 
         # -------------------------- Speed reward ---------------------------
         if self.time:
-            self.r_time = -(self.OS.nu[0]-self.desired_V)**2
+            self.r_time = -(self.OS.nu[0]-self.desired_V)**4
 
         # ---------------------- Collision Avoidance reward -----------------
         self.r_coll = 0
@@ -209,10 +216,23 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             else:
                 self.r_coll -= math.exp(-(ED_OS_TS-D)/200)
 
-            # violating traffic rules is considered a collision
+            #-- violating traffic rules is considered a collision--
             bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
-            if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0) and ED_OS_TS <= 5*self.OS.Lpp:
-                self.r_coll -= 10.0
+
+            # OS should let speedys pass on its portside
+            if TS.speedy:
+                if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0) and ED_OS_TS <= 10*self.OS.Lpp:
+                    self.r_coll -= 10.0
+
+            # OS should not pass opposing ships on their portside
+            elif TS.rev_dir:
+                if dtr(0.0) <= bng_rel_TS_pers <= dtr(180.0) and ED_OS_TS <= 10*self.OS.Lpp:
+                    self.r_coll -= 10.0
+
+            # normal target ships should be overtaken on their portside
+            else:
+                if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0) and ED_OS_TS <= 5*self.OS.Lpp:
+                    self.r_coll -= 10.0
 
         # hit ground
         if self.H <= self.OS.critical_depth:

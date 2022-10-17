@@ -1,7 +1,7 @@
 import math
 import pickle
 import random
-from copy import copy, deepcopy
+from copy import copy
 
 import gym
 import numpy as np
@@ -114,7 +114,9 @@ class HHOS_Env(gym.Env):
         self.time = time
         self.desired_V = 3.0
 
-        # reward setup
+        # action/reward setup
+        self.a = [0, 0] if self.time else [0]
+        
         self.w_ye = w_ye
         self.w_ce = w_ce
         self.w_coll = w_coll
@@ -973,6 +975,7 @@ class HHOS_Env(gym.Env):
         TS.utm_number = 32
 
         # store waypoint information
+        TS.speedy  = speedy 
         TS.rev_dir = rev_dir
 
         if speedy:
@@ -1302,7 +1305,11 @@ class HHOS_Env(gym.Env):
         # check whether figure has been initialized
         if len(plt.get_fignums()) == 0:
             if self.plot_reward:
-                self.f, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(14, 8))
+                self.f = plt.figure(figsize=(14, 8))
+                self.gs  = self.f.add_gridspec(2, 2)
+                self.ax1 = self.f.add_subplot(self.gs[:, 0]) # ship
+                self.ax2 = self.f.add_subplot(self.gs[0, 1]) # reward
+                self.ax3 = self.f.add_subplot(self.gs[1, 1]) # action
             else:
                 self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
 
@@ -1475,9 +1482,10 @@ class HHOS_Env(gym.Env):
                     for _, latlon in enumerate(lidar_lat_lon):
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))
 
-            # ------------------------------ reward plot --------------------------------
+            # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:
                 if self.step_cnt == 0:
+                    # reward
                     self.ax2.clear()
                     self.ax2.old_time = 0
                     self.ax2.old_r_ye = 0
@@ -1488,8 +1496,14 @@ class HHOS_Env(gym.Env):
                         self.ax2.old_r_time = 0
                     self.ax2.r = 0
 
-                #self.ax2.set_xlim(0, self._max_episode_steps)
-                #self.ax2.set_ylim(0, 1)
+                    # action
+                    self.ax3.clear()
+                    self.ax3.old_time = 0
+                    self.ax3.old_a0 = 0
+                    if self.time:
+                        self.ax3.old_a1 = 0
+
+                # reward
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("Reward")
 
@@ -1512,6 +1526,23 @@ class HHOS_Env(gym.Env):
                 if self.time:
                     self.ax2.old_r_time= self.r_time
                 self.ax2.r = self.r
+
+                # action
+                self.ax3.set_xlabel("Timestep in episode")
+                self.ax3.set_ylabel("Action")
+                self.ax3.set_ylim(-1.05, 1.05)
+
+                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a0, float(self.a[0])], color="blue", label="Heading/rudder")
+                if self.time:
+                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a1, float(self.a[1])], color="red", label="Speed/nps")                
+
+                if self.step_cnt == 0:
+                    self.ax3.legend()
+
+                self.ax3.old_time = self.step_cnt
+                self.ax3.old_a0 = float(self.a[0])
+                if self.time:
+                    self.ax3.old_a1 = float(self.a[1])
 
             #plt.gca().set_aspect('equal')
             plt.pause(0.001)

@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import torch
 from tud_rl.common.nets import MLP
 from tud_rl.envs._envs.HHOS_Env import *
@@ -10,11 +12,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf, w_time=w_time)
 
         if planner_weights is not None:
-            plan_in_size = 3 + self.lidar_n_beams + 5 * self.N_TSs_max
-            self.planner = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+            plan_in_size = 3 + self.lidar_n_beams + 6 * self.N_TSs_max
+            act_plan_size = 2 if self.time else 1
+            self.planner = MLP(in_size=plan_in_size, out_size=act_plan_size, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             self.planner.load_state_dict(torch.load(planner_weights))
             self.planning_env = HHOS_PathPlanning_Env(state_design="conventional", time=time, data=data, scenario_based=scenario_based,\
-                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=None, w_ce=None, w_coll=None, w_comf=None, w_time=None)
+                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_comf=0.0, w_time=0.0)
         else:
             self.planner = None
 
@@ -120,6 +123,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         Returns new_state, r, done, {}."""
 
         # perform control action
+        a = a.flatten()
+        self.a = a
         self._OS_control(a)
 
         # update agent dynamics
@@ -285,19 +290,19 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # -------------------------- Comfort reward -------------------------
         # steering-based
-        self.r_comf = -float(a[0])**4
+        self.r_comf = -float(a[0])**2
 
         # drift-based
         self.r_comf -= abs(self.OS.nu[1])
 
         # nps-based
         if self.time:
-            self.r_comf -= 2*float(a[1])**4
+            self.r_comf -= 2*abs(float(a[1]))
 
         # ---------------------------- Time reward -------------------------
         if self.time:
             self.v_des = self._get_v_desired()
-            self.r_time = -abs(self.v_des-self.OS._get_V())/1.0
+            self.r_time = -(self.v_des-self.OS._get_V())**4
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_comf])
