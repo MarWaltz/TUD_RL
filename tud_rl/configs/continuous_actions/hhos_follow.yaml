@@ -12,11 +12,11 @@ env:
     scenario_based: false
     N_TSs_max : 0
     N_TSs_random : false
-    w_ye : 0.5
-    w_ce : 0.5
+    w_ye : 0.25
+    w_ce : 0.25
     w_coll : None
-    w_comf : 0.02
-    w_time: 0.5
+    w_comf : 0.25
+    w_time: 0.25
   info: MDP
 agent:
   DDPG: {}

@@ -38,6 +38,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         del self.LocalPath
         del self.loc_ye 
         del self.loc_desired_course
+        del self.loc_course_error
         del self.loc_pi_path
 
         return s
@@ -110,7 +111,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         #--------------------------- OS information ----------------------------
         # speed, heading relative to global path
         if self.time:
-            state_OS = np.array([(self.OS.nu[0]-self.desired_V)/1.0, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
+            state_OS = np.array([self.OS.nu[0]-self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
         else:
             state_OS = np.array([self.OS.nu[0]/self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
 
@@ -140,7 +141,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             C_TS_path = angle_to_pi(headTS - self.glo_pi_path) / math.pi
 
             # speed
-            V_TS = TS._get_V() / 7.0
+            if self.time:
+                V_TS = TS._get_V()-self.desired_V
+            else:
+                V_TS = TS._get_V()/self.desired_V
 
             # direction
             TS_dir = -1.0 if TS.rev_dir else 1.0
@@ -186,6 +190,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.r_ye = math.exp(-k_ye * abs(self.glo_ye))
 
         # course violation
+        #k_ce = 5.0
         if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
             self.r_ce = -10.0
         else:
@@ -193,11 +198,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # --------------------------- Comfort reward ------------------------
         if self.time:
-            self.r_comf = -abs(float(a[1]))
+            self.r_comf = -float(a[1])**2
 
         # -------------------------- Speed reward ---------------------------
         if self.time:
-            self.r_time = -(self.OS.nu[0]-self.desired_V)**4
+            self.r_time = max([-(self.OS.nu[0]-self.desired_V)**2, -1.0])
 
         # ---------------------- Collision Avoidance reward -----------------
         self.r_coll = 0

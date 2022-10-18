@@ -231,8 +231,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         state_OS = np.concatenate([cmp1, cmp2])
 
         if self.time:
-            state_OS = np.append(state_OS, [(self._get_v_desired() - self.OS._get_V())/1.0,
-                                             self.OS.nps / 3.0])
+            state_OS = np.append(state_OS, [self._get_v_desired() - self.OS._get_V(),
+                                            self.OS.nps / 3.0])
 
         # ------------------------- local path information ---------------------------
         state_path = np.array([self.loc_ye/self.OS.Lpp, self.loc_course_error/math.pi])
@@ -284,25 +284,26 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # course error
         k_ce = 5.0
         if abs(rtd(self.loc_course_error)) >= 90.0:
-            self.r_ce = -10
+            self.r_ce = -10.0
         else:
             self.r_ce = math.exp(-k_ce * abs(self.loc_course_error))
 
         # -------------------------- Comfort reward -------------------------
         # steering-based
-        self.r_comf = -float(a[0])**2
+        #self.r_comf = -float(a[0])**2
+        self.r_comf = 0.0
 
         # drift-based
-        self.r_comf -= abs(self.OS.nu[1])
+        #self.r_comf -= abs(self.OS.nu[1])
 
         # nps-based
         if self.time:
-            self.r_comf -= 2*abs(float(a[1]))
+            self.r_comf -= float(a[1])**2
 
         # ---------------------------- Time reward -------------------------
         if self.time:
             self.v_des = self._get_v_desired()
-            self.r_time = -(self.v_des-self.OS._get_V())**4
+            self.r_time = max([-(self.v_des-self.OS._get_V())**2, -1.0])
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_comf])

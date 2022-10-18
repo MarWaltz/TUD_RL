@@ -12,10 +12,10 @@ env:
     state_design: conventional
     N_TSs_max: 5
     N_TSs_random: true
-    w_ye : 1.0
+    w_ye : 3.0
     w_ce : 1.0
     w_coll : 1.25
-    w_comf : 1.5
+    w_comf : 0.1
     w_time: 1.0
   info: MDP
 agent:

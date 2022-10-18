@@ -748,7 +748,7 @@ class HHOS_Env(gym.Env):
         self.LocalPath["east"] = copy(self.GlobalPath["east"][i:i+self.n_wps_loc])
 
         if self.time:
-            self.LocalPath["v"] = np.ones_like(self.LocalPath["lat"]) * self.desired_V * np.random.uniform(0.5, 1.5)
+            self.LocalPath["v"] = np.ones_like(self.LocalPath["lat"]) * self.desired_V * np.random.uniform(0.8, 1.2)
 
     def _update_local_path(self):
         self._init_local_path()
@@ -1509,10 +1509,13 @@ class HHOS_Env(gym.Env):
 
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "red", label="Course error")
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_comf, self.r_comf], color = "blue", label="Comfort")
+
+                if type(self).__name__ == "HHOS_PathPlanning_Env":
+                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
                 if self.time:
                     self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_time, self.r_time], color = "salmon", label="Time/Speed")
+
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "darkgoldenrod", label="Aggregated")
                 
                 if self.step_cnt == 0:
