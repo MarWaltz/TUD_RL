@@ -1391,7 +1391,7 @@ class HHOS_Env(gym.Env):
                     lat_lon_tups = [to_latlon(north=y, east=x, number=self.OS.utm_number)[:2] for x, y in xys]
                     lats = [e[0] for e in lat_lon_tups]
                     lons = [e[1] for e in lat_lon_tups]
-                    #ax.plot(lons, lats, color="red", alpha=0.7)
+                    ax.plot(lons, lats, color="red", alpha=0.7)
                 else:
                     xs = [xy[0] for xy in xys]
                     ys = [xy[1] for xy in xys]
@@ -1404,7 +1404,7 @@ class HHOS_Env(gym.Env):
 
                 #--------------------- Path ------------------------
                 if self.plot_path:
-                    loc_path_col = "midnightblue" if self.data == "sampled" else "lightsteelblue"
+                    loc_path_col = "salmon" if self.data == "sampled" else "lightsteelblue"
 
                     if self.plot_in_latlon:
                         # global

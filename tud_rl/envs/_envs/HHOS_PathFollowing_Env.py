@@ -7,15 +7,21 @@ from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
 
 
 class HHOS_PathFollowing_Env(HHOS_Env):
-    def __init__(self, planner_weights, time, scenario_based, data, N_TSs_max, N_TSs_random, w_ye, w_ce, w_coll, w_comf, w_time):
+    def __init__(self, planner_weights, planner_safe, time, scenario_based, data, N_TSs_max, N_TSs_random, w_ye, w_ce, w_coll, w_comf, w_time):
         super().__init__(time=time, data=data, scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, \
             w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf, w_time=w_time)
 
         if planner_weights is not None:
+            # whether to use MPC as backup to guarantee safe plans
+            self.planner_safe = planner_safe
+
+            # construct planner network
             plan_in_size = 3 + self.lidar_n_beams + 6 * self.N_TSs_max
             act_plan_size = 2 if self.time else 1
             self.planner = MLP(in_size=plan_in_size, out_size=act_plan_size, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             self.planner.load_state_dict(torch.load(planner_weights))
+
+            # construct planning env
             self.planning_env = HHOS_PathPlanning_Env(state_design="conventional", time=time, data=data, scenario_based=scenario_based,\
                 N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_comf=0.0, w_time=0.0)
         else:
@@ -99,6 +105,13 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planning_env.con_ticklabels = self.con_ticklabels
             self.planning_env.clev = self.clev
         else:
+            # collision signal
+            if self.planner_safe:
+                self.planning_env.collision_flag = False
+
+            # step count
+            self.planning_env.step_cnt = 0
+
             # OS and TSs
             self.planning_env.OS = deepcopy(self.OS)
             self.planning_env.TSs = deepcopy(self.TSs)
@@ -184,7 +197,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
 
     def _update_local_path(self):
+        """Updates the local path either by simply using the global path, using the RL-based path planner, or the MPC safety net."""
         if self.planner is not None:
+
+            # MPC-flag for safe-planning mode
+            go_MPC = False
+
             # prep planning env
             s = self.setup_planning_env(initial=False)
 
@@ -195,12 +213,19 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
             # planning loop
             for _ in range(self.n_wps_loc-1):
+
                 # planner's move
                 s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
                 a = self.planner(s)
 
                 # planning env's reaction
                 s, _, d, _ = self.planning_env.step(a)
+
+                # check for collision in safe-planning mode
+                if self.planner_safe:
+                    if self.planning_env.collision_flag:
+                        go_MPC = True
+                        break
 
                 # store wps and potentially time
                 ns.append(self.planning_env.OS.eta[0])
@@ -210,18 +235,85 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 if d:
                     break
             
-            # set it as local path
-            if self.time:
-                self.LocalPath["v"] = vs
-            self.LocalPath["north"] = np.array(ns)
-            self.LocalPath["east"] = np.array(es)
-            self.LocalPath["lat"] = np.zeros_like(self.LocalPath["north"])
-            self.LocalPath["lon"] = np.zeros_like(self.LocalPath["north"])
+            # use MPC
+            if self.planner_safe and go_MPC:
+                self._update_local_path_MPC()
 
-            for i in range(len(ns)):
-                self.LocalPath["lat"][i], self.LocalPath["lon"][i] = to_latlon(north=ns[i], east=es[i], number=32)
+            # use RL-planners local path
+            else:
+                self._set_local_path_from_traj(ns, es, vs if self.time else None)
         else:
             super()._update_local_path()
+
+
+    def _update_local_path_MPC(self, n_trajs=100):
+        """Uses model-predictive control by randomly sampling a number of trajectories and selecting the best one out of it."""
+
+        # setup best trajectories
+        r_MPC = -np.infty
+        n_MPC, e_MPC = [], []
+        if self.time:
+            v_MPC = []
+
+        for _ in range(n_trajs):
+
+            # setup trajectory reward
+            r_traj = 0.0
+
+            # prep planning env
+            _ = self.setup_planning_env(initial=False)
+
+            # setup wps and potentially time
+            n_traj, e_traj = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]]
+            if self.time:
+                v_traj = [self.planning_env.OS._get_V()]
+
+            # planning loop
+            for _ in range(self.n_wps_loc-1):
+
+                # random move
+                if self.time:
+                    a = np.random.uniform(-1, 1, 2)
+                else:
+                    a = np.random.uniform(-1, 1, 1)
+
+                # planning env's reaction
+                _, _, d, _ = self.planning_env.step(a)
+
+                # compute MPC reward
+                r_traj += self.planning_env._MPC_reward()
+
+                # store wps and potentially time
+                n_traj.append(self.planning_env.OS.eta[0])
+                e_traj.append(self.planning_env.OS.eta[1])
+                if self.time:
+                    v_traj.append(self.planning_env.OS._get_V())
+                if d:
+                    break
+            
+            # save if it was the best trajectory so far
+            if r_traj > r_MPC:
+                r_MPC = r_traj
+                n_MPC = n_traj
+                e_MPC = e_traj
+                if self.time:
+                    v_MPC = v_traj
+        
+        # set local-plan based on best sampled trajectory
+        self._set_local_path_from_traj(ns=n_MPC, es=e_MPC, vs=v_MPC if self.time else None)
+
+
+    def _set_local_path_from_traj(self, ns, es, vs):
+        """Sets the local path after it's trajectory has been computed via RL or MPC."""
+        if self.time:
+            self.LocalPath["v"] = vs
+        self.LocalPath["north"] = np.array(ns)
+        self.LocalPath["east"] = np.array(es)
+        self.LocalPath["lat"] = np.zeros_like(self.LocalPath["north"])
+        self.LocalPath["lon"] = np.zeros_like(self.LocalPath["north"])
+
+        for i in range(len(ns)):
+            self.LocalPath["lat"][i], self.LocalPath["lon"][i] = to_latlon(north=ns[i], east=es[i], number=32) 
 
 
     def _set_state(self):

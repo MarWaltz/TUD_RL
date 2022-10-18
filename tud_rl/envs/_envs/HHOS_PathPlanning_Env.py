@@ -31,6 +31,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         self._max_episode_steps = 50
 
+
     def reset(self):
         s = super().reset()
 
@@ -40,6 +41,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         del self.loc_desired_course
         del self.loc_course_error
         del self.loc_pi_path
+
+        # collision signal
+        self.collision_flag = False
 
         return s
 
@@ -86,6 +90,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.step_cnt += 1
         self.sim_t += self.n_loops * self.delta_t
 
+        # update collision flag
+        self._check_collision()
+
         # compute state, reward, done        
         self._set_state()
         self._calculate_reward(a)
@@ -106,6 +113,26 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         vessel.nu[0] = np.clip(vessel.nu[0] + a*self.surge_scale, 0.1, 5.0)
         vessel.nps = vessel._get_nps_from_u(vessel.nu[0])
         return vessel
+
+    def _check_collision(self):
+        # go ground
+        if self.H <= self.OS.critical_depth:
+            self.collision_flag = True
+            return
+        else:
+            self.collision_flag = False
+
+        # TS collision
+        for TS in self.TSs:
+            N0, E0, _ = self.OS.eta
+            N1, E1, _ = TS.eta
+            
+            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
+            ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+            
+            if ED_OS_TS <= D:
+                self.collision_flag = True
+                break
 
     def _set_state(self):
         #--------------------------- OS information ----------------------------
@@ -181,6 +208,38 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
+
+
+    def _MPC_reward(self):
+        """Computes a simplified reward used for solely safety-evaluation."""
+        r = 0.0
+
+        # cross-track error
+        k_ye = 0.05
+        r += math.exp(-k_ye * abs(self.glo_ye))
+
+        # turning around
+        if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
+            r = -100.0
+
+        # collision
+        for TS in self.TSs:
+            N0, E0, _ = self.OS.eta
+            N1, E1, _ = TS.eta
+
+            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
+            ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+
+            if ED_OS_TS <= 100:
+                r -= 100.0
+            else:
+                r -= math.exp(-(ED_OS_TS-D)/200)
+
+        # hit ground
+        if self.H <= self.OS.critical_depth:
+            r -= 100.0
+
+        return r
 
 
     def _calculate_reward(self, a):
