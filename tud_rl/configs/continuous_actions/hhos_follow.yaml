@@ -6,18 +6,20 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights:
-    planner_safe: False
-    time: true
+    planner_weights: actor_plan.pth
+    safety_net: False
+    nps_control_follower: true
+    thrust_control_planner : true
+    thrust_control_safety_net : true
     data: sampled
     scenario_based: false
-    N_TSs_max : 0
-    N_TSs_random : false
+    N_TSs_max : 5
+    N_TSs_random : true
     w_ye : 0.25
     w_ce : 0.25
     w_coll : None
     w_comf : 0.25
-    w_time: 0.25
+    w_speed: 0.25
   info: MDP
 agent:
   DDPG: {}

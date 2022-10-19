@@ -6,7 +6,7 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    time: true
+    thrust_control_planner: false
     data: sampled
     scenario_based: false
     state_design: conventional
@@ -16,7 +16,7 @@ env:
     w_ce : 1.0
     w_coll : 1.25
     w_comf : 0.1
-    w_time: 1.0
+    w_speed: None
   info: MDP
 agent:
   DDPG: {}

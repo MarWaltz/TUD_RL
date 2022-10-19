@@ -23,7 +23,18 @@ from tud_rl.envs._envs.VesselPlots import rotate_point
 
 class HHOS_Env(gym.Env):
     """This environment contains an agent steering a KVLCC2 vessel from Hamburg to Oslo."""
-    def __init__(self, time, data, scenario_based, N_TSs_max, N_TSs_random, w_ye, w_ce, w_coll, w_comf, w_time):
+    def __init__(self, 
+                 nps_control_follower : bool, 
+                 thrust_control_planner : bool, 
+                 data : str, 
+                 scenario_based : bool, 
+                 N_TSs_max : int, 
+                 N_TSs_random : bool, 
+                 w_ye : float, 
+                 w_ce : float, 
+                 w_coll : float, 
+                 w_comf : float, 
+                 w_speed : float):
         super().__init__()
 
         # simulation settings
@@ -110,12 +121,17 @@ class HHOS_Env(gym.Env):
         #self.CR_al = 0.1                         # collision risk metric normalization
 
         # trajectory or path-planning and following
+        assert nps_control_follower is None or thrust_control_planner is None, "Specify a planner or a follower, not both."
+        
+        self.nps_control_follower   = nps_control_follower
+        self.thrust_control_planner = thrust_control_planner
+        self.two_actions = self.nps_control_follower or self.thrust_control_planner
+
         self.loc_path_upd_freq = 25
-        self.time = time
         self.desired_V = 3.0
 
         # action/reward setup
-        self.a = [0, 0] if self.time else [0]
+        self.a = [0, 0] if self.two_actions else [0]
         
         self.w_ye = w_ye
         self.w_ce = w_ce
@@ -128,9 +144,9 @@ class HHOS_Env(gym.Env):
         self.r_coll = 0
         self.r_comf = 0
 
-        if self.time:
-            self.w_time = w_time
-            self.r_time = 0.0
+        if self.two_actions:
+            self.w_speed = w_speed
+            self.r_speed = 0.0
 
 
     def _load_global_path(self, path_to_global_path):
@@ -562,8 +578,10 @@ class HHOS_Env(gym.Env):
         Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
         Furthermore, it returns the endpoints in lat-lon of each (truncated) beam.
         Returns (as tuple):
-            dists as a np.array(lidar_n_beams,)
+            np.array(lidar_n_beams,) of dists
             endpoints in lat-lon as list of lat-lon-tuples
+            np.array(lidar_n_beams,) of n-positions
+            np.array(lidar_n_beams,) of e-positions
         """
         # UTM coordinates of OS
         N0, E0, head0 = self.OS.eta
@@ -571,6 +589,8 @@ class HHOS_Env(gym.Env):
         # setup output
         out_dists = np.ones(self.lidar_n_beams) * self.lidar_range
         out_lat_lon = []
+        out_n = []
+        out_e = []
         
         for out_idx, angle in enumerate(self.lidar_beam_angles):
 
@@ -593,11 +613,15 @@ class HHOS_Env(gym.Env):
                 if depth_dot <= self.OS.critical_depth:
                     out_dists[out_idx] = dist
                     out_lat_lon.append((lat_dot, lon_dot))
+                    out_n.append(N_dot)
+                    out_e.append(E_dot)
                     break
                 if dist == self.lidar_range:
                     out_lat_lon.append((lat_dot, lon_dot))
+                    out_n.append(N_dot)
+                    out_e.append(E_dot)
 
-        return out_dists, out_lat_lon
+        return out_dists, out_lat_lon, np.array(out_n), np.array(out_e)
 
 
     def reset(self):
@@ -747,7 +771,7 @@ class HHOS_Env(gym.Env):
         self.LocalPath["north"] = copy(self.GlobalPath["north"][i:i+self.n_wps_loc])
         self.LocalPath["east"] = copy(self.GlobalPath["east"][i:i+self.n_wps_loc])
 
-        if self.time:
+        if self.two_actions:
             self.LocalPath["v"] = np.ones_like(self.LocalPath["lat"]) * self.desired_V * np.random.uniform(0.8, 1.2)
 
     def _update_local_path(self):
@@ -1477,7 +1501,7 @@ class HHOS_Env(gym.Env):
 
                 #--------------------- LiDAR sensing ------------------------
                 if self.plot_lidar and self.plot_in_latlon:
-                    _, lidar_lat_lon = self._sense_LiDAR()
+                    lidar_lat_lon = self._sense_LiDAR()[1]
 
                     for _, latlon in enumerate(lidar_lat_lon):
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))
@@ -1492,15 +1516,16 @@ class HHOS_Env(gym.Env):
                     self.ax2.old_r_ce = 0
                     self.ax2.old_r_coll = 0
                     self.ax2.old_r_comf = 0
-                    if self.time:
-                        self.ax2.old_r_time = 0
+                    if self.two_actions:
+                        self.ax2.old_r_speed = 0
                     self.ax2.r = 0
+                    self.ax2.set_title(type(self).__name__.replace("_", "-"))
 
                     # action
                     self.ax3.clear()
                     self.ax3.old_time = 0
                     self.ax3.old_a0 = 0
-                    if self.time:
+                    if self.two_actions:
                         self.ax3.old_a1 = 0
 
                 # reward
@@ -1513,8 +1538,8 @@ class HHOS_Env(gym.Env):
 
                 if type(self).__name__ == "HHOS_PathPlanning_Env":
                     self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
-                if self.time:
-                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_time, self.r_time], color = "salmon", label="Time/Speed")
+                if self.two_actions:
+                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_speed, self.r_speed], color = "salmon", label="Speed")
 
                 self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "darkgoldenrod", label="Aggregated")
                 
@@ -1526,8 +1551,8 @@ class HHOS_Env(gym.Env):
                 self.ax2.old_r_ce = self.r_ce
                 self.ax2.old_r_coll = self.r_coll
                 self.ax2.old_r_comf = self.r_comf
-                if self.time:
-                    self.ax2.old_r_time= self.r_time
+                if self.two_actions:
+                    self.ax2.old_r_speed = self.r_speed
                 self.ax2.r = self.r
 
                 # action
@@ -1535,16 +1560,16 @@ class HHOS_Env(gym.Env):
                 self.ax3.set_ylabel("Action")
                 self.ax3.set_ylim(-1.05, 1.05)
 
-                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a0, float(self.a[0])], color="blue", label="Heading/rudder")
-                if self.time:
-                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a1, float(self.a[1])], color="red", label="Speed/nps")                
+                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a0, float(self.a[0])], color="blue", label="Steering")
+                if self.two_actions:
+                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a1, float(self.a[1])], color="red", label="Speed")
 
                 if self.step_cnt == 0:
                     self.ax3.legend()
 
                 self.ax3.old_time = self.step_cnt
                 self.ax3.old_a0 = float(self.a[0])
-                if self.time:
+                if self.two_actions:
                     self.ax3.old_a1 = float(self.a[1])
 
             #plt.gca().set_aspect('equal')

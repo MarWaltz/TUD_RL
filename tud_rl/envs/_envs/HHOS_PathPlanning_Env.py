@@ -3,9 +3,20 @@ from tud_rl.envs._envs.HHOS_Env import *
 
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
-    def __init__(self, state_design, time, data, scenario_based, N_TSs_max, N_TSs_random, w_ye, w_ce, w_coll, w_comf, w_time):
-        super().__init__(time=time, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
-            w_coll=w_coll, w_comf=w_comf, w_time=w_time, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
+    def __init__(self, 
+                 state_design : str, 
+                 thrust_control_planner : bool, 
+                 data : str, 
+                 scenario_based : bool, 
+                 N_TSs_max : int, 
+                 N_TSs_random : bool, 
+                 w_ye : float, 
+                 w_ce : float, 
+                 w_coll : float, 
+                 w_comf : float, 
+                 w_speed : float):
+        super().__init__(nps_control_follower=None, thrust_control_planner=thrust_control_planner, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
+            w_coll=w_coll, w_comf=w_comf, w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
         self.state_design = state_design
@@ -17,7 +28,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         OS_path_info_size = 3
         self.num_obs_TS = 6
         obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
-        act_size = 2 if self.time else 1
+        act_size = 2 if self.thrust_control_planner else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -57,7 +68,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         a = a.flatten()
         self.a = a
         self.OS = self._manual_heading_control(vessel=self.OS, a=float(a[0]))
-        if self.time:
+        if self.thrust_control_planner:
             self.OS = self._manual_surge_control(vessel=self.OS, a=float(a[1]))
 
         # update agent dynamics (independent of environmental disturbances in this module)
@@ -137,7 +148,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _set_state(self):
         #--------------------------- OS information ----------------------------
         # speed, heading relative to global path
-        if self.time:
+        if self.thrust_control_planner:
             state_OS = np.array([self.OS.nu[0]-self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
         else:
             state_OS = np.array([self.OS.nu[0]/self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
@@ -168,7 +179,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             C_TS_path = angle_to_pi(headTS - self.glo_pi_path) / math.pi
 
             # speed
-            if self.time:
+            if self.thrust_control_planner:
                 V_TS = TS._get_V()-self.desired_V
             else:
                 V_TS = TS._get_V()/self.desired_V
@@ -256,12 +267,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.r_ce = 0.0
 
         # --------------------------- Comfort reward ------------------------
-        if self.time:
+        if self.thrust_control_planner:
             self.r_comf = -float(a[1])**2
 
         # -------------------------- Speed reward ---------------------------
-        if self.time:
-            self.r_time = max([-(self.OS.nu[0]-self.desired_V)**2, -1.0])
+        if self.thrust_control_planner:
+            self.r_speed = max([-(self.OS.nu[0]-self.desired_V)**2, -1.0])
 
         # ---------------------- Collision Avoidance reward -----------------
         self.r_coll = 0
@@ -306,9 +317,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
         rews = np.array([self.r_ye, self.r_ce, self.r_coll])
 
-        if self.time:
-            weights = np.append(weights, [self.w_comf, self.w_time])
-            rews = np.append(rews, [self.r_comf, self.r_time])
+        if self.thrust_control_planner:
+            weights = np.append(weights, [self.w_comf, self.w_speed])
+            rews = np.append(rews, [self.r_comf, self.r_speed])
 
         self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
 

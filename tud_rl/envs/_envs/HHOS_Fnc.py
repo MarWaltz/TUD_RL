@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import utm
+from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
                                          bng_abs, bng_rel, rtd)
 
@@ -379,228 +380,77 @@ value = 5
 print(fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value))
 """
 
-class Hull:
-    def __init__(self, Lpp, B, N=1000, approx_method="ellipse", h_xs=None, h_ys=None) -> None:
-        """Computes x-y-coordinates (x ist Ordinate, y ist Abszisse) based on an elliptical approximation of a ship hull.
-
-        Args:
-            Lpp (float): length of ship
-            B (float): width of ship
-            N (float): number of integration intervals / points in hull approximation
-            h_xs (np.array, optional): x points
-            h_ys (np.array, optional): y points
-
-        Generates attributes:
-            h_xs (np.array): x points
-            h_ys (np.array): y points
-            N_Xs (np.array): x components of normal vector
-            N_Ys (np.array): y components of normal vector
-            thetas (np.array): angles between hull and center line
-            dls (np.array): length of normal vectors
-        """
-        assert approx_method in ["rectangle", "ellipse"], "Unknown ship hull approximation."
-
-        self.Lpp = Lpp
-        self.B = B
-        self.N = N
-        self.approx_method = approx_method
-        self.h_xs = h_xs
-        self.h_ys = h_ys
-        self._construct_hull()
-
-    def _construct_hull(self):
-        if self.h_xs is not None and self.h_ys is not None:
-            assert len(self.h_xs) == len(self.h_ys), "Incorrect ship hull specification."
-            self.N = len(self.h_xs)
-        else:
-            a = self.Lpp*0.5
-            b = self.B*0.5
-            degs = np.linspace(0, 2*math.pi, self.N, endpoint=False)
-
-            if self.approx_method == "rectangle":
-                theta = np.arctan(b/a)
-                self.h_xs = np.zeros(self.N)
-                self.h_ys = np.zeros(self.N)
-
-                for n, eta in enumerate(degs):
-
-                    # I
-                    if 0 <= eta < theta:
-                        x = a
-                        y = a * np.tan(eta)
-
-                    # II
-                    elif theta <= eta < math.pi/2:
-                        eta_p = math.pi/2 - eta
-                        y = b
-                        x = b * np.tan(eta_p)
-
-                    # III                    
-                    elif math.pi/2 <= eta < math.pi - theta:
-                        eta_p = eta - math.pi/2
-                        y = b
-                        x = -b * np.tan(eta_p)
-                    
-                    # IV
-                    elif math.pi - theta <= eta < math.pi:
-                        eta_p = math.pi - eta
-                        x = -a
-                        y = a * np.tan(eta_p)
-
-                    # V                    
-                    elif math.pi <= eta < math.pi + theta:
-                        eta_p = eta - math.pi
-                        x = -a
-                        y = -a * np.tan(eta_p)
-
-                    # VI
-                    elif math.pi + theta <= eta < 3/2*math.pi:
-                        eta_p = 3/2*math.pi - eta
-                        y = -b
-                        x = -b * np.tan(eta_p)
-
-                    # VII                    
-                    elif 3/2*math.pi <= eta < 2*math.pi - theta:
-                        eta_p = eta - 3/2*math.pi
-                        y = -b
-                        x = b * np.tan(eta_p)
-                    
-                    # VIII
-                    else:
-                        eta_p = 2*math.pi - eta
-                        x = a
-                        y = -a * np.tan(eta_p)
-
-                    self.h_xs[n] = x
-                    self.h_ys[n] = y
-
-            elif self.approx_method == "ellipse":
-                lengths = np.power(np.power(np.cos(degs),2) / a + np.power(np.sin(degs),2) / b, -0.5)
-                self.h_xs = lengths * np.cos(degs)
-                self.h_ys = lengths * np.sin(degs)
-
-        # reverse axis like in Faltinsen et al. (1980)
-        self.h_xs *= -1.0
-
-        # integration components
-        self.N_Xs = np.zeros(self.N)
-        self.N_Ys = np.zeros(self.N)
-        self.x0s = np.zeros(self.N)
-        self.y0s = np.zeros(self.N)
-        self.thetas = np.zeros(self.N)
-
-        for n in range(self.N):
-            y1 = self.h_ys[n]
-            x1 = self.h_xs[n]
-
-            if n == self.N-1:
-                y2 = self.h_ys[0]
-                x2 = self.h_xs[0]
-            else:
-                y2 = self.h_ys[n+1]
-                x2 = self.h_xs[n+1]
-
-            self.x0s[n] = 0.5 * (x1 + x2)
-            self.y0s[n] = 0.5 * (y1 + y2)
-
-            # rectangle cases
-            if x1 == x2:
-                self.N_Ys[n] = 0.0
-                self.N_Xs[n] = y1 - y2
-            
-            elif y1 == y2:
-                self.N_Xs[n] = 0.0
-                self.N_Ys[n] = x2 - x1
-
-            # ellipse/corner cases
-            else:
-                self.N_Ys[n] = math.sqrt(((x2-x1)**2 + (y2-y1)**2) / (1 + (y2-y1)**2/(x2-x1)**2))
-                self.N_Xs[n] = -(y2-y1)/(x2-x1)*self.N_Ys[n]
-
-                if x2 - x1 < 0.0:
-                    self.N_Ys[n] *= -1.0
-                    self.N_Xs[n] *= -1.0
-
-            self.thetas[n] = bng_abs(N0=x2, E0=y2, N1=x1, E1=y1)
-            if self.thetas[n] <= math.pi:
-                self.thetas[n] += math.pi
-            else:
-                self.thetas[n] -= math.pi
-
-        self.dls = np.sqrt(self.N_Xs**2 + self.N_Ys**2)
-
-        # some useful definitions
-        self.cos_thetas = np.cos(self.thetas)
-        self.sin_thetas = np.sin(self.thetas)
-
-        #import matplotlib.pyplot as plt
-        #plt.plot(self.h_ys, self.h_xs, marker='o', markersize=3)
-        #plt.gca().set_aspect('equal')
-
-        #for n in range(self.N):
-        #    plt.scatter(self.y0s[n], self.x0s[n], color="red", s=3)
-        #    plt.arrow(self.y0s[n] - self.N_Ys[n], self.x0s[n] - self.N_Xs[n], self.N_Ys[n], self.N_Xs[n], color="green", length_includes_head=True,
-        #                  head_width=2, head_length=3)
-        #plt.show()
+def r_safe_dyn(a, r_min=100):
+    assert -math.pi <= a < math.pi, "The angle for computing the safety distance should be in [-pi, pi)."
+    if abs(a) <= math.pi/4:
+        f = 2 + math.cos(4*a)
+    else:
+        f = 1
+    return r_min * f
 
 
-def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, lambda_wave, rho, hull):
-    """Computes the short wave induced surge, sway forces and the yaw moment. 
-    Based on numerical integration outlined in Taimuri et al. (2020, Ocean Engineering).
-
-    Args:
-        U (float): speed of ship in m/s
-        psi (float): heading of ship in rad (usual N is 0° definition)
-        T (float): ship draft in m
-        C_b (float): block coefficient of ship
-        alpha_WL (float): sectional flare angle of the vessel (in rad, 0 for tanker is realistic)
-        L_pp (float): length between perpendiculars
-        beta_wave (float): incident wave angle in rad (usual N is 0° definition, e.g., 270° means waves flow from W to E)
-        eta_wave (float): incident wave amplitude in m
-        T_0_wave (float): modal period of waves in s
-        lambda_wave (float) : wave length in m
-        rho (float): water density in kg/m³
-        hull (Hull): hull object with relevant integration components
-
-    Returns:
-        surge force, sway force, yaw moment (all floats)
-    """
-    # parameters
-    g = 9.80665                      # gravity in m/s²
-    omega_0 = 2*math.pi / T_0_wave   # model frequency in rad/s
-    k = 2*math.pi/ lambda_wave       # wave number in rad/m
-    Fn = U / math.sqrt(g * Lpp)      # Froude number
-
-    # wave angle from vessel perspective
-    beta_w = angle_to_2pi(beta_wave - psi - math.pi)
-
-    # detect non-shadow region
-    N_WX = np.cos(beta_w)
-    N_WY = np.sin(beta_w)
-    alphas = np.arccos(hull.N_Xs*N_WX/hull.dls + hull.N_Ys*N_WY/hull.dls)
-    non_shadow = (alphas <= math.pi/2)
-
-    # compute integration block components
-    inner_terms = np.sin(hull.thetas + beta_w)**2 + 2*omega_0*U/g * (np.cos(beta_w) - hull.cos_thetas*np.cos(hull.thetas + beta_w))
-    inner_terms *= non_shadow * hull.dls
-
-    # integrate
-    X_int = np.sum(inner_terms * hull.sin_thetas)
-    Y_int = np.sum(inner_terms * hull.cos_thetas)
-    M_int = np.sum(inner_terms * (hull.x0s * hull.cos_thetas - hull.y0s * hull.sin_thetas))
-
-    # pre-factors
-    FX_SW = 0.5 * rho * g * eta_wave**2 * X_int
-    FY_SW = 0.5 * rho * g * eta_wave**2 * Y_int
-    MN_SW = 0.5 * rho * g * eta_wave**2 * M_int
-
-    # draft correction
-    corr_d = 1 - math.exp(-2 * k * T)
-    FX_SW *= corr_d
-    FY_SW *= corr_d
-    MN_SW *= corr_d
-
-    # speed correction
-    FX_SW *= (0.87/C_b)**(1 + 4*math.sqrt(Fn)) * 1/np.cos(alpha_WL)
+def apf(OS : KVLCC2, 
+        TSs : list[KVLCC2], 
+        G: dict, 
+        dh_clip: float = None,
+        du_clip: float = None,
+        river_n=None, 
+        river_e=None, 
+        r_min=250, 
+        k_a=0.001, 
+        k_r_TS=1000, 
+        k_r_river=1000):
+    """Computes a local path based on the artificial potential field method, see Du, Zhang, and Nie (2019, IEEE).
+    Returns: Δu, Δheading."""
     
-    return FX_SW, FY_SW, MN_SW
+    # quick access
+    x_OS = OS.eta[1]
+    y_OS = OS.eta[0]
+    x_G = G["x"]
+    y_G = G["y"]
+
+    # attractive forces
+    F_x = k_a * (x_G - x_OS)
+    F_y = k_a * (y_G - y_OS)
+
+    # repulsive forces due to vessel positions
+    for TS in TSs:
+
+        # distance
+        x_TS = TS.eta[1]
+        y_TS = TS.eta[0]
+        d = ED(N0=y_OS, E0=x_OS, N1=y_TS, E1=x_TS)
+
+        # bearing-dependent safety radius
+        r_safe = r_safe_dyn(a=bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2], to_2pi=False), r_min=r_min)
+
+        if d <= r_safe:
+            F_x += k_r_TS * (1/r_safe - 1/d) * (x_TS - x_OS) / d
+            F_y += k_r_TS * (1/r_safe - 1/d) * (y_TS - y_OS) / d
+
+    # repulsive forces due to river bounds
+    if river_n is not None and river_e is not None:
+        for i, n in enumerate(river_n):
+
+            # distance
+            x_Riv = river_e[i]
+            y_Riv = n
+            d = ED(N0=y_OS, E0=x_OS, N1=y_Riv, E1=x_Riv)
+
+            # bearing-dependent safety radius
+            r_safe = r_safe_dyn(a=bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=y_Riv, E1=x_Riv, head0=OS.eta[2], to_2pi=False), r_min=r_min)
+
+            if d <= r_min:
+                F_x += k_r_river * (1/r_safe - 1/d) * (x_Riv - x_OS) / d
+                F_y += k_r_river * (1/r_safe - 1/d) * (y_Riv - y_OS) / d
+
+    # translate into Δu, Δheading
+    du = math.sqrt(F_x**2 + F_y**2) / OS.m
+    dh = angle_to_pi(math.atan2(F_x, F_y) - OS.eta[2])
+
+    if du_clip is not None:
+        du = np.clip(du, -du_clip, du_clip)
+    if dh_clip is not None:
+        dh = np.clip(dh, -dh_clip, dh_clip)
+
+    return du, dh
