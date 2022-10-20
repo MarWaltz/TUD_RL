@@ -3,6 +3,7 @@ from copy import deepcopy
 import torch
 from tud_rl.common.nets import MLP
 from tud_rl.envs._envs.HHOS_Env import *
+from tud_rl.envs._envs.HHOS_Fnc import apf
 from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
 
 
@@ -44,7 +45,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
             # construct safe-planning env
             if self.safety_net:
-                self.safe_planning_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_safety_net,\
+                self.safe_plan_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_safety_net,\
                     data=data, scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0,\
                         w_coll=0.0, w_comf=0.0, w_speed=0.0)
         else:
@@ -88,10 +89,10 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # possibly prepare safe-planning env
         if self.safety_net:
-            self.safe_planning_env = self.setup_planning_env(env=self.safe_planning_env, initial=True)
-            self.safe_planning_env, _ = self.setup_planning_env(env=self.safe_planning_env, initial=False)
-            self.safe_planning_env.step_cnt = 0
-            self.safe_planning_env.sim_t = 0.0
+            self.safe_plan_env = self.setup_planning_env(env=self.safe_plan_env, initial=True)
+            self.safe_plan_env, _ = self.setup_planning_env(env=self.safe_plan_env, initial=False)
+            self.safe_plan_env.step_cnt = 0
+            self.safe_plan_env.sim_t = 0.0
 
         # override the local path since our planning agent should work from the beginning
         self._update_local_path()
@@ -276,61 +277,77 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             super()._update_local_path()
 
 
-    def _update_local_path_safe(self, n_trajs=100):
-        """Uses model-predictive control by randomly sampling a number of trajectories and selecting the best one out of it."""
+    def _update_local_path_safe(self):
+        """Uses the artificial potential field method to generate a safe path."""
 
-        # setup best trajectories
-        r_MPC = -np.infty
-        n_MPC, e_MPC = [], []
+        # prep safe-planning env
+        self.safe_plan_env, _ = self.setup_planning_env(self.safe_plan_env, initial=False)
+
+        # setup wps and potentially speed
+        n_APF, e_APF = [self.safe_plan_env.OS.eta[0]], [self.safe_plan_env.OS.eta[1]]
         if self.nps_control_follower:
-            v_MPC = []
+            v_APF = [self.safe_plan_env.OS._get_V()]
 
-        for _ in range(n_trajs):
+        # planning loop
+        for _ in range(self.n_wps_loc-1):
 
-            # setup trajectory reward
-            r_traj = 0.0
+            # get APF move, always two components
+            du, dh = self._get_APF_move(self.safe_plan_env)
 
-            # prep safe-planning env
-            self.safe_planning_env, _ = self.setup_planning_env(self.safe_planning_env, initial=False)
+            # always apply heading change
+            self.safe_plan_env.OS.eta[2] = angle_to_2pi(self.safe_plan_env.OS.eta[2] + dh)
 
-            # setup wps and potentially speed
-            n_traj, e_traj = [self.safe_planning_env.OS.eta[0]], [self.safe_planning_env.OS.eta[1]]
+            if self.thrust_control_safety_net:
+
+                # longitudinal speed change only when allowed
+                self.safe_plan_env.OS.nu[0] = np.clip(self.safe_plan_env.OS.nu[0] + du, \
+                    self.safe_plan_env.surge_min, self.safe_plan_env.surge_max)
+
+                # set nps accordingly
+                self.safe_plan_env.OS.nps = self.safe_plan_env.OS._get_nps_from_u(self.safe_plan_env.OS.nu[0])
+
+                # need to define dummy zero-actions since we control the OS outside the planning env
+                a = np.array([0.0, 0.0])
+            else:
+                a = np.array([0.0])
+
+            # planning env's reaction
+            _, _, d, _ = self.safe_plan_env.step(a)
+
+            # store wps and potentially time
+            n_APF.append(self.safe_plan_env.OS.eta[0])
+            e_APF.append(self.safe_plan_env.OS.eta[1])
             if self.nps_control_follower:
-                v_traj = [self.safe_planning_env.OS._get_V()]
-
-            # planning loop
-            for _ in range(self.n_wps_loc-1):
-
-                # random move
-                if self.thrust_control_safety_net:
-                    a = np.random.uniform(-1, 1, 2)
-                else:
-                    a = np.random.uniform(-1, 1, 1)
-
-                # planning env's reaction
-                _, _, d, _ = self.safe_planning_env.step(a)
-
-                # compute MPC reward
-                r_traj += self.safe_planning_env._MPC_reward()
-
-                # store wps and potentially time
-                n_traj.append(self.safe_planning_env.OS.eta[0])
-                e_traj.append(self.safe_planning_env.OS.eta[1])
-                if self.nps_control_follower:
-                    v_traj.append(self.safe_planning_env.OS._get_V())
-                if d:
-                    break
-
-            # save if it was the best trajectory so far
-            if r_traj > r_MPC:
-                r_MPC = r_traj
-                n_MPC = n_traj
-                e_MPC = e_traj
-                if self.nps_control_follower:
-                    v_MPC = v_traj
+                v_APF.append(self.safe_plan_env.OS._get_V())
+            if d:
+                break
         
-        # set local-plan based on best sampled trajectory
-        self._set_local_path_from_traj(ns=n_MPC, es=e_MPC, vs=v_MPC if self.nps_control_follower else None)
+        # set local-plan
+        self._set_local_path_from_traj(ns=n_APF, es=e_APF, vs=v_APF if self.nps_control_follower else None)
+
+
+    def _get_APF_move(self, env : HHOS_PathPlanning_Env):
+        """Takes an env as input and returns the du, dh suggested by the APF-method."""
+        # define goal for attractive forces of APF
+        try:
+            g_idx = env.OS.glo_wp3_idx + 3
+            g_n = env.GlobalPath["north"][g_idx]
+            g_e = env.GlobalPath["east"][g_idx]
+        except:
+            g_idx = env.OS.glo_wp3_idx
+            g_n = env.GlobalPath["north"][g_idx]
+            g_e = env.GlobalPath["east"][g_idx]
+
+        # consider river geometry
+        dists, _, river_n, river_e = env._sense_LiDAR()
+        i = np.where(dists != env.lidar_range)
+
+        # computation
+        du, dh = apf(OS=env.OS, TSs=env.TSs, G={"x" : g_e, "y" : g_n}, 
+                     river_n=river_n[i], river_e=river_e[i],
+                     du_clip=env.surge_scale, dh_clip=env.d_head_scale,
+                     k_a=0.001, k_r_TS=250, k_r_river=100, r_min=250)
+        return du, dh
 
 
     def _set_local_path_from_traj(self, ns, es, vs):

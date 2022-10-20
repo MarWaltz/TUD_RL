@@ -7,9 +7,9 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     planner_weights: actor_plan.pth
-    safety_net: False
+    safety_net: true
     nps_control_follower: true
-    thrust_control_planner : true
+    thrust_control_planner : false
     thrust_control_safety_net : true
     data: sampled
     scenario_based: false

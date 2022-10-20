@@ -4,7 +4,7 @@ import numpy as np
 import utm
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
-                                         bng_abs, bng_rel, rtd)
+                                         bng_abs, bng_rel, cpa, rtd)
 
 
 def to_latlon(north, east, number):
@@ -388,9 +388,14 @@ def r_safe_dyn(a, r_min=100):
         f = 1
     return r_min * f
 
+def k_r_TS_dyn(DCPA, TCPA, a1=math.log(0.1)/3704, a2=1.5):
+    if TCPA < 0.0:
+        return 0.0
+    else:
+        return math.exp(a1*(DCPA + a2*TCPA))
 
 def apf(OS : KVLCC2, 
-        TSs : list[KVLCC2], 
+        TSs : list, 
         G: dict, 
         dh_clip: float = None,
         du_clip: float = None,
@@ -398,8 +403,8 @@ def apf(OS : KVLCC2,
         river_e=None, 
         r_min=250, 
         k_a=0.001, 
-        k_r_TS=1000, 
-        k_r_river=1000):
+        k_r_TS=250, 
+        k_r_river=100):
     """Computes a local path based on the artificial potential field method, see Du, Zhang, and Nie (2019, IEEE).
     Returns: Δu, Δheading."""
     
@@ -425,8 +430,14 @@ def apf(OS : KVLCC2,
         r_safe = r_safe_dyn(a=bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2], to_2pi=False), r_min=r_min)
 
         if d <= r_safe:
-            F_x += k_r_TS * (1/r_safe - 1/d) * (x_TS - x_OS) / d
-            F_y += k_r_TS * (1/r_safe - 1/d) * (y_TS - y_OS) / d
+
+            # compute CPA-measure adjustment
+            DCPA, TCPA = cpa(NOS=OS.eta[0], EOS=OS.eta[1], NTS=TS.eta[0], ETS=TS.eta[1], chiOS=OS._get_course(),\
+                 chiTS=TS._get_course(), VOS=OS._get_V(), VTS=TS._get_V())
+            f = k_r_TS_dyn(DCPA=DCPA, TCPA=TCPA)
+
+            F_x += k_r_TS * (1 + f) * (1/r_safe - 1/d) * (x_TS - x_OS) / d
+            F_y += k_r_TS * (1 + f) * (1/r_safe - 1/d) * (y_TS - y_OS) / d
 
     # repulsive forces due to river bounds
     if river_n is not None and river_e is not None:

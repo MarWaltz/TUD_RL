@@ -38,6 +38,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # control scales
         self.d_head_scale = dtr(10.0)
         self.surge_scale = 0.5
+        self.surge_min = 0.1
+        self.surge_max = 5.0
         self.desired_V = 3.0
 
         self._max_episode_steps = 50
@@ -121,7 +123,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         """Adjust the surge of a vessel."""
         assert -1 <= a <= 1, "Unknown action."
 
-        vessel.nu[0] = np.clip(vessel.nu[0] + a*self.surge_scale, 0.1, 5.0)
+        vessel.nu[0] = np.clip(vessel.nu[0] + a*self.surge_scale, self.surge_min, self.surge_max)
         vessel.nps = vessel._get_nps_from_u(vessel.nu[0])
         return vessel
 
@@ -301,13 +303,15 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             # OS should not pass opposing ships on their portside
             elif TS.rev_dir:
-                if dtr(0.0) <= bng_rel_TS_pers <= dtr(180.0) and ED_OS_TS <= 10*self.OS.Lpp:
+                if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0) and ED_OS_TS <= 10*self.OS.Lpp:
                     self.r_coll -= 10.0
 
             # normal target ships should be overtaken on their portside
             else:
-                if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0) and ED_OS_TS <= 5*self.OS.Lpp:
-                    self.r_coll -= 10.0
+                if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
+                    l = (10 - 5/math.pi * bng_rel_TS_pers)*self.OS.Lpp
+                    if ED_OS_TS <= l:
+                        self.r_coll -= 10.0
 
         # hit ground
         if self.H <= self.OS.critical_depth:
