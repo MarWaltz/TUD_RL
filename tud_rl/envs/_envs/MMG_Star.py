@@ -6,6 +6,7 @@ class MMG_Star(MMG_Env):
 
     def __init__(self, N_TSs_max=3, state_design="RecDQN"):
         super().__init__(N_TSs_max=N_TSs_max, state_design=state_design, pdf_traj=True, N_TSs_increasing=False, N_TSs_random=False)
+        assert N_TSs_max in [3, 7, 15], "Consider either 4, 8, or 16 ships in total."
         self.N_TSs = self.N_TSs_max
 
     def reset(self):
@@ -17,19 +18,7 @@ class MMG_Star(MMG_Env):
         # init four agents
         self.agents = []
         for i in range(self.N_TSs_max + 1):
-            
-            if i == 0:
-                head = 0.0
-
-            elif i == 1:
-                head = 1/2 * math.pi
-
-            elif i == 2:
-                head = math.pi
-            
-            elif i == 3:
-                head = 3/2 * math.pi
-            
+            head = i * 2*math.pi/(self.N_TSs_max+1)
             self.agents.append(KVLCC2(N_init   = 0.0, 
                                       E_init   = 0.0, 
                                       psi_init = head,
@@ -53,25 +42,22 @@ class MMG_Star(MMG_Env):
 
         # init four goals
         self.goals = []
-        for a_id, agent in enumerate(self.agents):
-            if a_id == 0:
-                g = {"N" : self.CPA_N + abs(self.CPA_N - agent.eta[0]), "E" : agent.eta[1]}
-            
-            elif a_id == 1:
-                g = {"N" : agent.eta[0], "E" : self.CPA_E + abs(self.CPA_E - agent.eta[1])}
+        for _, agent in enumerate(self.agents):
+            a_N = agent.eta[0]
+            a_E = agent.eta[1]
 
-            elif a_id == 2:
-                g = {"N" : self.CPA_N - abs(self.CPA_N - agent.eta[0]), "E" : agent.eta[1]}
+            bng_abs_CPA = bng_abs(N0=a_N, E0=a_E, N1=self.CPA_N, E1=self.CPA_E)
+            ED_CPA = ED(N0=a_N, E0=a_E, N1=self.CPA_N, E1=self.CPA_E)
 
-            elif a_id == 3:
-                g = {"N" : agent.eta[0], "E" : self.CPA_E - abs(self.CPA_E - agent.eta[1])}
-
+            # project point
+            E_add, N_add = xy_from_polar(r=2*ED_CPA, angle=bng_abs_CPA)
+            g = {"N" : a_N + N_add, "E" : a_E + E_add}
             self.goals.append(g)
 
         # determine current COLREG situations
         # Note: We have four agents in this scenario. Thus, treating each as a OS, all have three TSs from their perspective
         #       We need to update all those COLREG modes.
-        self.TS_COLREGs_all = [[0] * 3] * 4
+        self.TS_COLREGs_all = [[0] * self.N_TSs] * (self.N_TSs + 1)
         self._set_COLREGs()
 
         # init aggregated state

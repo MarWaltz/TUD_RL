@@ -2,13 +2,14 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
+from mycolorpy import colorlist as mcp
 
 COLREG_NAMES  = {0 : "Null", 
                  1 : "Head-on", 
                  2 : "Starb. cross.", 
                  3 : "Ports. cross.", 
                  4 : "Overtaking"}
-COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(5)]
+COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + mcp.gen_color(cmap="tab20b", n=20) 
 
 
 #------------------- Helper functions with angles, mainly following Benjamin (2017) ----------------
