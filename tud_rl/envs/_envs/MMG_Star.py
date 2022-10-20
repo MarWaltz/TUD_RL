@@ -1,5 +1,5 @@
 from tud_rl.envs._envs.MMG_Env import *
-
+from tud_rl.envs._envs.VesselPlots import get_rect
 
 class MMG_Star(MMG_Env):
     """This environment contains four agents, each steering a KVLCC2."""
@@ -69,6 +69,13 @@ class MMG_Star(MMG_Env):
 
         # we arbitrarily consider the first ship as the OS for plotting
         self.TrajPlotter.reset(OS=self.agents[0], TSs=self.agents[1:], N_TSs=self.N_TSs)
+
+        rads  = np.linspace(0.0, 2*math.pi, 25)
+        dists = [get_ship_domain(A=self.agents[0].ship_domain_A, B=self.agents[0].ship_domain_B, C=self.agents[0].ship_domain_C, \
+            D=self.agents[0].ship_domain_D,\
+            OS=None, TS=None, ang=rad) for rad in rads]
+        self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.domain_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
         return self.state_agg
 
@@ -175,7 +182,7 @@ class MMG_Star(MMG_Env):
         """Renders the current environment. Note: The 'mode' argument is needed since a recent update of the 'gym' package."""
 
         # plot every nth timestep
-        if self.step_cnt % 1 == 0: 
+        if self.step_cnt % 2 == 0: 
 
             # check whether figure has been initialized
             if len(plt.get_fignums()) == 0:
@@ -199,14 +206,19 @@ class MMG_Star(MMG_Env):
                 col = plt.rcParams["axes.prop_cycle"].by_key()["color"][idx]
                 N0, E0, head0 = agent.eta
                
-                rect = self._get_rect(E = E0, N = N0, width = agent.width, length = agent.length, heading = head0,
+                rect = get_rect(E = E0, N = N0, width = agent.B, length = agent.Lpp, heading = head0,
                                       linewidth=1, edgecolor=col, facecolor='none')
                 self.ax0.add_patch(rect)
 
+                xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
+                xs = [xy[0] for xy in xys]
+                ys = [xy[1] for xy in xys]
+                self.ax0.plot(xs, ys, color="black", alpha=0.7)
+
                 # add jets according to COLREGS
-                for COLREG_deg in [5, 355]:
-                    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
-                                              angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
+                #for COLREG_deg in [5, 355]:
+                #    self.ax0 = self._plot_jet(axis = self.ax0, E=E0, N=N0, l = self.sight, 
+                #                              angle = head0 + dtr(COLREG_deg), color=col, alpha=0.3)
 
                 self.ax0.scatter(self.goals[idx]["E"], self.goals[idx]["N"], color=col)
                 circ = patches.Circle((self.goals[idx]["E"], self.goals[idx]["N"]), radius=self.goal_reach_dist, edgecolor=col, facecolor='none', alpha=0.3)
