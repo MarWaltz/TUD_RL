@@ -10,10 +10,10 @@ from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
 class HHOS_PathFollowing_Env(HHOS_Env):
     def __init__(self, 
                  planner_weights : str, 
-                 safety_net : bool, 
+                 planner_safety_net : bool, 
                  nps_control_follower : bool, 
                  thrust_control_planner : bool,
-                 thrust_control_safety_net : bool,
+                 thrust_control_planner_safety_net : bool,
                  scenario_based : bool, 
                  data : str, 
                  N_TSs_max : int, 
@@ -29,8 +29,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         if planner_weights is not None:
             self.thrust_control_planner = thrust_control_planner         # whether plan can control two actions
-            self.safety_net = safety_net                                 # whether to use a safety-net as backup to guarantee safe plans
-            self.thrust_control_safety_net = thrust_control_safety_net   # whether the safety-net can control two actions
+            self.planner_safety_net = planner_safety_net                                 # whether to use a safety-net as backup to guarantee safe plans
+            self.thrust_control_planner_safety_net = thrust_control_planner_safety_net   # whether the safety-net can control two actions
 
             # construct planner network
             plan_in_size = 3 + self.lidar_n_beams + 6 * self.N_TSs_max
@@ -44,8 +44,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                      w_coll=0.0, w_comf=0.0, w_speed=0.0)
 
             # construct safe-planning env
-            if self.safety_net:
-                self.safe_plan_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_safety_net,\
+            if self.planner_safety_net:
+                self.safe_plan_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_planner_safety_net,\
                     data=data, scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0,\
                         w_coll=0.0, w_comf=0.0, w_speed=0.0)
         else:
@@ -88,7 +88,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.planning_env.sim_t = 0.0
 
         # possibly prepare safe-planning env
-        if self.safety_net:
+        if self.planner_safety_net:
             self.safe_plan_env = self.setup_planning_env(env=self.safe_plan_env, initial=True)
             self.safe_plan_env, _ = self.setup_planning_env(env=self.safe_plan_env, initial=False)
             self.safe_plan_env.step_cnt = 0
@@ -137,7 +137,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             return env
         else:
             # collision signal
-            if self.safety_net:
+            if self.planner_safety_net:
                 env.collision_flag = False
 
             # step count
@@ -253,7 +253,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 s, _, d, _ = self.planning_env.step(a)
 
                 # check for collision in safe-planning mode
-                if self.safety_net:
+                if self.planner_safety_net:
                     if self.planning_env.collision_flag:
                         go_safe = True
                         break
@@ -267,7 +267,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                     break
             
             # use safety net
-            if self.safety_net and go_safe:
+            if self.planner_safety_net and go_safe:
                 self._update_local_path_safe()
 
             # use RL-planners local path
@@ -297,7 +297,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             # always apply heading change
             self.safe_plan_env.OS.eta[2] = angle_to_2pi(self.safe_plan_env.OS.eta[2] + dh)
 
-            if self.thrust_control_safety_net:
+            if self.thrust_control_planner_safety_net:
 
                 # longitudinal speed change only when allowed
                 self.safe_plan_env.OS.nu[0] = np.clip(self.safe_plan_env.OS.nu[0] + du, \

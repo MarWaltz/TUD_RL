@@ -6,11 +6,11 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: actor_plan.pth
-    safety_net: true
-    nps_control_follower: true
+    planner_weights: plan_actor.pth
+    planner_safety_net: false
     thrust_control_planner : false
-    thrust_control_safety_net : true
+    thrust_control_planner_safety_net : true
+    nps_control_follower: true
     data: sampled
     scenario_based: false
     N_TSs_max : 5
