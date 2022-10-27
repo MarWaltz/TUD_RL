@@ -170,6 +170,33 @@ class MinAtar_BootDQN(nn.Module):
             return self.heads[head](x)
 
 
+class FC_BootDQN(nn.Module):
+    """Defines the BootDQN consisting of the common core part and K different heads."""
+    def __init__(self, state_shape, num_actions, K):
+        super().__init__()
+        
+        self.core = MLP(in_size = state_shape, out_size = 128, net_struc=[[128, "relu"], "identity"])
+
+        self.heads = nn.ModuleList([MLP(in_size   = 128, 
+                                        out_size  = num_actions,
+                                        net_struc = [[128, "relu"], "identity"]) for _ in range(K)])
+
+    def forward(self, s, head=None):
+        """Returns for a state s all Q(s,a) for each k. Args:
+        s: torch.Size([batch_size, in_channels, height, width])
+
+        returns:
+        list of length K with each element being torch.Size([batch_size, num_actions]) if head is None,
+        torch.Size([batch_size, num_actions]) else."""
+
+        x = self.core(s)
+        if head is None:
+            return [head_net(x) for head_net in self.heads]
+        else:
+            return self.heads[head](x)
+
+
+
 # --------------------------- LSTM ---------------------------------
 class LSTM_Actor(nn.Module):
     """Defines recurrent deterministic actor."""

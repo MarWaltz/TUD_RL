@@ -22,9 +22,6 @@ class BootDQNAgent(DQNAgent):
         self.grad_rescale = getattr(c.Agent, agent_name)["grad_rescale"]
         
         c.overwrite(grad_rescale=self.grad_rescale)      # for correct logging
-
-        # checks
-        assert self.state_type == "image", "Currently, BootDQN is only available with 'image' input."
        
         # replay buffer with masks
         if self.mode == "train":
@@ -42,6 +39,10 @@ class BootDQNAgent(DQNAgent):
                                             width       = self.state_shape[2], 
                                             num_actions = self.num_actions, 
                                             K           = self.K).to(self.device)
+        else:
+            self.DQN = nets.FC_BootDQN(state_shape = self.state_shape, 
+                                       num_actions = self.num_actions, 
+                                       K           = self.K).to(self.device)
 
         # parameter number of net
         self.n_params = self._count_params(self.DQN)

@@ -35,37 +35,66 @@ agent:
     AC_K: 3
   ACCDDQN_c:
     AC_K: 4
-  BootDQN:
+  BootDQN_a:
+    double: true
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  BootDQN_b:
+    double: false
     K: 10
     mask_p: 1
     grad_rescale: true
   KEBootDQN_a:
-    kernel: test
-    kernel_param: 0.05
-    K: 10
-    mask_p: 1
-    grad_rescale: true
-  KEBootDQN_b:
+    double:
     kernel: test
     kernel_param: 0.1
     K: 10
     mask_p: 1
     grad_rescale: true
-  KEBootDQN_c:
+  KEBootDQN_b:
+    double:
     kernel: test
-    kernel_param: 0.15
+    kernel_param: 0.2
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  KEBootDQN_c:
+    double:
+    kernel: test
+    kernel_param: 0.3
     K: 10
     mask_p: 1
     grad_rescale: true
   KEBootDQN_d:
+    double:
     kernel: test
-    kernel_param: 0.25
+    kernel_param: 0.4
     K: 10
     mask_p: 1
     grad_rescale: true
   KEBootDQN_e:
+    double:
     kernel: gaussian_cdf
     kernel_param: 1
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  AdaKEBootDQN_a:
+    double:
+    kernel: test
+    kernel_param: 0.25
+    kernel_batch_size: 32
+    kernel_lr: 0.0001
+    K: 10
+    mask_p: 1
+    grad_rescale: true
+  AdaKEBootDQN_b:
+    double:
+    kernel: test
+    kernel_param: 0.25
+    kernel_batch_size: 32
+    kernel_lr: 1.0e-05
     K: 10
     mask_p: 1
     grad_rescale: true
