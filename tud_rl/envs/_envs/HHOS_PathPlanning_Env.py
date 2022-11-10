@@ -63,7 +63,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _update_local_path(self):
         pass
 
-    def step(self, a):
+    def step(self, a, control_TS=True):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
         # control action
@@ -97,7 +97,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
 
             # simple heading control of target ships
-            self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
+            if control_TS:
+                self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1

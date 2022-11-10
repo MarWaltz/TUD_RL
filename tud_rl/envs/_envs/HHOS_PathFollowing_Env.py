@@ -250,7 +250,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 a = self.planner(s)
 
                 # planning env's reaction
-                s, _, d, _ = self.planning_env.step(a)
+                s, _, d, _ = self.planning_env.step(a, control_TS=False)
 
                 # check for collision in safe-planning mode
                 if self.planner_safety_net:
@@ -312,7 +312,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 a = np.array([0.0])
 
             # planning env's reaction
-            _, _, d, _ = self.safe_plan_env.step(a)
+            _, _, d, _ = self.safe_plan_env.step(a, control_TS=False)
 
             # store wps and potentially time
             n_APF.append(self.safe_plan_env.OS.eta[0])
