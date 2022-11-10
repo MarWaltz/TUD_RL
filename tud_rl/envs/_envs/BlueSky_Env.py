@@ -17,6 +17,15 @@ class BlueSky_Env(gym.Env):
     def __init__(self):
         super(BlueSky_Env, self).__init__()
 
+        # flight params
+        self.ac_alt = 12000 # ft
+        self.ac_spd = 250 # kts
+        self.ac_type = "A320"
+
+        # viz params
+        self.LoS_pts = 50
+        self.clock_degs = np.linspace(0.0, 360.0, num=self.LoS_pts, endpoint=False)
+
         # config
         obs_size = 1
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
@@ -32,8 +41,13 @@ class BlueSky_Env(gym.Env):
         # activate CD&R with only horizontal MVP resolution
         bs.stack.stack("ASAS ON")
         bs.stack.stack("RESO MVP")
-        bs.stack.stack("RMETHH HDG")
         bs.stack.stack("RMETHV OFF")
+        bs.stack.stack("RMETHH HDG")
+
+        # set standard values for LoS (radius 5nm, 1000ft half vertical distance)
+        self.LoS_dist = 5
+        bs.stack.stack("RSZONEH 1000")
+        bs.stack.stack(f"RSZONER {self.LoS_dist}")
 
         # set simulation time
         bs.stack.stack(f"DT {self.delta_t}")
@@ -47,28 +61,32 @@ class BlueSky_Env(gym.Env):
 
         # useful commands:
         # CRE acid, type, lat, lon, hdg, alt (FL or ft), spd (kts)
+        # CRECONF acid, type, targetid, dpsi, cpa, tlosh, spd
         # ADDWPT acid, (wpname/lat,lon),[alt],[spd],[afterwp],[beforewp]
 
         # place some aircrafts
-        #bs.traf.cre(acid="001", actype="A320", aclat=10.3, aclon=10.0, achdg=180, acalt=12000, acspd=250)
-        #bs.traf.cre(acid="002", actype="A320", aclat=10.0, aclon=10.0, achdg=0, acalt=12000, acspd=250)
-        bs.stack.stack("CRE 001, A320, 10.3, 10.0, 180, FL120, 250")
-        bs.stack.stack("CRE 002, A320, 10.0, 10.0, 0, FL120, 250")
-
-        # turn on LNAV, turn off VNAV (we stay at one altitude)
-        bs.stack.stack("LNAV 001, ON")
-        bs.stack.stack("LNAV 002, ON")
-        bs.stack.stack("VNAV 001, OFF")
-        bs.stack.stack("VNAV 002, OFF")
+        #bs.traf.cre(acid="001", actype=self.ac_type, aclat=10.3, aclon=10.0, achdg=180, acalt=12000, acspd=250)
+        #bs.traf.cre(acid="002", actype=self.ac_type, aclat=10.0, aclon=10.0, achdg=0, acalt=12000, acspd=250)
+        #bs.stack.stack(f"CRE 001, {self.ac_type}, 10.3, 10.0, 180, {self.ac_alt}, {self.ac_spd}")
+        bs.stack.stack(f"CRE 002, {self.ac_type}, 9.7, 10.0, 0, {self.ac_alt}, {self.ac_spd}")
+        #bs.stack.stack(f"CRE 003, {self.ac_type}, 10.0, 9.7, 90, {self.ac_alt}, {self.ac_spd}")
+        #bs.stack.stack(f"CRE 004, {self.ac_type}, 10.0, 10.3, 270, {self.ac_alt}, {self.ac_spd}")
         simstack.process()
 
-        # compute and set destinations
-        dest_lat1, dest_lon1 = qdrpos(latd1=bs.traf.lat[0], lond1=bs.traf.lon[0], qdr=bs.traf.hdg[0], dist=100)
-        dest_lat2, dest_lon2 = qdrpos(latd1=bs.traf.lat[1], lond1=bs.traf.lon[1], qdr=bs.traf.hdg[1], dist=100)
+        # create some aircrafts in conflict
+        for i in range(10, 20):#, "008", "009"]
+            bs.stack.stack(f"CRECONFS {'0' + str(i)}, {self.ac_type}, 002, {np.random.uniform(0., 360., 1)}, {self.LoS_dist*0.2}, 10, , ,{self.ac_spd}")
 
-        # add some waypoints
-        bs.stack.stack(f"ADDWPT 001, {dest_lat1}, {dest_lon1}, 12000, 250")
-        bs.stack.stack(f"ADDWPT 002, {dest_lat2}, {dest_lon2}, 12000, 250")
+        # turn on LNAV, turn off VNAV (we stay at one altitude)
+        for acid in bs.traf.id:
+            bs.stack.stack(f"LNAV {acid}, ON")
+            bs.stack.stack(f"VNAV {acid}, OFF")
+        simstack.process()
+
+        # set linear waypoints
+        for i, acid in enumerate(bs.traf.id):
+            wp_lat, wp_lon = qdrpos(latd1=bs.traf.lat[i], lond1=bs.traf.lon[i], qdr=bs.traf.hdg[i], dist=100)
+            bs.stack.stack(f"ADDWPT {acid}, {wp_lat}, {wp_lon}, {self.ac_alt}, {self.ac_spd}")
         simstack.process()
 
         # init state
@@ -120,14 +138,19 @@ class BlueSky_Env(gym.Env):
 
             for i, acid in enumerate(bs.traf.id):
                 # show aircraft
-                self.ax1.scatter(bs.traf.lon[i], bs.traf.lat[i], color=COLORS[i])
+                self.ax1.scatter(bs.traf.lon[i], bs.traf.lat[i], marker=(3, 0, -bs.traf.hdg[i]), color=COLORS[i])
+
+                # LoS area
+                lats, lons = map(list, zip(*[qdrpos(latd1=bs.traf.lat[i], lond1=bs.traf.lon[i], 
+                                                    qdr=deg, dist=self.LoS_dist) for deg in self.clock_degs]))
+                self.ax1.plot(lons, lats, color=COLORS[i])
 
                 # information
                 s = f"ID:  {acid}" + "\n" +\
                     f"hdg: {bs.traf.hdg[i]:.1f}" + "\n" +\
                     f"alt: {metres_to_feet_rounded(bs.traf.alt[i])}" + "\n" +\
                     f"spd: {metric_spd_to_knots_rounded(bs.traf.cas[i])}"
-                self.ax1.text(x=bs.traf.lon[i], y=bs.traf.lat[i], s=s, color=COLORS[i])
+                self.ax1.text(x=bs.traf.lon[i], y=bs.traf.lat[i], s=s, color=COLORS[i], fontdict={"size" : 8})
                 
                 # waypoints
                 self.ax1.scatter(bs.traf.actwp.lon[i], bs.traf.actwp.lat[i], color=COLORS[i])
