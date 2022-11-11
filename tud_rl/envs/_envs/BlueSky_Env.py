@@ -9,7 +9,9 @@ from gym import spaces
 from matplotlib import pyplot as plt
 from mycolorpy import colorlist as mcp
 
-COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + mcp.gen_color(cmap="tab20b", n=20) 
+from tud_rl.envs._envs.VesselFnc import NM_to_meter
+
+COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + 5 * mcp.gen_color(cmap="tab20b", n=20) 
 
 
 class BlueSky_Env(gym.Env):
@@ -32,7 +34,7 @@ class BlueSky_Env(gym.Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Discrete(3)
 
-        self.delta_t = 0.1
+        self.delta_t = 0.5
         self._max_episode_steps = 500
 
         # initialize BlueSky simulator
@@ -45,7 +47,7 @@ class BlueSky_Env(gym.Env):
         bs.stack.stack("RMETHH HDG")
 
         # set standard values for LoS (radius 5nm, 1000ft half vertical distance)
-        self.LoS_dist = 5
+        self.LoS_dist = 5 # nm
         bs.stack.stack("RSZONEH 1000")
         bs.stack.stack(f"RSZONER {self.LoS_dist}")
 
@@ -58,6 +60,8 @@ class BlueSky_Env(gym.Env):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
+        self.LoSs_all = 0           # episode-wise LoSs
+        self.LoSs_cnt = 0           # step-wise LoSs
 
         # useful commands:
         # CRE acid, type, lat, lon, hdg, alt (FL or ft), spd (kts)
@@ -65,17 +69,12 @@ class BlueSky_Env(gym.Env):
         # ADDWPT acid, (wpname/lat,lon),[alt],[spd],[afterwp],[beforewp]
 
         # place some aircrafts
-        #bs.traf.cre(acid="001", actype=self.ac_type, aclat=10.3, aclon=10.0, achdg=180, acalt=12000, acspd=250)
-        #bs.traf.cre(acid="002", actype=self.ac_type, aclat=10.0, aclon=10.0, achdg=0, acalt=12000, acspd=250)
-        #bs.stack.stack(f"CRE 001, {self.ac_type}, 10.3, 10.0, 180, {self.ac_alt}, {self.ac_spd}")
         bs.stack.stack(f"CRE 002, {self.ac_type}, 9.7, 10.0, 0, {self.ac_alt}, {self.ac_spd}")
-        #bs.stack.stack(f"CRE 003, {self.ac_type}, 10.0, 9.7, 90, {self.ac_alt}, {self.ac_spd}")
-        #bs.stack.stack(f"CRE 004, {self.ac_type}, 10.0, 10.3, 270, {self.ac_alt}, {self.ac_spd}")
         simstack.process()
 
         # create some aircrafts in conflict
-        for i in range(10, 20):#, "008", "009"]
-            bs.stack.stack(f"CRECONFS {'0' + str(i)}, {self.ac_type}, 002, {np.random.uniform(0., 360., 1)}, {self.LoS_dist*0.2}, 10, , ,{self.ac_spd}")
+        for i in range(0, 5):#, "008", "009"]
+            bs.stack.stack(f"CRECONFS {'I' + str(i)}, {self.ac_type}, 002, {360 * i/30}, {self.LoS_dist*0.2}, 300, , ,{self.ac_spd}")
 
         # turn on LNAV, turn off VNAV (we stay at one altitude)
         for acid in bs.traf.id:
@@ -105,6 +104,10 @@ class BlueSky_Env(gym.Env):
         # update simulator
         bs.sim.step()
 
+        # LoSs
+        self.LoSs_cnt = self._get_LoSs()
+        self.LoSs_all += self.LoSs_cnt
+
         # compute state, reward, done        
         self._set_state()
         self._calculate_reward(a)
@@ -116,6 +119,20 @@ class BlueSky_Env(gym.Env):
 
     def _done(self):
         return False
+
+    def _get_LoSs(self):
+        """Computes current Loss of Separations (LoSs)."""
+        LoSs = 0
+        for i in range(bs.traf.ntraf):
+            for j in range(bs.traf.ntraf):
+                if i < j:
+                    if latlondist(latd1=bs.traf.lat[i], lond1=bs.traf.lon[i], latd2=bs.traf.lat[j], lond2=bs.traf.lon[j]) <= \
+                        NM_to_meter(self.LoS_dist):
+                        LoSs += 1
+        return LoSs
+
+    def __str__(self):
+        return f"Step: {self.step_cnt}, Sim-Time [s]: {int(self.sim_t)}, Cnt LoSs: {self.LoSs_cnt}, All LoSs: {self.LoSs_all}"
 
     def render(self, mode=None):
         """Renders the current environment."""
@@ -135,6 +152,7 @@ class BlueSky_Env(gym.Env):
             self.ax1.set_ylim(8, 12)
             self.ax1.set_xlabel("Lon [°]")
             self.ax1.set_ylabel("Lat [°]")
+            self.ax1.text(0.125, 0.8875, self.__str__(), fontsize=9, transform=plt.gcf().transFigure)
 
             for i, acid in enumerate(bs.traf.id):
                 # show aircraft
