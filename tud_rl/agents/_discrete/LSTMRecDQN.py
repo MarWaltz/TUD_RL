@@ -56,7 +56,7 @@ class LSTMRecDQNAgent(BaseAgent):
 
         # init DQN
         if self.state_type == "feature":
-            self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions).to(self.device)
+            self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions, device = self.device).to(self.device)
 
         # number of parameters for actor and critic
         self.n_params = self._count_params(self.DQN)

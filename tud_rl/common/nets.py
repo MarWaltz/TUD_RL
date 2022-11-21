@@ -734,8 +734,10 @@ class LSTMRecDQN(RecDQN):
     """Defines an LSTM-Recursive-DQN particularly designed for the MMGEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=7, num_obs_TS=6) -> None:
+    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=7, num_obs_TS=6, device=None) -> None:
         super(LSTMRecDQN, self).__init__(num_actions=num_actions, num_obs_OS=num_obs_OS, num_obs_TS=num_obs_TS)
+
+        self.device = device
 
         if use_past_actions:
             raise NotImplementedError("Using past actions for LSTMRecDQN is not available yet.")
@@ -775,7 +777,7 @@ class LSTMRecDQN(RecDQN):
 
         # setup x_tilde which comes into outer LSTM
         batch_size, history_length, _ = s_hist.shape
-        x_tilde = torch.zeros((batch_size, history_length + 1, 128))
+        x_tilde = torch.zeros((batch_size, history_length + 1, 128)).to(self.device)
 
         # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
         s_t2 = s_hist[:, 0, :]
@@ -894,12 +896,13 @@ class LSTMRecActor(nn.Module):
     """Defines a spatial-temporal recursive actor particularly designed for the MMGEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5) -> None:
+    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
         super(LSTMRecActor, self).__init__()
 
         self.action_dim = action_dim
         self.num_obs_OS = num_obs_OS
         self.num_obs_TS = num_obs_TS
+        self.device = device
 
         if use_past_actions:
             raise NotImplementedError("Using past actions for LSTMRecActor is not available yet.")
@@ -940,7 +943,7 @@ class LSTMRecActor(nn.Module):
 
         # setup x_tilde which comes into outer LSTM
         batch_size, history_length, _ = s_hist.shape
-        x_tilde = torch.zeros((batch_size, history_length + 1, 128))
+        x_tilde = torch.zeros((batch_size, history_length + 1, 128)).to(self.device)
 
         # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
         s_t2 = s_hist[:, 0, :]
@@ -1076,12 +1079,13 @@ class LSTMRecCritic(nn.Module):
     """Defines a spatial-temporal recursive critic particularly designed for the MMGEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5) -> None:
+    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
         super(LSTMRecCritic, self).__init__()
 
         self.action_dim = action_dim
         self.num_obs_OS = num_obs_OS
         self.num_obs_TS = num_obs_TS
+        self.device = device
 
         if use_past_actions:
             raise NotImplementedError("Using past actions for LSTMRecCritic is not available yet.")
@@ -1123,7 +1127,7 @@ class LSTMRecCritic(nn.Module):
 
         # setup x_tilde which comes into outer LSTM
         batch_size, history_length, _ = s_hist.shape
-        x_tilde = torch.zeros((batch_size, history_length + 1, 128))
+        x_tilde = torch.zeros((batch_size, history_length + 1, 128)).to(self.device)
 
         # get s_{t-2} and s_{t-1} from s_hist since there might be incomplete histories
         s_t2 = s_hist[:, 0, :]
@@ -1256,18 +1260,22 @@ class LSTMRecCritic(nn.Module):
 
 
 class LSTMRec_Double_Critic(nn.Module):
-    def __init__(self, action_dim, use_past_actions, num_obs_OS=13, num_obs_TS=5) -> None:
+    def __init__(self, action_dim, use_past_actions, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
         super(LSTMRec_Double_Critic, self).__init__()
+
+        self.device = device
 
         self.LSTMRec_Q1 = LSTMRecCritic(action_dim = action_dim,
                                         use_past_actions = use_past_actions, 
                                         num_obs_OS = num_obs_OS, 
-                                        num_obs_TS = num_obs_TS)
+                                        num_obs_TS = num_obs_TS,
+                                        device     = self.device)
 
         self.LSTMRec_Q2 = LSTMRecCritic(action_dim = action_dim,
                                         use_past_actions = use_past_actions, 
                                         num_obs_OS = num_obs_OS, 
-                                        num_obs_TS = num_obs_TS)
+                                        num_obs_TS = num_obs_TS,
+                                        device     = self.device)
 
     def forward(self, s, a, s_hist, a_hist, hist_len) -> tuple:
         q1                  = self.LSTMRec_Q1(s, a, s_hist, a_hist, hist_len, log_info=False)

@@ -26,9 +26,11 @@ class LSTMRecTD3Agent(LSTMTD3Agent):
         # overwrite nets
         if self.state_type == "feature":
             self.actor  = nets.LSTMRecActor(action_dim       = self.num_actions, 
-                                            use_past_actions = self.use_past_actions)
+                                            use_past_actions = self.use_past_actions,
+                                            device           = self.device).to(self.device)
             self.critic = nets.LSTMRec_Double_Critic(action_dim       = self.num_actions,
-                                                     use_past_actions = self.use_past_actions).to(self.device)
+                                                     use_past_actions = self.use_past_actions,
+                                                     device           = self.device).to(self.device)
 
         # number of parameters for actor and critic
         self.n_params = self._count_params(self.actor), self._count_params(self.critic)
