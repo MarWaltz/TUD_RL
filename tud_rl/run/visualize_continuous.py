@@ -1,16 +1,12 @@
-import argparse
-import json
 import random
 
 import gym
-import gym_minatar
-import gym_pygame
 import numpy as np
 import torch
+
 import tud_rl.agents.continuous as agents
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.configs.continuous_actions import __path__ as c_path
 from tud_rl.wrappers import get_wrapper
 
 
@@ -19,17 +15,13 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
     for _ in range(c.eval_episodes):
 
         # LSTM: init history
-        if "LSTM" in agent.name:
+        if agent.needs_history:
             s_hist = np.zeros((agent.history_length, agent.state_shape))
             a_hist = np.zeros((agent.history_length, agent.num_actions))
             hist_len = 0
 
         # get initial state
         s = env.reset()
-
-        # potentially normalize it
-        if c.input_norm:
-            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
         d = False
@@ -43,7 +35,7 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
             env.render()
 
             # select action
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
             else:
                 a = agent.select_action(s)
@@ -51,12 +43,8 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
             # perform step
             s2, r, d, _ = env.step(a)
 
-            # potentially normalize s2
-            if c.input_norm:
-                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
-
             # LSTM: update history
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 if hist_len == agent.history_length:
                     s_hist = np.roll(s_hist, shift=-1, axis=0)
                     s_hist[agent.history_length - 1, :] = s
@@ -98,8 +86,6 @@ def test(c: ConfigFile, agent_name: str):
     # mode and action details
     c.mode = "test"
     c.num_actions = env.action_space.shape[0]
-    c.action_high = env.action_space.high[0]
-    c.action_low = env.action_space.low[0]
 
     # seeding
     env.seed(c.seed)

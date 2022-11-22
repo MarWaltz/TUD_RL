@@ -47,9 +47,7 @@ class LSTMTD3Agent(LSTMDDPGAgent):
         else:
             self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
-
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
- 
         with torch.no_grad():
             target_a, _ = self.target_actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2)
             
@@ -66,7 +64,6 @@ class LSTMTD3Agent(LSTMDDPGAgent):
             # target
             y = r + self.gamma * Q_next * (1 - d)
         return y
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        

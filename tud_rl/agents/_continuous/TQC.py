@@ -53,10 +53,8 @@ class TQCAgent(SACAgent):
         else:
             self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
-
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
-
             # target actions come from current policy (no target actor)
             next_new_action, next_log_pi = self.actor(s2, deterministic=False, with_logprob=True)
 
@@ -73,7 +71,6 @@ class TQCAgent(SACAgent):
             y = r + (1-d) * self.gamma * (sorted_z_part - self.temperature * next_log_pi)
         return y
 
-
     def _quantile_huber_loss(self, quantiles, y):
         """Compute the quantile Huber loss to approximate the 1-Wasserstein distance between quantiles."""
 
@@ -89,7 +86,6 @@ class TQCAgent(SACAgent):
         tau = torch.arange(n_quantiles, device=self.device).float() / n_quantiles + 1/2 / n_quantiles
         loss = (torch.abs(tau[None,None,:,None] - (pairwise_delta < 0).float()) * huber_loss).mean()
         return loss
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        

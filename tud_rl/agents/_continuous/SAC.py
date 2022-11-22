@@ -10,7 +10,6 @@ import tud_rl.common.buffer as buffer
 import tud_rl.common.nets as nets
 from tud_rl.agents.base import BaseAgent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.common.normalizer import Action_Normalizer
 
 
 class SACAgent(BaseAgent):
@@ -18,8 +17,6 @@ class SACAgent(BaseAgent):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.action_high      = c.action_high
-        self.action_low       = c.action_low
         self.lr_actor         = c.lr_actor
         self.lr_critic        = c.lr_critic
         self.tau              = c.tau
@@ -65,9 +62,6 @@ class SACAgent(BaseAgent):
                                                             device        = self.device,
                                                             disc_actions  = False,
                                                             action_dim    = self.num_actions)
-        # action normalizer
-        self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
-
         # init actor and critic
         if self.state_type == "feature":
             self.actor = nets.GaussianActor(state_shape = self.state_shape,
@@ -124,22 +118,14 @@ class SACAgent(BaseAgent):
             a, _ = self.actor(s, deterministic=True, with_logprob=False)
         
         # reshape actions
-        a = a.cpu().numpy().reshape(self.num_actions)
-        
-        # transform [-1,1] to application scale
-        return self.act_normalizer.norm_to_action(a)
-
+        return a.cpu().numpy().reshape(self.num_actions)
 
     def memorize(self, s, a, r, s2, d):
-        """Stores current transition in replay buffer.
-        Note: Action is transformed from application scale to [-1,1]."""
-        a = self.act_normalizer.action_to_norm(a)
+        """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
-
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
-
             # target actions come from current policy (no target actor)
             target_a, target_logp_a = self.actor(s2, deterministic=False, with_logprob=True)
 
@@ -151,14 +137,12 @@ class SACAgent(BaseAgent):
             y = r + self.gamma * (1 - d) * (Q_next - self.temperature * target_logp_a)
         return y
 
-
     def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
             return F.mse_loss(Q, y, reduction=reduction)
 
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        

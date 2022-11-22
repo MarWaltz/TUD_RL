@@ -45,8 +45,6 @@ epoch_length: 5000
 eval_episodes: 10
 actor_weights:
 critic_weights:
-input_norm: false
-input_norm_prior:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

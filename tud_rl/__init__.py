@@ -23,14 +23,6 @@ gym.register(
     entry_point=loc + "ComplexOA"
 )
 gym.register(
-    id="FossenEnv-v0",
-    entry_point=loc + "FossenEnv"
-)
-gym.register(
-    id="FossenImazu-v0",
-    entry_point=loc + "FossenImazu"
-)
-gym.register(
     id="MMGStar-v0",
     entry_point=loc + "MMG_Star"
 )

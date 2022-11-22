@@ -1,11 +1,10 @@
-import pickle
 from abc import ABC, abstractmethod
 from typing import Tuple, Union
 
 import numpy as np
 import torch
+
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.common.normalizer import Input_Normalizer
 
 
 class _Agent(ABC):
@@ -61,8 +60,6 @@ class BaseAgent(_Agent):
         self.mode             = c.mode
         self.state_shape      = c.state_shape
         self.state_type       = c.Env.state_type
-        self.input_norm       = c.input_norm
-        self.input_norm_prior = c.input_norm_prior
         self.gamma            = c.gamma
         self.optimizer        = c.optimizer
         self.loss             = c.loss
@@ -75,13 +72,10 @@ class BaseAgent(_Agent):
         self.batch_size       = c.batch_size
         self.device           = c.device
         self.seed             = c.seed
+        self.needs_history    = False
 
         # checks
         assert c.mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."
-
-        if self.input_norm:
-            assert not (self.mode == "test" and self.input_norm_prior is None), \
-                "Please supply 'input_norm_prior' in test mode with input normalization."
 
         assert self.state_type in ["image", "feature"],\
             "'state_type' can be either 'image' or 'feature'."
@@ -89,9 +83,6 @@ class BaseAgent(_Agent):
         if self.state_type == "image":
             assert len(self.state_shape) == 3 and type(self.state_shape) == tuple, \
                 "'state_shape' should be: (in_channels, height, width) for images."
-
-            if self.input_norm:
-                raise NotImplementedError("Input normalization is not available for images.")
 
         assert self.loss in ["SmoothL1Loss", "MSELoss"], "Pick 'SmoothL1Loss' or 'MSELoss', please."
         assert self.optimizer in ["Adam", "RMSprop"], "Pick 'Adam' or 'RMSprop' as optimizer, please."
@@ -103,16 +94,6 @@ class BaseAgent(_Agent):
         else:
             self.device = torch.device("cuda")
             print("Using GPU support.")
-
-        # input normalizer
-        if self.input_norm:
-
-            if self.input_norm_prior is not None:
-                with open(self.input_norm_prior, "rb") as f:
-                    prior = pickle.load(f)
-                self.inp_normalizer = Input_Normalizer(state_dim=self.state_shape, prior=prior)
-            else:
-                self.inp_normalizer = Input_Normalizer(state_dim=self.state_shape, prior=None)
 
     def _count_params(self, net):
         """Count the number of parameters of a given net"""

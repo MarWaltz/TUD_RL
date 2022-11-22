@@ -107,8 +107,6 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
         # get env and current state | Note: This selection is MinAtar specific.
         sampled_env = self.replay_buffer.sample_env()
         s = np.moveaxis(sampled_env.game.env.state(), -1, 0)
-        if self.input_norm:
-            s = self.inp_normalizer.normalize(s, mode=self.mode)
 
         # main loop
         for _ in range(self.kernel_batch_size):
@@ -122,10 +120,6 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
 
             # save r
             r_one_eps.append(r)
-
-            # potentially normalize s2
-            if self.input_norm:
-                s2 = self.inp_normalizer.normalize(s2, mode=self.mode)
 
             # s becomes s2
             s = s2
@@ -149,8 +143,6 @@ class AdaKEBootDQNAgent(KEBootDQNAgent):
                 # get another initial state
                 sampled_env = self.replay_buffer.sample_env()
                 s = np.moveaxis(sampled_env.game.env.state(), -1, 0)
-                if self.input_norm:
-                    s = self.inp_normalizer.normalize(s, mode=self.mode)
 
         # store MC from final unfinished episode
         if len(r_one_eps) > 0:

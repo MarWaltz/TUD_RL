@@ -53,6 +53,9 @@ parser.add_argument(
 
 parser.add_argument(
     "-sd", "--state_design", type=str, default=None)
+
+parser.add_argument(
+    "-nlc", "--nonlinear_r_coll", type=int, default=None)
 # COLREGs end
 
 args = parser.parse_args()
@@ -97,6 +100,12 @@ if args.w_coll is not None:
 
 if args.state_design is not None:
     config.overwrite(state_design=args.state_design)
+
+if args.nonlinear_r_coll is not None:
+    if int(args.nonlinear_r_coll) == 0:
+        config.overwrite(nonlinear_r_coll=False)
+    else:
+        config.overwrite(nonlinear_r_coll=True)
 # COLREGs end
 
 

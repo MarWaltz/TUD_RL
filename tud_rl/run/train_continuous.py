@@ -1,14 +1,12 @@
 import csv
-import pickle
 import random
 import time
 
 import gym
-import gym_minatar
-import gym_pygame
 import numpy as np
 import pandas as pd
 import torch
+
 import tud_rl.agents.continuous as agents
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
@@ -27,15 +25,13 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
     for _ in range(c.eval_episodes):
 
         # LSTM: init history
-        if "LSTM" in agent.name:
+        if agent.needs_history:
             s_hist = np.zeros((agent.history_length, agent.state_shape))
             a_hist = np.zeros((agent.history_length, agent.num_actions))
             hist_len = 0
 
         # get initial state
         s = test_env.reset()
-        if c.input_norm:
-            s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
         cur_ret = 0
         d = False
@@ -46,7 +42,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
             eval_epi_steps += 1
 
             # select action
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
             else:
                 a = agent.select_action(s)
@@ -54,12 +50,8 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
             # perform step
             s2, r, d, _ = test_env.step(a)
 
-            # potentially normalize s2
-            if c.input_norm:
-                s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
-
             # LSTM: update history
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 if hist_len == agent.history_length:
                     s_hist = np.roll(s_hist, shift=-1, axis=0)
                     s_hist[agent.history_length - 1, :] = s
@@ -114,8 +106,6 @@ def train(c: ConfigFile, agent_name: str):
     # mode and action details
     c.mode = "train"
     c.num_actions = env.action_space.shape[0]
-    c.action_high = env.action_space.high[0]
-    c.action_low  = env.action_space.low[0]
 
     # seeding
     env.seed(c.seed)
@@ -144,15 +134,13 @@ def train(c: ConfigFile, agent_name: str):
     agent.print_params(agent.n_params, case=1)
 
     # LSTM: init history
-    if "LSTM" in agent.name:
+    if agent.needs_history:
         s_hist = np.zeros((agent.history_length, agent.state_shape))
         a_hist = np.zeros((agent.history_length, agent.num_actions))
         hist_len = 0
 
-    # get initial state and normalize it
+    # get initial state
     s = env.reset()
-    if c.input_norm:
-        s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
     # init epi step counter and epi return
     epi_steps = 0
@@ -165,9 +153,9 @@ def train(c: ConfigFile, agent_name: str):
 
         # select action
         if total_steps < c.act_start_step:
-            a = np.random.uniform(low=agent.action_low, high=agent.action_high, size=agent.num_actions)
+            a = np.random.uniform(low=-1.0, high=1.0, size=agent.num_actions)
         else:
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
             else:
                 a = agent.select_action(s)
@@ -178,10 +166,6 @@ def train(c: ConfigFile, agent_name: str):
         # Ignore "done" if it comes from hitting the time horizon of the environment
         d = False if epi_steps == c.Env.max_episode_steps else d
 
-        # potentially normalize s2
-        if c.input_norm:
-            s2 = agent.inp_normalizer.normalize(s2, mode=agent.mode)
-
         # add epi ret
         epi_ret += r
 
@@ -189,7 +173,7 @@ def train(c: ConfigFile, agent_name: str):
         agent.memorize(s, a, r, s2, d)
 
         # LSTM: update history
-        if "LSTM" in agent.name:
+        if agent.needs_history:
             if hist_len == agent.history_length:
                 s_hist = np.roll(s_hist, shift=-1, axis=0)
                 s_hist[agent.history_length - 1, :] = s
@@ -217,15 +201,13 @@ def train(c: ConfigFile, agent_name: str):
                 agent.noise.reset()
 
             # LSTM: reset history
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 s_hist = np.zeros((agent.history_length, agent.state_shape))
                 a_hist = np.zeros((agent.history_length, agent.num_actions))
                 hist_len = 0
 
-            # reset to initial state and normalize it
+            # reset to initial state
             s = env.reset()
-            if c.input_norm:
-                s = agent.inp_normalizer.normalize(s, mode=agent.mode)
 
             # log episode return
             agent.logger.store(Epi_Ret=epi_ret)
@@ -254,7 +236,7 @@ def train(c: ConfigFile, agent_name: str):
             agent.logger.log_tabular("Critic_loss", average_only=True)
             agent.logger.log_tabular("Actor_loss", average_only=True)
 
-            if "LSTM" in agent.name:
+            if agent.needs_history:
                 agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
                 agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
                 agent.logger.log_tabular("Critic_CurFE", with_min_and_max=False)
@@ -269,12 +251,6 @@ def train(c: ConfigFile, agent_name: str):
                                info    = c.Env.info)
             # save weights
             save_weights(agent, eval_ret)
-
-            # save input normalizer values
-            if c.input_norm:
-                with open(f"{agent.logger.output_dir}/{agent.name}_inp_norm_values.pickle", "wb") as f:
-                    pickle.dump(agent.inp_normalizer.get_for_save(), f)
-
 
 def save_weights(agent: _Agent, eval_ret) -> None:
 

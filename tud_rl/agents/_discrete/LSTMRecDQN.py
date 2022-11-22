@@ -26,6 +26,7 @@ class LSTMRecDQNAgent(BaseAgent):
         self.eps_decay_steps = c.eps_decay_steps
         self.tgt_update_freq = c.tgt_update_freq
         self.net_struc       = c.net_struc
+        self.needs_history   = True
         self.history_length  = getattr(c.Agent, agent_name)["history_length"]
         self.double          = getattr(c.Agent, agent_name)["double"]
 

@@ -283,28 +283,3 @@ class EpochLogger(Logger):
                 super().log_tabular('Max_' + key, stats[3])
                 super().log_tabular('Min_' + key, stats[2])
         self.epoch_dict[key] = []
-
-
-"""
-x = 5
-a = 3
-import numpy as np
-
-logger = EpochLogger()
-logger.save_config(locals())
-
-N_EPISODES = 10
-STEPS_PER_EPISODE = 20
-
-for e in range(N_EPISODES):
-    
-    for t in range(STEPS_PER_EPISODE):
-
-        logger.store(Actor_loss=np.random.rand(1))
-        logger.store(Critic_loss=np.random.rand(1))
-    
-    logger.log_tabular("Actor_loss", with_min_and_max=True)
-    logger.log_tabular("Critic_loss", with_min_and_max=False)
-    logger.dump_tabular()
-    
-"""

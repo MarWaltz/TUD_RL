@@ -10,7 +10,6 @@ import tud_rl.common.nets as nets
 from tud_rl.agents.base import BaseAgent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.exploration import Gaussian_Noise
-from tud_rl.common.normalizer import Action_Normalizer
 
 
 class DDPGAgent(BaseAgent):
@@ -18,8 +17,6 @@ class DDPGAgent(BaseAgent):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.action_high      = c.action_high
-        self.action_low       = c.action_low
         self.lr_actor         = c.lr_actor
         self.lr_critic        = c.lr_critic
         self.tau              = c.tau
@@ -46,9 +43,6 @@ class DDPGAgent(BaseAgent):
                                                             device        = self.device,
                                                             disc_actions  = False,
                                                             action_dim    = self.num_actions)
-        # action normalizer
-        self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
-
         # init actor and critic
         if self.state_type == "feature":
             self.actor = nets.MLP(in_size   = self.state_shape,
@@ -96,7 +90,6 @@ class DDPGAgent(BaseAgent):
             if init_critic:
                 self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
-
     @torch.no_grad()
     def select_action(self, s):
         """Selects action via actor network for a given state. Adds exploration bonus from noise and clips to action scale.
@@ -111,11 +104,7 @@ class DDPGAgent(BaseAgent):
             a += torch.tensor(self.noise.sample()).to(self.device)
         
         # clip actions in [-1,1]
-        a = torch.clamp(a, -1, 1).cpu().numpy().reshape(self.num_actions)
-        
-        # transform [-1,1] to application scale
-        return self.act_normalizer.norm_to_action(a)
-
+        return torch.clamp(a, -1, 1).cpu().numpy().reshape(self.num_actions)
 
     def _greedy_action(self, s):
         # reshape obs (namely, to torch.Size([1, state_shape]))
@@ -124,13 +113,9 @@ class DDPGAgent(BaseAgent):
         # forward pass
         return self.actor(s)
 
-
     def memorize(self, s, a, r, s2, d):
-        """Stores current transition in replay buffer.
-        Note: Action is transformed from application scale to [-1,1]."""
-        a = self.act_normalizer.action_to_norm(a)
+        """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
-
 
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
@@ -143,14 +128,12 @@ class DDPGAgent(BaseAgent):
             y = r + self.gamma * Q_next * (1 - d)
         return y
 
-
     def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
             return F.mse_loss(Q, y, reduction=reduction)
 
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        

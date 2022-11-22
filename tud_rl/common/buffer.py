@@ -223,11 +223,6 @@ class UniformReplayBuffer_LSTM(UniformReplayBuffer):
                     a2_hist[i] = np.roll(a2_hist[i], shift= -(self.history_length - j), axis=0)
                     break
 
-        #print({"s": self.s, "a": self.a, "r": self.r, "s2" : self.s2, "d" : self.d})
-        #print({"s_hist": s_hist, "a_hist": a_hist, "hist_len":hist_len, "s2_hist":s2_hist, "a2_hist":a2_hist,\
-        #"hist_len2":hist_len2, "s":s, "a":a, "r":r, "s2": s2, "d": d, "idx": bat_indices})
-        #print("--------------------------")
-
         return (torch.tensor(s_hist).to(self.device), 
                 torch.tensor(a_hist).to(self.device), 
                 torch.tensor(hist_len).to(self.device),

@@ -5,6 +5,13 @@ from importlib import import_module
 from tud_rl.envs import __path__
 from tud_rl import logger
 
+try:
+    import gym_minatar
+except ImportError as e:
+    logger.warning(
+        f"Error while importing gym_minatar: {e.msg}. Skipping..."
+    )
+
 __currentmodule__ = import_module("tud_rl.envs")
 
 modules = glob.glob(join(dirname(__path__[0] + "/_envs/"), "*.py"))
@@ -16,7 +23,12 @@ for f in modules:
 logger.info("--- Loading Environments: ---")
 
 for filename in _ENVS:
-    module = import_module("tud_rl.envs._envs." + filename)
+    try:
+        module = import_module("tud_rl.envs._envs." + filename)
+    except ImportError as e:
+        logger.warning(
+            f"Error while importing {filename}: {e.msg}. Skipping..."
+        )
     for name, obj in inspect.getmembers(module):
         if inspect.isclass(obj) and all(hasattr(obj, a) for a in ["reset", "step"]):
             cls_ = getattr(module, name)

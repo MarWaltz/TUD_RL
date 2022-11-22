@@ -10,7 +10,6 @@ import tud_rl.common.nets as nets
 from tud_rl import logger
 from tud_rl.agents.base import BaseAgent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.common.normalizer import Action_Normalizer
 
 
 class LSTMSACAgent(BaseAgent):
@@ -18,8 +17,6 @@ class LSTMSACAgent(BaseAgent):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.action_high      = c.action_high
-        self.action_low       = c.action_low
         self.lr_actor         = c.lr_actor
         self.lr_critic        = c.lr_critic
         self.tau              = c.tau
@@ -32,6 +29,7 @@ class LSTMSACAgent(BaseAgent):
         self.temp_tuning = getattr(c.Agent, agent_name)["temp_tuning"]
         self.init_temp   = getattr(c.Agent, agent_name)["init_temp"]
 
+        self.needs_history    = True
         self.history_length   = getattr(c.Agent, agent_name)["history_length"]
         self.use_past_actions = getattr(c.Agent, agent_name)["use_past_actions"]
 
@@ -69,9 +67,6 @@ class LSTMSACAgent(BaseAgent):
                                                                  disc_actions   = False,
                                                                  action_dim     = self.num_actions,
                                                                  history_length = self.history_length)
-        # action normalizer
-        self.act_normalizer = Action_Normalizer(action_high = self.action_high, action_low = self.action_low)      
-
         # init actor and critic
         if self.state_type == "feature":
             self.actor = nets.LSTM_GaussianActor(state_shape = self.state_shape,
@@ -115,9 +110,6 @@ class LSTMSACAgent(BaseAgent):
         
         returns: np.array with shape (action_dim,)
         """
-        # past actions will be on application scale
-        a_hist = self.act_normalizer.action_to_norm(a_hist)
-
         # reshape arguments and convert to tensors
         s = torch.tensor(s, dtype=torch.float32).view(1, self.state_shape).to(self.device)
         s_hist = torch.tensor(s_hist, dtype=torch.float32).view(1, self.history_length, self.state_shape).to(self.device)
@@ -131,23 +123,14 @@ class LSTMSACAgent(BaseAgent):
             a, _, _ = self.actor(s, s_hist, a_hist, hist_len, deterministic=True, with_logprob=False)
         
         # reshape actions
-        a = a.cpu().numpy().reshape(self.num_actions)
-        
-        # transform [-1,1] to application scale
-        return self.act_normalizer.norm_to_action(a)
-
+        return a.cpu().numpy().reshape(self.num_actions)
 
     def memorize(self, s, a, r, s2, d):
-        """Stores current transition in replay buffer.
-        Note: Action is transformed from application scale to [-1,1]."""
-        a = self.act_normalizer.action_to_norm(a)
+        """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
 
-
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
- 
         with torch.no_grad():
-
             # target actions come from current policy (no target actor)
             target_a, target_logp_a, _ = self.actor(s=s2, s_hist=s2_hist, a_hist=a2_hist, hist_len=hist_len2, deterministic=False, with_logprob=True)
 
@@ -159,14 +142,12 @@ class LSTMSACAgent(BaseAgent):
             y = r + self.gamma * (1 - d) * (Q_next - self.temperature * target_logp_a)
         return y
 
-
     def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
             return F.mse_loss(Q, y, reduction=reduction)
 
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        

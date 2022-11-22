@@ -82,8 +82,6 @@ timesteps: 10000000
 epoch_length: 5000
 eval_episodes: 1
 dqn_weights:
-input_norm: false
-input_norm_prior:
 gamma: 0.999
 eps_init: 1
 eps_final: 0.1

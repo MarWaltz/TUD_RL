@@ -47,7 +47,6 @@ class TD3Agent(DDPGAgent):
         else:
             self.critic_optimizer = optim.RMSprop(self.critic.parameters(), lr=self.lr_critic, alpha=0.95, centered=True, eps=0.01)
 
-
     def _compute_target(self, r, s2, d):
         with torch.no_grad():
             target_a = self.target_actor(s2)
@@ -65,7 +64,6 @@ class TD3Agent(DDPGAgent):
             # target
             y = r + self.gamma * Q_next * (1 - d)
         return y
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        
