@@ -1,7 +1,7 @@
 ---
 env:
   name: MyMountainCar-v0
-  max_episode_steps: -1
+  max_episode_steps: 200
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}

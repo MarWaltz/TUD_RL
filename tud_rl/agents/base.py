@@ -72,7 +72,8 @@ class BaseAgent(_Agent):
         self.batch_size       = c.batch_size
         self.device           = c.device
         self.seed             = c.seed
-        self.needs_history    = False
+        self.needs_history    = False # whether history is needed
+        self.is_multi         = False # whether agent contains multiple agents, e.g., for MADDPG
 
         # checks
         assert c.mode in ["train", "test"], "Unknown mode. Should be 'train' or 'test'."

@@ -33,7 +33,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
         # get initial state
         s = test_env.reset()
 
-        cur_ret = 0
+        cur_ret = np.zeros((agent.N_agents, 1)) if agent.is_multi else 0.0
         d = False
         eval_epi_steps = 0
 
@@ -76,7 +76,6 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
 
     # continue training
     agent.mode = "train"
-
     return rets
 
 
@@ -123,7 +122,7 @@ def train(c: ConfigFile, agent_name: str):
     agent_ = getattr(agents, agent_name_red)  # Get agent class by name
     agent: _Agent = agent_(c, agent_name)  # Instantiate agent
 
-    # Initialize logging
+    # initialize logging
     agent.logger = EpochLogger(alg_str    = agent.name,
                                seed       = c.seed,
                                env_str    = c.Env.name,
@@ -144,7 +143,7 @@ def train(c: ConfigFile, agent_name: str):
 
     # init epi step counter and epi return
     epi_steps = 0
-    epi_ret = 0
+    epi_ret = np.zeros((agent.N_agents, 1)) if agent.is_multi else 0.0
 
     # main loop
     for total_steps in range(c.timesteps):
@@ -153,7 +152,7 @@ def train(c: ConfigFile, agent_name: str):
 
         # select action
         if total_steps < c.act_start_step:
-            a = np.random.uniform(low=-1.0, high=1.0, size=agent.num_actions)
+            a = np.random.uniform(low=-1.0, high=1.0, size=agent.num_actions if not agent.is_multi else (agent.N_agents, agent.num_actions))
         else:
             if agent.needs_history:
                 a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)
@@ -210,11 +209,15 @@ def train(c: ConfigFile, agent_name: str):
             s = env.reset()
 
             # log episode return
-            agent.logger.store(Epi_Ret=epi_ret)
+            if agent.is_multi:
+                for i in range(agent.N_agents):
+                    agent.logger.store(**{f"Epi_Ret_{i}" : epi_ret[i].item()})
+            else:
+                agent.logger.store(Epi_Ret=epi_ret)
 
             # reset epi steps and epi ret
             epi_steps = 0
-            epi_ret = 0
+            epi_ret = np.zeros((agent.N_agents, 1)) if agent.is_multi else 0.0
 
         # end of epoch handling
         if (total_steps + 1) % c.epoch_length == 0 and (total_steps + 1) > c.upd_start_step:
@@ -223,18 +226,33 @@ def train(c: ConfigFile, agent_name: str):
 
             # evaluate agent with deterministic policy
             eval_ret = evaluate_policy(test_env=test_env, agent=agent, c=c)
-            for ret in eval_ret:
-                agent.logger.store(Eval_ret=ret)
+
+            if agent.is_multi:
+                for ret_list in eval_ret:
+                    for i in range(agent.N_agents):
+                        agent.logger.store(**{f"Eval_ret_{i}" : ret_list[i].item()})
+            else:
+                for ret in eval_ret:
+                    agent.logger.store(Eval_ret=ret)
 
             # log and dump tabular
             agent.logger.log_tabular("Epoch", epoch)
             agent.logger.log_tabular("Timestep", total_steps)
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
-            agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
-            agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
-            agent.logger.log_tabular("Q_val", with_min_and_max=True)
-            agent.logger.log_tabular("Critic_loss", average_only=True)
-            agent.logger.log_tabular("Actor_loss", average_only=True)
+
+            if agent.is_multi:
+                for i in range(agent.N_agents):
+                    agent.logger.log_tabular(f"Epi_Ret_{i}", with_min_and_max=True)
+                    agent.logger.log_tabular(f"Eval_ret_{i}", with_min_and_max=True)
+                    agent.logger.log_tabular(f"Q_val_{i}", average_only=True)
+                    agent.logger.log_tabular(f"Critic_loss_{i}", average_only=True)
+                    agent.logger.log_tabular(f"Actor_loss_{i}", average_only=True)
+            else:
+                agent.logger.log_tabular("Epi_Ret", with_min_and_max=True)
+                agent.logger.log_tabular("Eval_ret", with_min_and_max=True)
+                agent.logger.log_tabular("Q_val", with_min_and_max=True)
+                agent.logger.log_tabular("Critic_loss", average_only=True)
+                agent.logger.log_tabular("Actor_loss", average_only=True)
 
             if agent.needs_history:
                 agent.logger.log_tabular("Actor_CurFE", with_min_and_max=False)
@@ -264,7 +282,10 @@ def save_weights(agent: _Agent, eval_ret) -> None:
     df = df.iloc[1:]
     df = df.astype(float)
 
-    if len(df["Avg_Eval_ret"]) == 1:
+    # no best-weight-saving for multi-agent problems since the definition of best weights is not straightforward anymore
+    if agent.is_multi:
+        best_weights = False
+    elif len(df["Avg_Eval_ret"]) == 1:
         best_weights = True
     else:
         if np.mean(eval_ret) > max(df["Avg_Eval_ret"][:-1]):

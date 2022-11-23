@@ -37,7 +37,7 @@ class LSTMSACAgent(BaseAgent):
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
 
         if self.state_type == "image":
-            raise Exception("Currently, image input is not supported for continuous action spaces.")
+            raise NotImplementedError("Currently, image input is not supported for continuous action spaces.")
 
         if self.net_struc_actor is not None or self.net_struc_critic is not None:
             logger.warning("The net structure cannot be controlled via the config-spec for LSTM-based agents.")

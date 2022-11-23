@@ -4,6 +4,7 @@ import csv
 #matplotlib.use("agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+
 from tud_rl.common.helper_fnc import exponential_smoothing
 
 
@@ -38,17 +39,19 @@ def plot_from_progress(dir, alg, env_str, info=None):
         fig.suptitle(f"{alg} | {env_str} | Runtime (h): {runtime}")
 
     # first axis
-    ax[0,0].plot(df["Timestep"], df["Avg_Eval_ret"], label = "Avg. test return")
-    ax[0,0].plot(df["Timestep"], exponential_smoothing(df["Avg_Eval_ret"].values), label = "Exp. smooth. return")
+    for col in df.columns[[col.startswith("Avg_Eval_ret") for col in df.columns]]:
+        ax[0,0].plot(df["Timestep"], df[col], label=col)
+        ax[0,0].plot(df["Timestep"], exponential_smoothing(df[col].values), label = "Smoothed " + col)
     ax[0,0].legend()
     ax[0,0].set_xlabel("Timestep")
     ax[0,0].set_ylabel("Test return")
 
     # second axis
-    if "Avg_Q_val" in df.columns:
-        ax[0,1].plot(df["Timestep"], df["Avg_Q_val"])
-        ax[0,1].set_ylabel("Avg_Q_val")
-        ax[0,1].set_xlabel("Timestep")
+    for col in df.columns[["Q_val" in col for col in df.columns]]:
+        ax[0,1].plot(df["Timestep"], df[col], label=col)
+    ax[0,1].legend()
+    ax[0,1].set_xlabel("Timestep")
+    ax[0,1].set_ylabel("Q-value")
     
     # third axis
     if "Loss" in df.columns:
@@ -56,10 +59,16 @@ def plot_from_progress(dir, alg, env_str, info=None):
         ax[1,0].set_xlabel("Timestep")
         ax[1,0].set_ylabel("Loss")
 
-    if "Critic_loss" in df.columns and "Actor_loss" in df.columns:
-        ax[1,0].plot(df["Timestep"], df["Critic_loss"], label="Critic")
-        ax[1,0].plot(df["Timestep"], df["Actor_loss"], label="Actor")
+    if any([col.startswith("Critic_loss") for col in df.columns]) and any([col.startswith("Actor_loss") for col in df.columns]):
+        for col in df.columns[[col.startswith("Critic_loss") for col in df.columns]]:
+            ax[1,0].plot(df["Timestep"], df[col], label=col)
+
+        for col in df.columns[[col.startswith("Actor_loss") for col in df.columns]]:
+            ax[1,0].plot(df["Timestep"], df[col], label=col)
+
         ax[1,0].legend()
+        ax[1,0].set_xlabel("Timestep")
+        ax[1,0].set_ylabel("Loss")
 
     # fourth axis
     ax[1,1].set_xlabel("Timestep")

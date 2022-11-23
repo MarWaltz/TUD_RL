@@ -18,6 +18,7 @@ class MountainCar(gym.Env):
         self.rewardStd = rewardStd
 
         # step cnt
+        self._max_episode_steps = 200
         self.made_steps = 0
 
     def reset(self):
@@ -52,7 +53,7 @@ class MountainCar(gym.Env):
         done = True if (self.position >= 0.5 or self.made_steps == self._max_episode_steps) else False
         r = np.random.normal(-1.0, self.rewardStd)
  
-        return np.array([self.position, self.velocity]), r, done, None
+        return np.array([self.position, self.velocity]), r, done, {}
     
     def seed(self, seed):
         pass

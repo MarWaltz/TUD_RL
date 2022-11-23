@@ -2,10 +2,10 @@ import numpy as np
 import torch
 
 
-class UniformReplayBuffer:
-    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
-        """A simple replay buffer with uniform sampling."""
 
+class UniformReplayBuffer:
+    """A simple replay buffer with uniform sampling."""
+    def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
         self.state_type  = state_type
         self.state_shape = state_shape
         self.max_size    = buffer_length
@@ -44,7 +44,7 @@ class UniformReplayBuffer:
     def sample(self):
         """Return sizes:
         s:  torch.Size([batch_size, in_channels, height, width]) or torch.Size([batch_size, state_shape])
-        a:  torch.Size([batch_size, 1])
+        a:  torch.Size([batch_size, 1]) or torch.Size([batch_size, action_dim])
         r:  torch.Size([batch_size, 1])
         s2: torch.Size([batch_size, in_channels, height, width]) or torch.Size([batch_size, state_shape])
         d:  torch.Size([batch_size, 1])"""
@@ -59,7 +59,48 @@ class UniformReplayBuffer:
                 torch.tensor(self.d[ind]).to(self.device))
 
 
+
+class MultiAgentUniformReplayBuffer(UniformReplayBuffer):
+    """A simple replay buffer with uniform sampling for multi-agent scenarios."""
+    def __init__(self, N_agents, state_type, state_shape, buffer_length, batch_size, device, action_dim) -> None:
+        super().__init__(state_type=state_type, state_shape=state_shape, buffer_length=buffer_length, batch_size=batch_size,\
+             device=device, disc_actions=False, action_dim=action_dim)
+
+        self.N_agents = N_agents
+
+        if state_type == "image":
+            self.s  = np.zeros((self.max_size, N_agents, *state_shape), dtype=np.float32)
+            self.s2 = np.zeros((self.max_size, N_agents, *state_shape), dtype=np.float32)
+
+        elif state_type == "feature":
+            self.s  = np.zeros((self.max_size, N_agents, state_shape), dtype=np.float32)
+            self.s2 = np.zeros((self.max_size, N_agents, state_shape), dtype=np.float32)
+        
+        self.a = np.zeros((self.max_size, N_agents, action_dim), dtype=np.float32)
+        self.r = np.zeros((self.max_size, N_agents, 1), dtype=np.float32)
+        self.d = np.zeros((self.max_size, 1), dtype=np.float32)
+
+    def add(self, s, a, r, s2, d):
+        """Args:
+            s/s2: np.arrays of shape (N_agents, in_channels, height, width) or (N_agents, state_shape)
+            a:    np.array of shape (N_agents, action_dim)
+            r:    np.array of shape (N_agents, 1)
+            d:    bool
+        """
+        super().add(s, a, r, s2, d)
+
+    def sample(self):
+        """Return sizes:
+        s:  torch.Size([batch_size, N_agents, in_channels, height, width]) or torch.Size([batch_size, N_agents, state_shape])
+        a:  torch.Size([batch_size, N_agents, action_dim])
+        r:  torch.Size([batch_size, N_agents, 1])
+        s2: torch.Size([batch_size, N_agents, in_channels, height, width]) or torch.Size([batch_size, N_agents, state_shape])
+        d:  torch.Size([batch_size, 1])"""
+        return super().sample()
+
+
 class UniformReplayBuffer_BootDQN(UniformReplayBuffer):
+    """A simple replay buffer with uniform sampling. Incorporates bootstrapping masks."""
     def __init__(self, state_type, state_shape, buffer_length, batch_size, device, K, mask_p):
         super().__init__(state_type    = state_type,
                          state_shape   = state_shape, 
@@ -67,8 +108,6 @@ class UniformReplayBuffer_BootDQN(UniformReplayBuffer):
                          batch_size    = batch_size, 
                          device        = device,
                          disc_actions  = True)
-        """A simple replay buffer with uniform sampling. Incorporates bootstrapping masks."""
-
         self.K          = K
         self.mask_p     = mask_p
         self.m  = np.zeros((self.max_size, K), dtype=np.float32)

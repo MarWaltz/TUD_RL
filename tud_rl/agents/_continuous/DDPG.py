@@ -29,7 +29,7 @@ class DDPGAgent(BaseAgent):
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
 
         if self.state_type == "image":
-            raise Exception("Currently, image input is not supported for continuous action spaces.")
+            raise NotImplementedError("Currently, image input is not supported for continuous action spaces.")
 
         # noise
         self.noise = Gaussian_Noise(action_dim = self.num_actions)

@@ -50,6 +50,10 @@ gym.register(
     id="HHOS-PathPlanning-v0",
     entry_point=loc + "HHOS_PathPlanning_Env"
 )
+gym.register(
+    id="PredatorPrey-v0",
+    entry_point=loc + "PredatorPrey"
+)
 
 # Initialize logger
 logger = logging.getLogger(__name__)

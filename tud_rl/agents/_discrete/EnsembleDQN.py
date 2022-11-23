@@ -4,6 +4,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
 import tud_rl.common.nets as nets
 from tud_rl.agents._discrete.DQN import DQNAgent
 from tud_rl.common.configparser import ConfigFile
@@ -20,22 +21,22 @@ class EnsembleDQNAgent(DQNAgent):
 
         # init EnsembleDQN
         del self.DQN
-        self.EnsembleDQN = [None] * self.N
+        self.EnsembleDQN = nn.ModuleList().to(self.device)
 
-        for i in range(self.N):
+        for _ in range(self.N):
             if self.state_type == "image":
-                self.EnsembleDQN[i] = nets.MinAtar_DQN(in_channels = self.state_shape[0],
-                                                       height      = self.state_shape[1],
-                                                       width       = self.state_shape[2],
-                                                       num_actions = self.num_actions).to(self.device)
+                self.EnsembleDQN.append(nets.MinAtar_DQN(in_channels = self.state_shape[0],
+                                                         height      = self.state_shape[1],
+                                                         width       = self.state_shape[2],
+                                                         num_actions = self.num_actions).to(self.device))
 
             elif self.state_type == "feature":
-                self.EnsembleDQN[i] = nets.MLP(in_size   = self.state_shape,
-                                               out_size  = self.num_actions, 
-                                               net_struc = self.net_struc).to(self.device)
-        
+                self.EnsembleDQN.append(nets.MLP(in_size   = self.state_shape,
+                                                 out_size  = self.num_actions, 
+                                                 net_struc = self.net_struc).to(self.device))
+
         # parameter number of net
-        self.n_params = self.N * self._count_params(self.EnsembleDQN[0])
+        self.n_params = self._count_params(self.EnsembleDQN)
 
         # prior weights
         if self.dqn_weights is not None:
@@ -43,24 +44,20 @@ class EnsembleDQNAgent(DQNAgent):
 
         # target net and counter for target update
         del self.target_DQN
-        self.target_EnsembleDQN = [copy.deepcopy(net).to(self.device) for net in self.EnsembleDQN]
+        self.target_EnsembleDQN = copy.deepcopy(self.EnsembleDQN).to(self.device)
         self.tgt_up_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for net in self.target_EnsembleDQN:
-            for p in net.parameters():
-                p.requires_grad = False
+        for p in self.target_EnsembleDQN.parameters():
+            p.requires_grad = False
 
         # define optimizer
         del self.DQN_optimizer
-        self.EnsembleDQN_optimizer = [None] * self.N
 
-        for i in range(self.N):
-            if self.optimizer == "Adam":
-                self.EnsembleDQN_optimizer[i] = optim.Adam(self.EnsembleDQN[i].parameters(), lr=self.lr)
-
-            else:
-                self.EnsembleDQN_optimizer[i] = optim.RMSprop(self.EnsembleDQN[i].parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
+        if self.optimizer == "Adam":
+            self.EnsembleDQN_optimizer = optim.Adam(self.EnsembleDQN.parameters(), lr=self.lr)
+        else:
+            self.EnsembleDQN_optimizer = optim.RMSprop(self.EnsembleDQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
 
     def _ensemble_reduction(self, q_ens):
@@ -119,6 +116,9 @@ class EnsembleDQNAgent(DQNAgent):
         """Samples from replay_buffer, updates critic and the target networks.""" 
        
         #-------- train EnsembleDQN --------
+        # clear gradients
+        self.EnsembleDQN_optimizer.zero_grad(set_to_none=True)
+        
         for _ in range(self.N_to_update):
             
             # ensemble member to update
@@ -129,9 +129,6 @@ class EnsembleDQNAgent(DQNAgent):
         
             # unpack batch
             s, a, r, s2, d = batch
-
-            # clear gradients
-            self.EnsembleDQN_optimizer[i].zero_grad()
             
             # Q estimates
             Q = self.EnsembleDQN[i](s)
@@ -154,7 +151,7 @@ class EnsembleDQNAgent(DQNAgent):
                 nn.utils.clip_grad_norm_(self.EnsembleDQN[i].parameters(), max_norm=10)
             
             # perform optimizing step
-            self.EnsembleDQN_optimizer[i].step()
+            self.EnsembleDQN_optimizer.step()
             
             # log critic training
             self.logger.store(Loss=loss.detach().cpu().numpy().item())
@@ -166,8 +163,7 @@ class EnsembleDQNAgent(DQNAgent):
 
     def _target_update(self):
         if self.tgt_up_cnt % self.tgt_update_freq == 0:
-            for i in range(self.N):
-                self.target_EnsembleDQN[i].load_state_dict(self.EnsembleDQN[i].state_dict())
+            self.target_EnsembleDQN.load_state_dict(self.EnsembleDQN.state_dict())
 
         # increase target-update cnt
         self.tgt_up_cnt += 1

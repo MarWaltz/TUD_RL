@@ -33,7 +33,7 @@ class SACAgent(BaseAgent):
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
 
         if self.state_type == "image":
-            raise Exception("Currently, image input is not supported for continuous action spaces.")
+            raise NotImplementedError("Currently, image input is not supported for continuous action spaces.")
 
         if self.net_struc_actor is not None:
             warnings.warn("The net structure of the Gaussian actor cannot be controlled via the config-spec for SAC.")

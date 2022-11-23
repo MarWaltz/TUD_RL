@@ -5,13 +5,13 @@ from inside an editor/IDE.
 Basically the same as __main__.py but 
 without the argument parser. 
 """
+import tud_rl.envs
 import tud_rl.run.train_continuous as cont
-import tud_rl.run.visualize_continuous as vizcont
 import tud_rl.run.train_discrete as discr
+import tud_rl.run.visualize_continuous as vizcont
 import tud_rl.run.visualize_discrete as vizdiscr
-
+from tud_rl.agents import is_discrete, validate_agent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.agents import validate_agent, is_discrete
 from tud_rl.configs.continuous_actions import __path__ as cont_path
 from tud_rl.configs.discrete_actions import __path__ as discr_path
 
@@ -19,11 +19,11 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 # ------------------------------------------------------------
 
 TASK        = "train"           # ["train", "viz"]
-CONFIG_FILE = "MMGEnvRecDQN.yaml"     # configuration file as `.yaml` or `.json`
-SEED        = 120                # set a seed different to the one specified in your config
-AGENT_NAME  = "LSTMRecDQN"             # agent to train/viz
+CONFIG_FILE = "breakout.yaml"     # configuration file as `.yaml` or `.json`
+SEED        = 42                # set a seed different to the one specified in your config
+AGENT_NAME  = "DQN"             # agent to train/viz
 DQN_WEIGHTS = None              # path to file for weight initialization (discrete actions)
-ACTOR_WEIGHTS = None           # path to file for weight initialization (continuous actions)
+ACTOR_WEIGHTS = None             # path to file for weight initialization (continuous actions)
 CRITIC_WEIGHTS = None           # path to file for weight initialization (continuous actions)
 
 # ------------------------------------------------------------
