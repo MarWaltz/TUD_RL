@@ -4,25 +4,26 @@ This suite implements several model-free off-policy deep reinforcement learning 
 
 ## Algorithms
 
-| Name             | Action Space |                                                                                                  Source |
-| ---------------- | :----------: | ------------------------------------------------------------------------------------------------------: |
-| DQN              |   Discrete   |                                        [Mnih et. al. 2015](https://www.nature.com/articles/nature14236) |
-| Double DQN       |   Discrete   |                              [van Hasselt et. al. 2016](https://dl.acm.org/doi/10.5555/3016100.3016191) |
-| Bootstrapped DQN |   Discrete   |                                                 [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
-| Ensemble DQN     |   Discrete   |                                 [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
-| MaxMin DQN       |   Discrete   |                                                    [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
-| SCDQN            |   Discrete   |                                [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
-| ACCDDQN          |   Discrete   |                                                  [Jiang et. al. 2021](https://arxiv.org/abs/2105.00704) |
-| KE-BootDQN       |   Discrete   |                                                  [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
+| Name             | Single-/Multi-Agent |  Action Space |                                                                                                  Source |
+| ---------------- | :--------------------:|  :----------: | ------------------------------------------------------------------------------------------------------: |
+| DQN              |     Single    |   Discrete   |                                        [Mnih et. al. 2015](https://www.nature.com/articles/nature14236) |
+| Double DQN       |     Single    |   Discrete   |                              [van Hasselt et. al. 2016](https://dl.acm.org/doi/10.5555/3016100.3016191) |
+| Bootstrapped DQN |     Single    |   Discrete   |                                                 [Osband et. al. 2016](https://arxiv.org/abs/1602.04621) |
+| Ensemble DQN     |     Single    |   Discrete   |                                 [Anschel et. al 2017](http://proceedings.mlr.press/v70/anschel17a.html) |
+| MaxMin DQN       |     Single    |   Discrete   |                                                    [Lan et. al. 2020](https://arxiv.org/abs/2002.06487) |
+| SCDQN            |     Single    |   Discrete   |                                [Zhu et. al. 2021](https://www.aaai.org/AAAI21Papers/AAAI-3820.ZhuR.pdf) |
+| ACCDDQN          |     Single    |   Discrete   |                                                  [Jiang et. al. 2021](https://arxiv.org/abs/2105.00704) |
+| KE-BootDQN       |     Single    |   Discrete   |                                                  [Waltz, Okhrin 2022](https://arxiv.org/abs/2201.08078) |
 |                  |
-| DDPG             |  Continuous  |                                              [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
-| LSTM-DDPG        |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| TD3              |  Continuous  |                             [Fujimoto et. al. 2018](https://proceedings.mlr.press/v80/fujimoto18a.html) |
-| LSTM-TD3         |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| SAC              |  Continuous  |                                               [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
-| LSTM-SAC         |  Continuous  | Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
-| TQC              |  Continuous  |                           [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
-| MADDPG           |  Continuous  |                                       [Lowe et. al. 2017](https://proceedings.neurips.cc/paper/2017/hash/68a9750337a418a86fe06c1991a1d64c-Abstract.html)
+| DDPG             |     Single    |  Continuous  |                                              [Lillicrap et. al. 2015](https://arxiv.org/abs/1509.02971) |
+| LSTM-DDPG        |     Single    |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| TD3              |     Single    |  Continuous  |                             [Fujimoto et. al. 2018](https://proceedings.mlr.press/v80/fujimoto18a.html) |
+| LSTM-TD3         |     Single    |  Continuous  |                              [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| SAC              |     Single    |  Continuous  |                                               [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
+| LSTM-SAC         |     Single    |  Continuous  | Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
+| TQC              |     Single    |  Continuous  |                           [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
+|                  |
+| MADDPG           |     Multi    |  Continuous  |                                       [Lowe et. al. 2017](https://proceedings.neurips.cc/paper/2017/hash/68a9750337a418a86fe06c1991a1d64c-Abstract.html)
 
 ## Prerequisites
 
