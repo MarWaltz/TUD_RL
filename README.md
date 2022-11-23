@@ -22,6 +22,7 @@ This suite implements several model-free off-policy deep reinforcement learning 
 | SAC              |  Continuous  |                                               [Haarnoja et. al. 2019](https://arxiv.org/abs/1812.05905) |
 | LSTM-SAC         |  Continuous  | Own Implementation following [Meng et. al. 2021](https://ieeexplore.ieee.org/abstract/document/9636140) |
 | TQC              |  Continuous  |                           [Kuznetsov et. al. 2020](http://proceedings.mlr.press/v119/kuznetsov20a.html) |
+| MADDPG           |  Continuous  |                                       [Lowe et. al. 2017](https://proceedings.neurips.cc/paper/2017/hash/68a9750337a418a86fe06c1991a1d64c-Abstract.html)
 
 ## Prerequisites
 
