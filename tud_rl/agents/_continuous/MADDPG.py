@@ -1,6 +1,7 @@
 import copy
 import math
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,7 +33,7 @@ class MADDPGAgent(BaseAgent):
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
 
         if self.state_type == "image":
-            raise NotImplementedError("Currently, image input is not supported for continuous action spaces.")
+            raise NotImplementedError("Currently, image input is not supported for MADDPG.")
 
         # noise
         self.noise = Gaussian_Noise(action_dim = self.num_actions)
@@ -137,7 +138,7 @@ class MADDPGAgent(BaseAgent):
             target_a = torch.zeros((self.batch_size, self.N_agents, self.num_actions), dtype=torch.float32)
             for j in range(self.N_agents):
                 s2_j = s2[:, j]
-                target_a[:, j] = self.target_actor[j](s2_j)
+                target_a[:, j] = self._tar_act_transform(self.target_actor[j](s2_j))
 
             # next Q-estimate
             s2a2_for_Q = torch.cat([s2.reshape(self.batch_size, -1), target_a.reshape(self.batch_size, -1)], dim=1)
@@ -153,6 +154,77 @@ class MADDPGAgent(BaseAgent):
 
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
+
+    def _onehot_to_int(self, a):
+        """Transform one-hot encoded vector to integers.
+        Args:
+            a: np.array([N_agents, action_dim])
+        Returns:
+            np.array(N_agents,)
+        Example input:
+            [[0., 0., 0., 1., 0.],
+             [0., 0., 1., 0., 0.],
+             [1., 0., 0., 0., 0.]]
+        Example output:
+            [3, 2, 0]"""
+        return np.where(a==1)[1]
+
+    def _int_to_onehot(self, a):
+        """Transform to integers to one-hot encoded vectors. 
+        Args:
+            a: np.array(N_agents,)
+        Returns:
+            np.array([N_agents, action_dim])
+        Example input:
+            [3, 2, 0]
+        Example output:
+            [[0, 0, 0, 1, 0],
+             [0, 0, 1, 0, 0],
+             [1, 0, 0, 0, 0]]"""
+        out = np.zeros((self.N_agents, self.num_actions), dtype=np.int64)
+        for i, a_i in enumerate(a):
+            out[i, a_i] = 1
+        return out
+
+    def _onehot(self, x):
+        """Transform non-normalized actions to one-hot-encoded form.
+        Args:
+            x: [batch_size, num_actions]
+        Returns:
+               [batch_size, num_actions]"""
+        return (x == x.max(-1, keepdim=True)[0]).float()
+
+    def _gumbel_softmax(self, x, temp=1.0, hard=False, eps=1e-20):
+        """Sample from the Gumbel-Softmax distribution and optionally discretize.
+        Args:
+            x:     [batch_size, num_actions], non-normalized actions
+            temp:  non-negative scalar
+            hard:  if True, take argmax, but differentiate w.r.t. soft sample y
+        Returns:
+            [batch_size, n_class], sample from the Gumbel-Softmax distribution
+        
+        If hard=True, then the returned sample will be one-hot, otherwise it will
+        be a probabilitiy distribution that sums to 1 across classes."""
+
+        # sample from Gumbel (0,1)
+        u = torch.rand_like(x, requires_grad=False).to(self.device)
+        g = -torch.log(-torch.log(u + eps) + eps)
+
+        # softmax
+        y = F.softmax((x+g)/temp, dim=1)
+
+        if hard:
+            y_hard = self._onehot(y)
+            y = (y_hard - y).detach() + y
+        return y
+
+    def _cur_act_transform(self, curr_a):
+        """Transformation for the current actions during the actor training. Required for the discrete MADDPG class."""
+        return curr_a
+
+    def _tar_act_transform(self, tar_a):
+        """Transformation for the target actions during the critic training. Required for the discrete MADDPG class."""
+        return tar_a
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""
@@ -205,6 +277,9 @@ class MADDPGAgent(BaseAgent):
 
             # get current actions via actor
             curr_a = self.actor[i](s[:, i])
+
+            # possibly transform current actions (used in discrete case)
+            curr_a = self._cur_act_transform(curr_a)
             
             # compute loss, which is negative Q-values from critic
             a[:, i] = curr_a

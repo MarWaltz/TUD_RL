@@ -110,6 +110,7 @@ def train(c: ConfigFile, agent_name: str):
     env.seed(c.seed)
     test_env.seed(c.seed)
     torch.manual_seed(c.seed)
+    torch.cuda.manual_seed(c.seed)
     np.random.seed(c.seed)
     random.seed(c.seed)
 
@@ -152,7 +153,10 @@ def train(c: ConfigFile, agent_name: str):
 
         # select action
         if total_steps < c.act_start_step:
-            a = np.random.uniform(low=-1.0, high=1.0, size=agent.num_actions if not agent.is_multi else (agent.N_agents, agent.num_actions))
+            if agent.is_multi:
+                a = np.random.uniform(low=-1.0, high=1.0, size=(agent.N_agents, agent.num_actions))
+            else:
+                a = np.random.uniform(low=-1.0, high=1.0, size=agent.num_actions)
         else:
             if agent.needs_history:
                 a = agent.select_action(s=s, s_hist=s_hist, a_hist=a_hist, hist_len=hist_len)

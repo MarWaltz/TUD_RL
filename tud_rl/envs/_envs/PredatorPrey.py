@@ -39,10 +39,11 @@ class Prey(Pred):
 
 class PredatorPrey(gym.Env):
     """Implements the classic predator-prey simulation game. There is one predator and N_agents-1 preys."""
-    def __init__(self, N_agents, N_preds, N_preys):
+    def __init__(self, N_agents, N_preds, N_preys, cont_acts=True):
         super(PredatorPrey, self).__init__()
 
         # simulation setup
+        self.cont_acts = cont_acts
         self.x_max = 100
         self.y_max = 100
         self.v_max_pred = 3
@@ -57,11 +58,15 @@ class PredatorPrey(gym.Env):
 
         # obs and act size for a single agent
         obs_size = 2 + (N_agents-1) * 3
-        act_size = 2
         self.observation_space = spaces.Box(low  = np.full(obs_size, 0.0, dtype=np.float32), 
                                             high = np.full(obs_size, 1.0, dtype=np.float32))
-        self.action_space = spaces.Box(low  = np.full(act_size, -1.0, dtype=np.float32), 
-                                       high = np.full(act_size,  1.0, dtype=np.float32))
+        if cont_acts:
+            act_size = 2
+            self.action_space = spaces.Box(low  = np.full(act_size, -1.0, dtype=np.float32), 
+                                           high = np.full(act_size,  1.0, dtype=np.float32))
+        else:
+            self.action_space = spaces.Discrete(4)
+
         self.dt = 1.0
         self._max_episode_steps = 500
 
@@ -106,22 +111,36 @@ class PredatorPrey(gym.Env):
             self.state[i] = s_i
 
     def step(self, a):
-        """a is np.array([N_agents, action_dim]), where action_dim = 2 in our case."""
+        """a is np.array([N_agents, action_dim]), where action_dim = 2 in continuous case, else np.array(N_agents,)."""
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.dt
  
-        # update pred/prey velocities
-        for i in range(self.N_agents):
-            if self.agents[i].is_pred:
-                v_max = self.v_max_pred
-            else:
-                v_max = self.v_max_prey
-            self.agents[i].vx = a[i, 0] * v_max
-            self.agents[i].vy = a[i, 1] * v_max
+        # update pred/prey positions
+        if self.cont_acts:
+            for i in range(self.N_agents):
+                if self.agents[i].is_pred:
+                    v_max = self.v_max_pred
+                else:
+                    v_max = self.v_max_prey
+                self.agents[i].vx = a[i, 0] * v_max
+                self.agents[i].vy = a[i, 1] * v_max
 
-        # update positions
-        [agent.move() for agent in self.agents]
+            [agent.move() for agent in self.agents]
+        else:
+            for i in range(self.N_agents):
+                if self.agents[i].is_pred:
+                    v = self.v_max_pred/2
+                else:
+                    v = self.v_max_prey/2
+                if a[i] == 0:
+                    self.agents[i].x += self.dt * v
+                elif a[i] == 1:
+                    self.agents[i].x -= self.dt * v
+                elif a[i] == 2:
+                    self.agents[i].y += self.dt * v
+                elif a[i] == 3:
+                    self.agents[i].y -= self.dt * v
 
         # compute state, reward, done        
         self._set_state()

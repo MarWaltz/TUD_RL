@@ -20,45 +20,39 @@ class EnsembleDQNAgent(DQNAgent):
         self.N_to_update = getattr(c.Agent, agent_name)["N_to_update"]
 
         # init EnsembleDQN
-        del self.DQN
-        self.EnsembleDQN = nn.ModuleList().to(self.device)
+        self.DQN = nn.ModuleList().to(self.device)
 
         for _ in range(self.N):
             if self.state_type == "image":
-                self.EnsembleDQN.append(nets.MinAtar_DQN(in_channels = self.state_shape[0],
-                                                         height      = self.state_shape[1],
-                                                         width       = self.state_shape[2],
-                                                         num_actions = self.num_actions).to(self.device))
+                self.DQN.append(nets.MinAtar_DQN(in_channels = self.state_shape[0],
+                                                 height      = self.state_shape[1],
+                                                 width       = self.state_shape[2],
+                                                 num_actions = self.num_actions).to(self.device))
 
             elif self.state_type == "feature":
-                self.EnsembleDQN.append(nets.MLP(in_size   = self.state_shape,
-                                                 out_size  = self.num_actions, 
-                                                 net_struc = self.net_struc).to(self.device))
-
+                self.DQN.append(nets.MLP(in_size   = self.state_shape,
+                                         out_size  = self.num_actions, 
+                                         net_struc = self.net_struc).to(self.device))
         # parameter number of net
-        self.n_params = self._count_params(self.EnsembleDQN)
+        self.n_params = self._count_params(self.DQN)
 
         # prior weights
         if self.dqn_weights is not None:
-            raise NotImplementedError("Prior weights not implemented so far for EnsembleDQN.")
+            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
         # target net and counter for target update
-        del self.target_DQN
-        self.target_EnsembleDQN = copy.deepcopy(self.EnsembleDQN).to(self.device)
+        self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
         self.tgt_up_cnt = 0
         
         # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_EnsembleDQN.parameters():
+        for p in self.target_DQN.parameters():
             p.requires_grad = False
 
         # define optimizer
-        del self.DQN_optimizer
-
         if self.optimizer == "Adam":
-            self.EnsembleDQN_optimizer = optim.Adam(self.EnsembleDQN.parameters(), lr=self.lr)
+            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
         else:
-            self.EnsembleDQN_optimizer = optim.RMSprop(self.EnsembleDQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
-
+            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
     def _ensemble_reduction(self, q_ens):
         """
@@ -66,7 +60,6 @@ class EnsembleDQNAgent(DQNAgent):
         Output: torch.Size([batch_size, num_actions])
         """
         return torch.mean(q_ens, dim=0)
-
 
     @torch.no_grad()
     def _greedy_action(self, s, with_Q=False):
@@ -82,7 +75,7 @@ class EnsembleDQNAgent(DQNAgent):
         s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).to(self.device)
 
         # forward through ensemble
-        q_ens = [net(s).to(self.device) for net in self.EnsembleDQN] # list of torch.Size([batch_size, num_actions])
+        q_ens = [net(s).to(self.device) for net in self.DQN] # list of torch.Size([batch_size, num_actions])
         q_ens = torch.stack(q_ens).to(self.device)                   # torch.Size([N, batch_size, num_actions])   
 
         # reduction over ensemble
@@ -100,7 +93,7 @@ class EnsembleDQNAgent(DQNAgent):
         with torch.no_grad():
 
             # forward through ensemble
-            Q_next_ens = [net(s2).to(self.device) for net in self.target_EnsembleDQN]
+            Q_next_ens = [net(s2).to(self.device) for net in self.target_DQN]
             Q_next_ens = torch.stack(Q_next_ens).to(self.device)
             
             # reduction over ensemble
@@ -117,7 +110,7 @@ class EnsembleDQNAgent(DQNAgent):
        
         #-------- train EnsembleDQN --------
         # clear gradients
-        self.EnsembleDQN_optimizer.zero_grad(set_to_none=True)
+        self.DQN_optimizer.zero_grad(set_to_none=True)
         
         for _ in range(self.N_to_update):
             
@@ -131,7 +124,7 @@ class EnsembleDQNAgent(DQNAgent):
             s, a, r, s2, d = batch
             
             # Q estimates
-            Q = self.EnsembleDQN[i](s)
+            Q = self.DQN[i](s)
             Q = torch.gather(input=Q, dim=1, index=a)
  
             # targets
@@ -145,13 +138,13 @@ class EnsembleDQNAgent(DQNAgent):
 
             # gradient scaling and clipping
             if self.grad_rescale:
-                for p in self.EnsembleDQN[i].parameters():
+                for p in self.DQN[i].parameters():
                     p.grad *= 1 / math.sqrt(2)
             if self.grad_clip:
-                nn.utils.clip_grad_norm_(self.EnsembleDQN[i].parameters(), max_norm=10)
+                nn.utils.clip_grad_norm_(self.DQN[i].parameters(), max_norm=10)
             
             # perform optimizing step
-            self.EnsembleDQN_optimizer.step()
+            self.DQN_optimizer.step()
             
             # log critic training
             self.logger.store(Loss=loss.detach().cpu().numpy().item())
@@ -163,7 +156,7 @@ class EnsembleDQNAgent(DQNAgent):
 
     def _target_update(self):
         if self.tgt_up_cnt % self.tgt_update_freq == 0:
-            self.target_EnsembleDQN.load_state_dict(self.EnsembleDQN.state_dict())
+            self.target_DQN.load_state_dict(self.DQN.state_dict())
 
         # increase target-update cnt
         self.tgt_up_cnt += 1

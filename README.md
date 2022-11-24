@@ -25,6 +25,9 @@ This suite implements several model-free off-policy deep reinforcement learning 
 |                  |
 | MADDPG           |     Multi    |  Continuous  |                                       [Lowe et. al. 2017](https://proceedings.neurips.cc/paper/2017/hash/68a9750337a418a86fe06c1991a1d64c-Abstract.html)
 | MATD3            |     Multi    |  Continuous  |                                       [Ackermann et. al. 2019](arxiv.org/pdf/1910.01465.pdf)
+|                  |
+| DiscMADDPG           |     Multi    |  Discrete  |                                       Gumbel-Softmax discretization of MADDPG
+| DiscMATD3            |     Multi    |  Discrete  |                                       Gumbel-Softmax discretization of MATD3
 
 ## Prerequisites
 

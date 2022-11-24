@@ -24,10 +24,12 @@ agent:
   ACCDDQN_c:
     AC_K: 4
   BootDQN:
+    double: true
     K: 10
     mask_p: 1
     grad_rescale: true
   KEBootDQN_a:
+    double:
     kernel: test
     kernel_param: 0.05
     K: 10
@@ -74,9 +76,9 @@ eps_final: 0.1
 eps_decay_steps: 1000
 tgt_update_freq: 200
 net_struc:
-- - 16
+- - 64
   - relu
-- - 16
+- - 64
   - relu
 - identity
 optimizer: Adam

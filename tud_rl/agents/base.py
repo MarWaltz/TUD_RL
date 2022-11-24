@@ -105,7 +105,7 @@ class BaseAgent(_Agent):
 
         Args:
             n_params (int): Number of params of the net
-            case (int): case [0: discrete, 1: continous]
+            case (int): case [0: discrete, 1: continuous]
         """
         if case == 0:
             print("--------------------------------------------")

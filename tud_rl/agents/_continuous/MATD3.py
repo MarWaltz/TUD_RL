@@ -56,7 +56,7 @@ class MATD3Agent(MADDPGAgent):
             target_a = torch.zeros((self.batch_size, self.N_agents, self.num_actions), dtype=torch.float32)
             for j in range(self.N_agents):
                 s2_j = s2[:, j]
-                target_a[:, j] = self.target_actor[j](s2_j)
+                target_a[:, j] = self._tar_act_transform(self.target_actor[j](s2_j))
 
             # target policy smoothing
             eps = torch.randn_like(target_a) * self.tgt_noise
@@ -128,7 +128,7 @@ class MATD3Agent(MADDPGAgent):
                 curr_a = self.actor[i](s[:, i])
                 
                 # compute loss, which is negative Q-values from critic
-                a[:, i] = curr_a
+                a[:, i] = self._cur_act_transform(curr_a)
                 sa_for_Q_new = torch.cat([s.reshape(self.batch_size, -1), a.reshape(self.batch_size, -1)], dim=1)
                 actor_loss = -self.critic[i].single_forward(sa_for_Q_new).mean()
 
