@@ -1,21 +1,19 @@
 ---
 env:
-  name: PredatorPrey-v0
-  max_episode_steps: 1500
+  name: CoopNavigation-v0
+  max_episode_steps: 100
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
     N_agents: 3
-    N_preds: 2
-    N_preys: 1
     cont_acts: false
   info: ''
 agent:
   DiscMADDPG: {}
   DiscMATD3:
-    tgt_noise: 0.2
-    tgt_noise_clip: 0.5
+    tgt_noise:
+    tgt_noise_clip:
     pol_upd_delay: 2
 seed: 42
 timesteps: 5_000_000
@@ -23,8 +21,8 @@ epoch_length: 5000
 eval_episodes: 10
 actor_weights:
 critic_weights:
-gamma: 0.99
-tau: 0.001
+gamma: 0.95
+tau: 0.01
 net_struc_actor:
 - - 64
   - relu
@@ -39,13 +37,13 @@ net_struc_critic:
 - identity
 optimizer: Adam
 loss: MSELoss
-lr_actor: 0.0001
-lr_critic: 0.0001
-buffer_length: 100000
+lr_actor: 0.01
+lr_critic: 0.01
+buffer_length: 1_000_000
 grad_rescale: false
 grad_clip: false
-act_start_step: 1000
-upd_start_step: 1000
+act_start_step: 5000
+upd_start_step: 5000
 upd_every: 1
 batch_size: 32
 device: cpu

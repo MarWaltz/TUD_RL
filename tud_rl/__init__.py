@@ -55,6 +55,12 @@ gym.register(
     entry_point=loc + "PredatorPrey"
 )
 
+gym.register(
+    id="CoopNavigation-v0",
+    entry_point=loc + "CoopNavigation"
+)
+
+
 # Initialize logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

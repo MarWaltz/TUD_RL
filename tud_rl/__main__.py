@@ -1,12 +1,12 @@
-import tud_rl.run.train_continuous as cont
-import tud_rl.run.visualize_continuous as vizcont
-import tud_rl.run.train_discrete as discr
-import tud_rl.run.visualize_discrete as vizdiscr
-
 from argparse import ArgumentParser
 
+import tud_rl.envs
+import tud_rl.run.train_continuous as cont
+import tud_rl.run.train_discrete as discr
+import tud_rl.run.visualize_continuous as vizcont
+import tud_rl.run.visualize_discrete as vizdiscr
+from tud_rl.agents import is_discrete, validate_agent
 from tud_rl.common.configparser import ConfigFile
-from tud_rl.agents import validate_agent, is_discrete
 from tud_rl.configs.continuous_actions import __path__ as cont_path
 from tud_rl.configs.discrete_actions import __path__ as discr_path
 
@@ -41,23 +41,6 @@ parser.add_argument(
     "-cw", "--critic_weights", type=str, default=None,
     help="Weights (critic) for visualization in continuous action spaces. Example: `critic_weights.pth`.")
 
-# COLREGs start
-parser.add_argument(
-    "-wh", "--w_head", type=float, default=None)
-
-parser.add_argument(
-    "-wc", "--w_comf", type=float, default=None)
-
-parser.add_argument(
-    "-wcl", "--w_coll", type=float, default=None)
-
-parser.add_argument(
-    "-sd", "--state_design", type=str, default=None)
-
-parser.add_argument(
-    "-nlc", "--nonlinear_r_coll", type=int, default=None)
-# COLREGs end
-
 args = parser.parse_args()
 
 agent_name = args.agent_name
@@ -87,27 +70,6 @@ if args.actor_weights is not None:
 
 if args.critic_weights is not None:
     config.overwrite(critic_weights=args.critic_weights)
-
-# COLREGs start
-if args.w_head is not None:
-    config.overwrite(w_head=args.w_head)
-
-if args.w_comf is not None:
-    config.overwrite(w_comf=args.w_comf)
-
-if args.w_coll is not None:
-    config.overwrite(w_coll=args.w_coll)
-
-if args.state_design is not None:
-    config.overwrite(state_design=args.state_design)
-
-if args.nonlinear_r_coll is not None:
-    if int(args.nonlinear_r_coll) == 0:
-        config.overwrite(nonlinear_r_coll=False)
-    else:
-        config.overwrite(nonlinear_r_coll=True)
-# COLREGs end
-
 
 # handle maximum episode steps
 config.max_episode_handler()

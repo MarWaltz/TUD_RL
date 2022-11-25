@@ -28,6 +28,7 @@ class MADDPGAgent(BaseAgent):
         self.net_struc_actor  = c.net_struc_actor
         self.net_struc_critic = c.net_struc_critic
         self.is_multi         = True
+        self.is_continuous    = True
 
         # checks
         assert not (self.mode == "test" and (self.actor_weights is None or self.critic_weights is None)), "Need prior weights in test mode."
@@ -138,7 +139,11 @@ class MADDPGAgent(BaseAgent):
             target_a = torch.zeros((self.batch_size, self.N_agents, self.num_actions), dtype=torch.float32)
             for j in range(self.N_agents):
                 s2_j = s2[:, j]
-                target_a[:, j] = self._tar_act_transform(self.target_actor[j](s2_j))
+
+                if self.is_continuous:
+                    target_a[:, j] = self.target_actor[j](s2_j)
+                else:
+                    target_a[:, j] = self._onehot(self.target_actor[j](s2_j))
 
             # next Q-estimate
             s2a2_for_Q = torch.cat([s2.reshape(self.batch_size, -1), target_a.reshape(self.batch_size, -1)], dim=1)
@@ -182,17 +187,16 @@ class MADDPGAgent(BaseAgent):
              [0, 0, 1, 0, 0],
              [1, 0, 0, 0, 0]]"""
         out = np.zeros((self.N_agents, self.num_actions), dtype=np.int64)
-        for i, a_i in enumerate(a):
-            out[i, a_i] = 1
+        out[np.arange(self.N_agents), a] = 1
         return out
 
     def _onehot(self, x):
         """Transform non-normalized actions to one-hot-encoded form.
         Args:
-            x: [batch_size, num_actions]
+            x: torch.Size([batch_size, num_actions])
         Returns:
-               [batch_size, num_actions]"""
-        return (x == x.max(-1, keepdim=True)[0]).float()
+               torch.Size([batch_size, num_actions])"""
+        return F.one_hot(torch.argmax(x, 1), num_classes=x.shape[1]).float()
 
     def _gumbel_softmax(self, x, temp=1.0, hard=False, eps=1e-20):
         """Sample from the Gumbel-Softmax distribution and optionally discretize.
@@ -217,14 +221,6 @@ class MADDPGAgent(BaseAgent):
             y_hard = self._onehot(y)
             y = (y_hard - y).detach() + y
         return y
-
-    def _cur_act_transform(self, curr_a):
-        """Transformation for the current actions during the actor training. Required for the discrete MADDPG class."""
-        return curr_a
-
-    def _tar_act_transform(self, tar_a):
-        """Transformation for the target actions during the critic training. Required for the discrete MADDPG class."""
-        return tar_a
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""
@@ -279,10 +275,12 @@ class MADDPGAgent(BaseAgent):
             curr_a = self.actor[i](s[:, i])
 
             # possibly transform current actions (used in discrete case)
-            curr_a = self._cur_act_transform(curr_a)
-            
+            if self.is_continuous:
+                a[:, i] = curr_a
+            else:
+                a[:, i] = self._gumbel_softmax(curr_a, hard=True)
+
             # compute loss, which is negative Q-values from critic
-            a[:, i] = curr_a
             sa_for_Q_new = torch.cat([s.reshape(self.batch_size, -1), a.reshape(self.batch_size, -1)], dim=1)
             actor_loss = -self.critic[i](sa_for_Q_new).mean()
 
@@ -308,7 +306,6 @@ class MADDPGAgent(BaseAgent):
 
         #------- Update target networks -------
         self.polyak_update()
-
 
     @torch.no_grad()
     def polyak_update(self):

@@ -76,7 +76,7 @@ class PredatorPrey(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # randomly generate pred and preys
-        self.agents : Union[Pred, Prey] = []
+        self.agents = []
         for _ in range(self.N_preds):
             self.agents.append(Pred(x  = np.random.uniform(low=0.0, high=self.x_max),
                                     y  = np.random.uniform(low=0.0, high=self.y_max),

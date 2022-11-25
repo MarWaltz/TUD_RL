@@ -8,6 +8,7 @@ class DiscMADDPGAgent(MADDPGAgent):
     """MADDPG agent for discrete action spaces based on the Gumbel-Softmax trick."""
     def __init__(self, c: ConfigFile, agent_name):
         super().__init__(c, agent_name)
+        self.is_continuous = False
 
     @torch.no_grad()
     def select_action(self, s):
@@ -39,9 +40,3 @@ class DiscMADDPGAgent(MADDPGAgent):
         """Stores current transition in replay buffer. Transform integer actions to one-hot encodings"""
         a = self._int_to_onehot(a)
         self.replay_buffer.add(s, a, r, s2, d)
-
-    def _cur_act_transform(self, curr_a):
-        return self._gumbel_softmax(curr_a, hard=True)
-
-    def _tar_act_transform(self, tar_a):
-        return self._onehot(tar_a)

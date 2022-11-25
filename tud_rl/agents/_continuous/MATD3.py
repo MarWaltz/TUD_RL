@@ -4,6 +4,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
 import tud_rl.common.nets as nets
 from tud_rl.agents._continuous.MADDPG import MADDPGAgent
 from tud_rl.common.configparser import ConfigFile
@@ -56,13 +57,18 @@ class MATD3Agent(MADDPGAgent):
             target_a = torch.zeros((self.batch_size, self.N_agents, self.num_actions), dtype=torch.float32)
             for j in range(self.N_agents):
                 s2_j = s2[:, j]
-                target_a[:, j] = self._tar_act_transform(self.target_actor[j](s2_j))
+                
+                if self.is_continuous:
+                    target_a[:, j] = self.target_actor[j](s2_j)
+                else:
+                    target_a[:, j] = self._onehot(self.target_actor[j](s2_j))
 
-            # target policy smoothing
-            eps = torch.randn_like(target_a) * self.tgt_noise
-            eps = torch.clamp(eps, -self.tgt_noise_clip, self.tgt_noise_clip)
-            target_a += eps
-            target_a = torch.clamp(target_a, -1, 1)
+            # target policy smoothing (only in continuous case)
+            if self.is_continuous:
+                eps = torch.randn_like(target_a) * self.tgt_noise
+                eps = torch.clamp(eps, -self.tgt_noise_clip, self.tgt_noise_clip)
+                target_a += eps
+                target_a = torch.clamp(target_a, -1, 1)
 
             # next Q-estimate
             s2a2_for_Q = torch.cat([s2.reshape(self.batch_size, -1), target_a.reshape(self.batch_size, -1)], dim=1)
@@ -126,9 +132,13 @@ class MATD3Agent(MADDPGAgent):
 
                 # get current actions via actor
                 curr_a = self.actor[i](s[:, i])
-                
+
                 # compute loss, which is negative Q-values from critic
-                a[:, i] = self._cur_act_transform(curr_a)
+                if self.is_continuous:
+                    a[:, i] = curr_a
+                else:
+                    a[:, i] = self._gumbel_softmax(curr_a, hard=True)
+
                 sa_for_Q_new = torch.cat([s.reshape(self.batch_size, -1), a.reshape(self.batch_size, -1)], dim=1)
                 actor_loss = -self.critic[i].single_forward(sa_for_Q_new).mean()
 
