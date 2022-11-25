@@ -25,12 +25,12 @@ logger.info("--- Loading Environments: ---")
 for filename in _ENVS:
     try:
         module = import_module("tud_rl.envs._envs." + filename)
+        for name, obj in inspect.getmembers(module):
+            if inspect.isclass(obj) and all(hasattr(obj, a) for a in ["reset", "step"]):
+                cls_ = getattr(module, name)
+                logger.info(f"Loading {name} from {module.__name__}.")
+                setattr(__currentmodule__, name, cls_)
     except ImportError as e:
         logger.warning(
             f"Error while importing {filename}: {e.msg}. Skipping..."
         )
-    for name, obj in inspect.getmembers(module):
-        if inspect.isclass(obj) and all(hasattr(obj, a) for a in ["reset", "step"]):
-            cls_ = getattr(module, name)
-            logger.info(f"Loading {name} from {module.__name__}.")
-            setattr(__currentmodule__, name, cls_)
