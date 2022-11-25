@@ -208,7 +208,7 @@ class MADDPGAgent(BaseAgent):
             [batch_size, n_class], sample from the Gumbel-Softmax distribution
         
         If hard=True, then the returned sample will be one-hot, otherwise it will
-        be a probabilitiy distribution that sums to 1 across classes."""
+        be a probability distribution that sums to 1 across classes."""
 
         # sample from Gumbel (0,1)
         u = torch.rand_like(x, requires_grad=False).to(self.device)

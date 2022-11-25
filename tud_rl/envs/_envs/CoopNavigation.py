@@ -62,7 +62,7 @@ class CoopNavigation(gym.Env):
         else:
             self.action_space = spaces.Discrete(5)
 
-        self._max_episode_steps = 100
+        self._max_episode_steps = 200
 
     def reset(self):
         """Resets environment to initial state."""
@@ -187,7 +187,7 @@ class CoopNavigation(gym.Env):
 
     def get_collision_force(self, agent1, agent2):
         # don't collide against itself
-        if (agent1 is agent1):
+        if (agent1 is agent2):
             return [0.0, 0.0]
         
         # compute actual distance between entities

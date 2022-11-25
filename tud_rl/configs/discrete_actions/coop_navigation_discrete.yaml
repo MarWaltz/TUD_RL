@@ -1,7 +1,7 @@
 ---
 env:
   name: CoopNavigation-v0
-  max_episode_steps: 100
+  max_episode_steps: 200
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
