@@ -141,9 +141,9 @@ class MADDPGAgent(BaseAgent):
                 s2_j = s2[:, j]
 
                 if self.is_continuous:
-                    target_a[:, j] = self.target_actor[j](s2_j)
+                    target_a[:, j, :] = self.target_actor[j](s2_j)
                 else:
-                    target_a[:, j] = self._onehot(self.target_actor[j](s2_j))
+                    target_a[:, j, :] = self._onehot(self.target_actor[j](s2_j))
 
             # next Q-estimate
             s2a2_for_Q = torch.cat([s2.reshape(self.batch_size, -1), target_a.reshape(self.batch_size, -1)], dim=1)

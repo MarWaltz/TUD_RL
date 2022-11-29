@@ -79,7 +79,6 @@ class CoopNavigation(gym.Env):
         self.landmarks = [Landmark() for _ in range(self.N_landmarks)]
         for l in self.landmarks:
             l.pos = np.random.uniform(-1.0, 1.0, self.dim_world)
-            l.vel = np.zeros(self.dim_world)
 
         # init state
         self._set_state()
@@ -108,7 +107,7 @@ class CoopNavigation(gym.Env):
                     p_force[i, 1] = 1.0
                 elif a_i == 4:
                     pass # no-op
-       
+
         # apply environment forces
         p_force = self.apply_environment_force(p_force)
         
@@ -140,8 +139,9 @@ class CoopNavigation(gym.Env):
             
             # collision penalty
             for a in self.agents:
-                if self._is_collision(agent, a) and a is not agent:
-                    r_i -= 1.0
+                if a is not agent:
+                    if self._is_collision(agent, a):
+                        r_i -= 1.0
 
             self.r[i] = r_i
 
@@ -155,8 +155,8 @@ class CoopNavigation(gym.Env):
             s_i = np.concatenate((agent.pos, agent.vel))
 
             # relative position and id of other agents
-            for j, other in enumerate(self.agents):
-                if i != j:
+            for other in self.agents:
+                if agent is not other:
                     s_i = np.concatenate((s_i, other.pos-agent.pos, np.array([other.id])))
             
             # relative position and id of landmarks

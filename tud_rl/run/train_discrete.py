@@ -190,8 +190,7 @@ def train(c: ConfigFile, agent_name: str):
 
         # train
         if (total_steps >= c.upd_start_step) and (total_steps % c.upd_every == 0):
-            for _ in range(c.upd_every):
-                agent.train()
+            agent.train()
 
         # s becomes s2
         s = s2

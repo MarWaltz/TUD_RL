@@ -12,8 +12,8 @@ env:
 agent:
   MADDPG: {}
   MATD3:
-    tgt_noise:
-    tgt_noise_clip:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
     pol_upd_delay: 2
 seed: 42
 timesteps: 5_000_000
@@ -22,7 +22,7 @@ eval_episodes: 10
 actor_weights:
 critic_weights:
 gamma: 0.95
-tau: 0.001
+tau: 0.01
 net_struc_actor:
 - - 64
   - relu
@@ -37,13 +37,13 @@ net_struc_critic:
 - identity
 optimizer: Adam
 loss: MSELoss
-lr_actor: 0.001
-lr_critic: 0.001
+lr_actor: 0.01
+lr_critic: 0.01
 buffer_length: 1_000_000
 grad_rescale: false
 grad_clip: false
 act_start_step: 5000
 upd_start_step: 5000
-upd_every: 1
-batch_size: 32
+upd_every: 100
+batch_size: 1024
 device: cpu

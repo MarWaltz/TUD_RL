@@ -44,6 +44,6 @@ grad_rescale: false
 grad_clip: false
 act_start_step: 5000
 upd_start_step: 5000
-upd_every: 1
-batch_size: 32
+upd_every: 100
+batch_size: 1024
 device: cpu
