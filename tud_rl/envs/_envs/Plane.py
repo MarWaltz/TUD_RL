@@ -1,10 +1,12 @@
 import json
+from copy import copy
 
 import bluesky as bs
 import bluesky.tools.aero as aero
 import bluesky.traffic.performance.openap.thrust as thrust
 import numpy as np
 import pandas as pd
+from bluesky.tools.geo import latlondist
 
 bs.settings.set_variable_defaults(perf_path_openap="performance/OpenAP")
 
@@ -211,7 +213,7 @@ class OpenAP:
         else:
             # convert to known aircraft type
             if actype not in self.coeff.actypes_fixwing:
-                actype = "B744"
+                assert ValueError("Aircraft type unknown!")
 
             # populate fuel flow model
             es = self.coeff.acs_fixwing[actype]["engines"]
@@ -264,7 +266,7 @@ class OpenAP:
 
         else:
             if actype not in self.coeff.limits_fixwing.keys():
-                actype = "B744"
+                assert ValueError("Aircraft type unknown!")
 
             self.vminic = self.coeff.limits_fixwing[actype]["vminic"]
             self.vminer = self.coeff.limits_fixwing[actype]["vminer"]
@@ -510,29 +512,30 @@ class OpenAP:
         """
         allow_h = np.where(intent_h > self.hmax, self.hmax, intent_h)
 
-        intent_v_cas = aero.vtas2cas(intent_v_tas, allow_h)
-        allow_v_cas = np.where((intent_v_cas < self.vmin), self.vmin, intent_v_cas)
-        allow_v_cas = np.where(intent_v_cas > self.vmax, self.vmax, allow_v_cas)
-        allow_v_tas = aero.vcas2tas(allow_v_cas, allow_h)
-        allow_v_tas = np.where(
-            aero.vtas2mach(allow_v_tas, allow_h) > self.mmo,
-            aero.vmach2tas(self.mmo, allow_h),
-            allow_v_tas,
-        )  # maximum cannot exceed MMO
+        if self.lifttype == LIFT_FIXWING:
+            intent_v_cas = aero.vtas2cas(intent_v_tas, allow_h)
+            allow_v_cas = np.where((intent_v_cas < self.vmin), self.vmin, intent_v_cas)
+            allow_v_cas = np.where(intent_v_cas > self.vmax, self.vmax, allow_v_cas)
+            allow_v_tas = aero.vcas2tas(allow_v_cas, allow_h)
+            allow_v_tas = np.where(
+                aero.vtas2mach(allow_v_tas, allow_h) > self.mmo,
+                aero.vmach2tas(self.mmo, allow_h),
+                allow_v_tas,
+            )  # maximum cannot exceed MMO
 
-        vs_max_with_acc = (1 - ax / self.axmax) * self.vsmax
-        allow_vs = np.where(
-            (intent_vs > 0) & (intent_vs > self.vsmax), vs_max_with_acc, intent_vs
-        )  # for climb with vs larger than vsmax
-        allow_vs = np.where(
-            (intent_vs < 0) & (intent_vs < self.vsmin), vs_max_with_acc, allow_vs
-        )  # for descent with vs smaller than vsmin (negative)
-        allow_vs = np.where(
-            (self.phase == GD) & (self.tas < self.vminto), 0, allow_vs
-        )  # takeoff aircraft
+            vs_max_with_acc = (1 - ax / self.axmax) * self.vsmax
+            allow_vs = np.where(
+                (intent_vs > 0) & (intent_vs > self.vsmax), vs_max_with_acc, intent_vs
+            )  # for climb with vs larger than vsmax
+            allow_vs = np.where(
+                (intent_vs < 0) & (intent_vs < self.vsmin), vs_max_with_acc, allow_vs
+            )  # for descent with vs smaller than vsmin (negative)
+            allow_vs = np.where(
+                (self.phase == GD) & (self.tas < self.vminto), 0, allow_vs
+            )  # takeoff aircraft
 
         # correct rotercraft speed limits
-        if self.lifttype == LIFT_ROTOR:
+        elif self.lifttype == LIFT_ROTOR:
             allow_v_tas = np.where(
                 (intent_v_tas < self.vmin), self.vmin, intent_v_tas
             )
@@ -590,18 +593,21 @@ class OpenAP:
         return vmin, vmax
 
     def calc_axmax(self):
-        # fix-wing, in flight
-        axmax = (self.max_thrust - self.drag) / self.mass
+        # fix-wing
+        if self.lifttype == LIFT_FIXWING:
 
-        # fix-wing, on ground
-        if self.phase == GD:
-            axmax = 2
+            # in flight
+            axmax = (self.max_thrust - self.drag) / self.mass
+
+            # on ground
+            if self.phase == GD:
+                axmax = 2
 
         # drones
-        if self.lifttype == LIFT_ROTOR:
+        elif self.lifttype == LIFT_ROTOR:
             axmax = 3.5
 
-        # global minumum acceleration
+        # global minimum acceleration
         if axmax < 0.5:
             axmax = 0.5
         return axmax
@@ -615,8 +621,8 @@ class Plane:
         # setting
         self.dt = dt
         self.actype = actype
-        self.delta_hdg = 3.0  # [deg]
-        self.delta_tas = 5.0  # [m/s]
+        self.delta_hdg = 5.0  # [deg]
+        self.delta_tas = 1.0  # [m/s]
 
         # positions
         self.lat = lat   # latitude [deg]
@@ -643,12 +649,12 @@ class Plane:
         # miscallaneous
         self.coslat = np.cos(np.radians(lat))
 
-    def upd_dynamics(self, a, perf : OpenAP):
+    def upd_dynamics(self, a, perf:OpenAP, dest=None):
         #---------- Atmosphere --------------------------------
         self.p, self.rho, self.Temp = aero.vatmos(self.alt)
 
         #---------- Fly the Aircraft --------------------------
-        self.cnt_tas, self.cnt_hdg = self._control(a)
+        self.cnt_hdg, self.cnt_tas = self._control(a)
 
         #---------- Performance Update ------------------------
         perf.update(self.tas, self.vs, self.alt, self.ax)
@@ -660,10 +666,10 @@ class Plane:
         #---------- Kinematics --------------------------------
         self._update_airspeed()
         self._update_groundspeed()
-        self._update_pos()
+        self._update_pos(dest)
 
     def _control(self, a):
-        """a is np.array(2,) containing delta tas and delta heading."""
+        """a is np.array(2,) containing delta tas and delta heading, or np.array(1,) containing only delta heading."""
         # store action for rendering
         self.action = a
 
@@ -671,7 +677,10 @@ class Plane:
         assert all([-1 <= ele <= 1 for ele in a]), "Actions need to be in [-1,1]."
 
         # update
-        return [self.tas + self.delta_tas * a[0], self.hdg + self.delta_hdg * a[1]]
+        if len(a) == 2:
+            return [self.hdg + self.delta_hdg * a[0], self.tas + self.delta_tas * a[1]]
+        else:
+            return [self.hdg + self.delta_hdg * a[0], self.tas]
 
     def _update_airspeed(self):
         """Note: We perform no update of vertical speed since we stay at a specific altitude."""
@@ -688,7 +697,7 @@ class Plane:
         self.cas = float(aero.vtas2cas(self.tas, self.alt))
 
         # update heading
-        self.hdg = self.cnt_hdg
+        self.hdg = self.cnt_hdg % 360
 
     def _update_groundspeed(self):
         """Compute ground speed and track from heading and airspeed. Currently, we assume there is no wind."""
@@ -698,9 +707,24 @@ class Plane:
         self.trk = self.hdg
         self.windnorth, self.windeast = 0.0, 0.0
 
-    def _update_pos(self):
-        """Euler update."""
+    def _update_pos(self, dest):
+        """Euler update. Artficially keeps plane on a specific lat-lon area if a map is provided.
+        Args:
+            dest (Destination or None): contains lat-lon of center point and radius."""
+        if dest is not None:
+            self.alt_old = copy(self.alt)
+            self.lat_old = copy(self.lat)
+            self.coslat_old = copy(self.coslat)
+            self.lon_old = copy(self.lon)
+
         self.alt = np.round(self.alt + self.vs * self.dt, 6)
         self.lat = self.lat + np.degrees(self.dt * self.gsnorth / aero.Rearth)
         self.coslat = np.cos(np.deg2rad(self.lat))
         self.lon = self.lon + np.degrees(self.dt * self.gseast / self.coslat / aero.Rearth)
+
+        if dest is not None:
+            if latlondist(latd1=self.lat, lond1=self.lon, latd2=dest.lat, lond2=dest.lon) >= dest.hold_radius:
+                self.alt = self.alt_old
+                self.lat = self.lat_old
+                self.coslat = self.coslat_old
+                self.lon = self.lon_old
