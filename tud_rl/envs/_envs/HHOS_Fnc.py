@@ -12,13 +12,11 @@ def to_latlon(north, east, number):
     Returns: (lat, lon)"""
     return utm.to_latlon(easting=east, northing=north, zone_number=number, northern=True, strict=False)
 
-
 def to_utm(lat, lon):
     """Converts latitude and longitude into North, East, and zone number in UTM.
     Returns: (North, East, number)."""
     E, N, number, _ = utm.from_latlon(latitude=lat, longitude=lon)
     return (N, E, number)
-
 
 def find_nearest(array, value):
     """Finds the closest entry in an array to a given value.
@@ -26,7 +24,6 @@ def find_nearest(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return array[idx], int(idx)
-
 
 def find_nearest_two_old(array, value):
     """Finds the closest two entries in a SORTED (ascending) array with UNIQUE entries to a given value.
@@ -52,7 +49,6 @@ def find_nearest_two_old(array, value):
     # neighbours
     idx1, idx2 = np.sort(np.argpartition(abs_diff, kth=2)[0:2])
     return array[idx1], int(idx1), array[idx2], int(idx2)
-
 
 def find_nearest_two(array, value):
     """Finds the closest two entries in a SORTED (ascending) array with UNIQUE entries to a given value. Based on binary search.
@@ -102,7 +98,6 @@ def find_nearest_two(array, value):
     # one element left
     return find_neighbor(array=array, value=value, idx=mid)
 
-
 def find_neighbor(array, value, idx):
     """Checks whether left or right neighbor of a given idx in an array is closer to the value, when idx is the closest in general.
     Returns (entry1, idx1, entry2, idx2)."""
@@ -124,8 +119,7 @@ def find_neighbor(array, value, idx):
         else:
             return array[idx], idx, right, idx+1
 
-
-def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
+def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
     """Computes the linearly interpolated value (e.g. water depth, wind) at a (queried) longitude-latitude position.
     Args:
         Z[np.array(M, N)]:        data over grid
@@ -133,6 +127,7 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
         lon_array[np.array(N,)]:  longitude points
         lat_q[float]: latitude of interest
         lon_q[float]: longitude of interest
+        angle[bool]: whether data consists of angles (in radiant), need to consider special boundary issue handling
     """
     # determine four corners
     lat_low, lat_low_idx, lat_upp, lat_upp_idx = find_nearest_two(array=lat_array, value=lat_q)
@@ -149,50 +144,95 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q):
 
     # latitudes are equal
     elif lat_low == lat_upp:
-        depth_S6 = Z[lat_low_idx, lon_low_idx]
-        depth_S7 = Z[lat_low_idx, lon_upp_idx]
+        Z_S6 = Z[lat_low_idx, lon_low_idx]
+        Z_S7 = Z[lat_low_idx, lon_upp_idx]
 
         delta_lon6Q = lon_q - lon_low
         delta_lonQ7 = lon_upp - lon_q
-        return (delta_lon6Q * depth_S7 + delta_lonQ7 * depth_S6) / (delta_lon6Q + delta_lonQ7)
+
+        if angle:
+            if abs(Z_S6-Z_S7) >= math.pi:
+                if Z_S6 >= Z_S7:
+                    Z_S6 = angle_to_pi(Z_S6)
+                else:
+                    Z_S7 = angle_to_pi(Z_S7)
+        out = (delta_lon6Q * Z_S7 + delta_lonQ7 * Z_S6) / (delta_lon6Q + delta_lonQ7)
+        if angle:
+            return angle_to_2pi(out)
+        return out
 
     # longitudes are equal
     elif lon_low == lon_upp:
-        depth_S1 = Z[lat_upp_idx, lon_low_idx]
-        depth_S3 = Z[lat_low_idx, lon_low_idx]
+        Z_S1 = Z[lat_upp_idx, lon_low_idx]
+        Z_S3 = Z[lat_low_idx, lon_low_idx]
 
         delta_lat16 = lat_upp - lat_q
         delta_lat63 = lat_q - lat_low
-        return (delta_lat16 * depth_S3 + delta_lat63 * depth_S1) / (delta_lat16 + delta_lat63)
+
+        if angle:
+            if abs(Z_S1-Z_S3) >= math.pi:
+                if Z_S1 >= Z_S3:
+                    Z_S1 = angle_to_pi(Z_S1)
+                else:
+                    Z_S3 = angle_to_pi(Z_S3)
+
+        out = (delta_lat16 * Z_S3 + delta_lat63 * Z_S1) / (delta_lat16 + delta_lat63)
+        if angle:
+            return angle_to_2pi(out)
+        return out
 
     # everything is different
     else:
-        depth_S1 = Z[lat_upp_idx, lon_low_idx]
-        depth_S3 = Z[lat_low_idx, lon_low_idx]
+        Z_S1 = Z[lat_upp_idx, lon_low_idx]
+        Z_S3 = Z[lat_low_idx, lon_low_idx]
 
-        depth_S2 = Z[lat_upp_idx, lon_upp_idx]
-        depth_S4 = Z[lat_low_idx, lon_upp_idx]
+        Z_S2 = Z[lat_upp_idx, lon_upp_idx]
+        Z_S4 = Z[lat_low_idx, lon_upp_idx]
 
         delta_lat16 = lat_upp - lat_q
         delta_lat63 = lat_q - lat_low
 
-        depth_S6 = (delta_lat16 * depth_S3 + delta_lat63 * depth_S1) / (delta_lat16 + delta_lat63)
-        depth_S7 = (delta_lat16 * depth_S4 + delta_lat63 * depth_S2) / (delta_lat16 + delta_lat63)
+        if angle:
+            if abs(Z_S1-Z_S3) >= math.pi:
+                if Z_S1 >= Z_S3:
+                    Z_S1 = angle_to_pi(Z_S1)
+                else:
+                    Z_S3 = angle_to_pi(Z_S3)
+
+            if abs(Z_S2-Z_S4) >= math.pi:
+                if Z_S2 >= Z_S4:
+                    Z_S2 = angle_to_pi(Z_S2)
+                else:
+                    Z_S4 = angle_to_pi(Z_S4)
+
+        Z_S6 = (delta_lat16 * Z_S3 + delta_lat63 * Z_S1) / (delta_lat16 + delta_lat63)
+        Z_S7 = (delta_lat16 * Z_S4 + delta_lat63 * Z_S2) / (delta_lat16 + delta_lat63)
+
+        if angle:
+            Z_S6 = angle_to_2pi(Z_S6)
+            Z_S7 = angle_to_2pi(Z_S7)
 
         delta_lon6Q = lon_q - lon_low
         delta_lonQ7 = lon_upp - lon_q
-        return (delta_lon6Q * depth_S7 + delta_lonQ7 * depth_S6) / (delta_lon6Q + delta_lonQ7)
 
+        if angle:
+            if abs(Z_S6-Z_S7) >= math.pi:
+                if Z_S6 >= Z_S7:
+                    Z_S6 = angle_to_pi(Z_S6)
+                else:
+                    Z_S7 = angle_to_pi(Z_S7)
+        out = (delta_lon6Q * Z_S7 + delta_lonQ7 * Z_S6) / (delta_lon6Q + delta_lonQ7)
+        if angle:
+            return angle_to_2pi(out)
+        return out
 
 def mps_to_knots(mps):
     """Transform m/s in knots."""
     return mps * 1.943844
 
-
 def knots_to_mps(knots):
     """Transforms knots in m/s."""
     return knots / 1.943844
-
 
 def cte(N1, E1, N2, E2, NA, EA, pi_path=None):
     """Computes the cross-track error following p.350 of Fossen (2021). The waypoints are (N1, E1) and (N2, E2), while
@@ -201,14 +241,12 @@ def cte(N1, E1, N2, E2, NA, EA, pi_path=None):
         pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
     return -np.sin(pi_path)*(NA - N1) + np.cos(pi_path)*(EA - E1)
 
-
 def ate(N1, E1, N2, E2, NA, EA, pi_path=None):
     """Computes the along-track error following p.350 of Fossen (2021). The waypoints are (N1, E1) and (N2, E2), while
     the agent is at (NA, EA). The angle of the path relative to the NED-frame can optionally be specified."""
     if pi_path is None:
         pi_path = bng_abs(N0=N1, E0=E1, N1=N2, E1=E2)
     return np.cos(pi_path)*(NA - N1) + np.sin(pi_path)*(EA - E1)
-
 
 def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
     """Computes the cte, desired course, and path angle based on the vector field guidance method following pp.354-55 of Fossen (2021).
@@ -254,7 +292,6 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
     # get desired course, which is rotated back to NED
     return ye, angle_to_2pi(pi_path_up - math.atan(ye * K)), pi_path_12, pi_path_up
 
-
 def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
     """Decides whether we should move on to the next pair of waypoints. Returns a boolean, True if we should switch.
 
@@ -276,7 +313,6 @@ def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
         return True
     else:
         return False
-
 
 def get_init_two_wp(lat_array, lon_array, a_n, a_e):
     """Returns for a given set of waypoints and an agent position the coordinates of the first two waypoints.
@@ -322,7 +358,6 @@ def get_init_two_wp(lat_array, lon_array, a_n, a_e):
             wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
 
     return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
-
 
 def fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value):
     """Returns the array Z where indicies between [lat_idx1, lon_idx1] and [lat_idx2, lon_idx2] are filled with value.
@@ -465,3 +500,30 @@ def apf(OS : KVLCC2,
         dh = np.clip(dh, -dh_clip, dh_clip)
 
     return du, dh
+
+class HHOSPlotter:
+    """Provides plotting functionality for the HHOS project."""
+    def __init__(self) -> None:
+        self.sim_t = []
+
+        # OS status
+        self.OS_lat = []
+        self.OS_lon = []
+        self.loc_ye = []
+        self.glo_ye = []
+        self.loc_course_error = []
+        self.glo_course_error = []
+
+        # env disturbances
+        self.V_c = []
+        self.beta_c = []
+        self.V_w = []
+        self.beta_w = []
+        self.T_0_wave = []
+        self.eta_wave = []
+        self.beta_wave = []
+        self.lambda_wave = []
+
+    def store(self, *args):
+        for arg in args:
+            eval(f"self.{arg}.append({arg})")

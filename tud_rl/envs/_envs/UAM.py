@@ -69,6 +69,10 @@ class Destination:
     def t_nxt_open(self):
         return self._t_nxt_open
 
+    @property
+    def t_close(self):
+        return self._t_close
+
 
 class UAM(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra."""
@@ -143,7 +147,7 @@ class UAM(gym.Env):
             bng_goal, d_goal = qdrdist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
             s_i = np.array([angle_to_pi(np.radians(bng_goal))/np.pi,\
                             NM_to_meter(d_goal)/self.dest.radius,\
-                            1.0-self.dest.t_nxt_open/self.dest._t_close])
+                            1.0-self.dest.t_nxt_open/self.dest.t_close])
 
             # four information about other planes
             TS_info = []
@@ -227,7 +231,7 @@ class UAM(gym.Env):
             # off-map reward
             D_dest = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=self.dest.lat, lond2=self.dest.lon)
             if D_dest >= self.r_outer:
-                r[i] -= 1.0
+                r[i] -= 10.0
 
             # positive reward for approaching goal when it is open
             if self.dest.t_nxt_open == 0:

@@ -1,18 +1,14 @@
 ---
 env:
-  name: HHOS-v0
-  max_episode_steps: 5_000
+  name: HHOS-PathFollowing-Validation-v0
+  max_episode_steps: 1000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
+    nps_control_follower: true
     data: sampled
-    N_TSs_max: 3
-    N_TSs_random: true 
-    w_ye : 0.5
-    w_ce : 0.5
-    w_coll : 1.0
-    w_comf : 0.02
+    val_disturbance: waves
   info: MDP
 agent:
   DDPG: {}
@@ -24,6 +20,12 @@ agent:
     history_length: 2
     use_past_actions: false
   LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 2
+    use_past_actions: false
+  LSTMRecTD3:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
@@ -70,7 +72,7 @@ optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001
 lr_critic: 0.0001
-buffer_length: 100_000
+buffer_length: 500_000
 grad_clip: false
 grad_rescale: false
 act_start_step: 5000

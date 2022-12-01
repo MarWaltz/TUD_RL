@@ -414,9 +414,8 @@ class KVLCC2:
 
         #-------------------------------- Short waves ---------------------------------
         if all([ele is not None for ele in (beta_wave, eta_wave, T_0_wave, lambda_wave)]):
-            X_SW, Y_SW, N_SW = get_wave_XYN(U=U, psi=psi, T=self.d, C_b=self.C_b, alpha_WL=0.0, Lpp=self.Lpp,
-                                            beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave, 
-                                            rho=self.rho, hull=self.hull)
+            X_SW, Y_SW, N_SW = self.hull.get_wave_XYN(U=U, psi=psi, T=self.d, beta_wave=beta_wave, eta_wave=eta_wave, 
+                                                      T_0_wave=T_0_wave, lambda_wave=lambda_wave, rho=self.rho)
         else:
             X_SW, Y_SW, N_SW = 0.0, 0.0, 0.0
         
@@ -434,7 +433,6 @@ class KVLCC2:
                                         + np.dot(self.M_A, nu_c_dot)))
         else:
             return np.dot(self.M_inv, F - np.dot((self._C_RB(r) + self._C_A(u, vm)), np.array([u, vm, r])))
-
 
     def _upd_dynamics(self, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
         """Updates positions and velocities for next simulation step. Uses the ballistic approach of Treiber, Kanagaraj (2015)."""
@@ -549,7 +547,6 @@ class KVLCC2:
                 w_P0, t_P, gamma_R_minus, gamma_R_plus
                 )
 
-
     def _control(self, a):
         """
         Action 'a' is an integer taking values in [0, 1, 2] for the discrete case. They correspond to:
@@ -581,30 +578,25 @@ class KVLCC2:
         # clip it
         self.rud_angle = np.clip(self.rud_angle, -self.rud_angle_max, self.rud_angle_max)
 
-
     def _get_sideslip(self):
         """Returns the sideslip angle in radiant."""
         u, vm, _ = self.nu
         return math.atan2(-vm, u)
 
-
     def _get_course(self):
         """Returns the course angle in radiant, which is heading - sideslip for the MMG model."""
         return angle_to_2pi(self.eta[2] - self._get_sideslip())
-
 
     def _get_V(self):
         """Returns the aggregated velocity."""
         u, vm, _ = self.nu
         return math.sqrt(u**2 + vm**2)
 
-
     def _is_off_map(self):
         """Checks whether vessel left the map."""
         if self.eta[0] <= 0 or self.eta[0] >= self.N_max or self.eta[1] <= 0 or self.eta[1] >= self.E_max:
             return True
         return False
-
 
     def _get_u_from_nps(self, nps, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0, 
                         beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
@@ -616,7 +608,6 @@ class KVLCC2:
                                       beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
 
         return newton(func=to_find_root_of, x0=5.0, maxiter=10_000)
-
 
     def _get_nps_from_u(self, u, V_w=0.0, beta_w=0.0, V_c=0.0, beta_c=0.0, H=None, psi=0.0,
                         beta_wave=None, eta_wave=None, T_0_wave=None, lambda_wave=None):
@@ -631,7 +622,7 @@ class KVLCC2:
 
 
 class Hull:
-    def __init__(self, Lpp, B, N=1000, approx_method="ellipse", h_xs=None, h_ys=None) -> None:
+    def __init__(self, Lpp, B, N=1000, h_xs=None, h_ys=None) -> None:
         """Computes x-y-coordinates (x ist Ordinate, y ist Abszisse) based on an elliptical approximation of a ship hull.
 
         Args:
@@ -649,12 +640,9 @@ class Hull:
             thetas (np.array): angles between hull and center line
             dls (np.array): length of normal vectors
         """
-        assert approx_method in ["rectangle", "ellipse"], "Unknown ship hull approximation."
-
         self.Lpp = Lpp
         self.B = B
         self.N = N
-        self.approx_method = approx_method
         self.h_xs = h_xs
         self.h_ys = h_ys
         self._construct_hull()
@@ -668,67 +656,9 @@ class Hull:
             b = self.B*0.5
             degs = np.linspace(0, 2*math.pi, self.N, endpoint=False)
 
-            if self.approx_method == "rectangle":
-                theta = np.arctan(b/a)
-                self.h_xs = np.zeros(self.N)
-                self.h_ys = np.zeros(self.N)
-
-                for n, eta in enumerate(degs):
-
-                    # I
-                    if 0 <= eta < theta:
-                        x = a
-                        y = a * np.tan(eta)
-
-                    # II
-                    elif theta <= eta < math.pi/2:
-                        eta_p = math.pi/2 - eta
-                        y = b
-                        x = b * np.tan(eta_p)
-
-                    # III                    
-                    elif math.pi/2 <= eta < math.pi - theta:
-                        eta_p = eta - math.pi/2
-                        y = b
-                        x = -b * np.tan(eta_p)
-                    
-                    # IV
-                    elif math.pi - theta <= eta < math.pi:
-                        eta_p = math.pi - eta
-                        x = -a
-                        y = a * np.tan(eta_p)
-
-                    # V                    
-                    elif math.pi <= eta < math.pi + theta:
-                        eta_p = eta - math.pi
-                        x = -a
-                        y = -a * np.tan(eta_p)
-
-                    # VI
-                    elif math.pi + theta <= eta < 3/2*math.pi:
-                        eta_p = 3/2*math.pi - eta
-                        y = -b
-                        x = -b * np.tan(eta_p)
-
-                    # VII                    
-                    elif 3/2*math.pi <= eta < 2*math.pi - theta:
-                        eta_p = eta - 3/2*math.pi
-                        y = -b
-                        x = b * np.tan(eta_p)
-                    
-                    # VIII
-                    else:
-                        eta_p = 2*math.pi - eta
-                        x = a
-                        y = -a * np.tan(eta_p)
-
-                    self.h_xs[n] = x
-                    self.h_ys[n] = y
-
-            elif self.approx_method == "ellipse":
-                lengths = np.power(np.power(np.cos(degs),2) / a + np.power(np.sin(degs),2) / b, -0.5)
-                self.h_xs = lengths * np.cos(degs)
-                self.h_ys = lengths * np.sin(degs)
+            lengths = np.power(np.power(np.cos(degs),2) / a + np.power(np.sin(degs),2) / b, -0.5)
+            self.h_xs = lengths * np.cos(degs)
+            self.h_ys = lengths * np.sin(degs)
 
         # reverse axis like in Faltinsen et al. (1980)
         self.h_xs *= -1.0
@@ -784,74 +714,56 @@ class Hull:
         self.cos_thetas = np.cos(self.thetas)
         self.sin_thetas = np.sin(self.thetas)
 
-        #import matplotlib.pyplot as plt
-        #plt.plot(self.h_ys, self.h_xs, marker='o', markersize=3)
-        #plt.gca().set_aspect('equal')
+    def get_wave_XYN(self, U, psi, T, beta_wave, eta_wave, T_0_wave, lambda_wave, rho):
+        """Computes the short wave induced surge, sway forces and the yaw moment. 
+        Based on numerical integration outlined in Sakamoto and Baba (1986) and Taimuri et al. (2020).
 
-        #for n in range(self.N):
-        #    plt.scatter(self.y0s[n], self.x0s[n], color="red", s=3)
-        #    plt.arrow(self.y0s[n] - self.N_Ys[n], self.x0s[n] - self.N_Xs[n], self.N_Ys[n], self.N_Xs[n], color="green", length_includes_head=True,
-        #                  head_width=2, head_length=3)
-        #plt.show()
+        Args:
+            U (float): speed of ship in m/s
+            psi (float): heading of ship in rad (usual N is 0° definition)
+            T (float): ship draft in m
+            beta_wave (float): incident wave angle in rad (usual N is 0° definition, e.g., 270° means waves flow from W to E)
+            eta_wave (float): incident wave amplitude in m
+            T_0_wave (float): modal period of waves in s
+            lambda_wave (float) : wave length in m
+            rho (float): water density in kg/m³
 
+        Returns:
+            surge force, sway force, yaw moment (all floats)
+        """
+        # parameters
+        g = 9.80665                      # gravity in m/s²
+        omega_0 = 2*math.pi / T_0_wave   # model frequency in rad/s
+        k = 2*math.pi/ lambda_wave       # wave number in rad/m
 
-def get_wave_XYN(U, psi, T, C_b, alpha_WL, Lpp, beta_wave, eta_wave, T_0_wave, lambda_wave, rho, hull):
-    """Computes the short wave induced surge, sway forces and the yaw moment. 
-    Based on numerical integration outlined in Taimuri et al. (2020, Ocean Engineering).
+        # wave angle from vessel perspective
+        beta_w = angle_to_2pi(beta_wave - psi)
 
-    Args:
-        U (float): speed of ship in m/s
-        psi (float): heading of ship in rad (usual N is 0° definition)
-        T (float): ship draft in m
-        C_b (float): block coefficient of ship
-        alpha_WL (float): sectional flare angle of the vessel (in rad, 0 for tanker is realistic)
-        L_pp (float): length between perpendiculars
-        beta_wave (float): incident wave angle in rad (usual N is 0° definition, e.g., 270° means waves flow from W to E)
-        eta_wave (float): incident wave amplitude in m
-        T_0_wave (float): modal period of waves in s
-        lambda_wave (float) : wave length in m
-        rho (float): water density in kg/m³
-        hull (Hull): hull object with relevant integration components
+        # detect non-shadow region
+        N_WX = np.cos(beta_w)
+        N_WY = np.sin(beta_w)
+        alphas = np.arccos(self.N_Xs*N_WX/self.dls + self.N_Ys*N_WY/self.dls)
+        non_shadow = (alphas <= math.pi/2)
 
-    Returns:
-        surge force, sway force, yaw moment (all floats)
-    """
-    # parameters
-    g = 9.80665                      # gravity in m/s²
-    omega_0 = 2*math.pi / T_0_wave   # model frequency in rad/s
-    k = 2*math.pi/ lambda_wave       # wave number in rad/m
-    Fn = U / math.sqrt(g * Lpp)      # Froude number
+        # compute integration block components
+        inner_terms = np.sin(self.thetas + beta_w)**2 + 2*omega_0*U/g * (np.cos(beta_w) - self.cos_thetas*np.cos(self.thetas + beta_w))
+        inner_terms *= non_shadow * self.dls
 
-    # wave angle from vessel perspective
-    beta_w = angle_to_2pi(beta_wave - psi - math.pi)
+        # integrate
+        X_int = np.sum(inner_terms * self.sin_thetas)
+        Y_int = np.sum(inner_terms * self.cos_thetas)
+        M_int = np.sum(inner_terms * (self.x0s * self.cos_thetas - self.y0s * self.sin_thetas))
 
-    # detect non-shadow region
-    N_WX = np.cos(beta_w)
-    N_WY = np.sin(beta_w)
-    alphas = np.arccos(hull.N_Xs*N_WX/hull.dls + hull.N_Ys*N_WY/hull.dls)
-    non_shadow = (alphas <= math.pi/2)
+        # pre-factors
+        norm = 0.5 * rho * g * eta_wave**2
+        FX_SW = norm * X_int
+        FY_SW = norm * Y_int
+        MN_SW = norm * M_int
 
-    # compute integration block components
-    inner_terms = np.sin(hull.thetas + beta_w)**2 + 2*omega_0*U/g * (np.cos(beta_w) - hull.cos_thetas*np.cos(hull.thetas + beta_w))
-    inner_terms *= non_shadow * hull.dls
-
-    # integrate
-    X_int = np.sum(inner_terms * hull.sin_thetas)
-    Y_int = np.sum(inner_terms * hull.cos_thetas)
-    M_int = np.sum(inner_terms * (hull.x0s * hull.cos_thetas - hull.y0s * hull.sin_thetas))
-
-    # pre-factors
-    FX_SW = 0.5 * rho * g * eta_wave**2 * X_int
-    FY_SW = 0.5 * rho * g * eta_wave**2 * Y_int
-    MN_SW = 0.5 * rho * g * eta_wave**2 * M_int
-
-    # draft correction
-    corr_d = 1 - math.exp(-2 * k * T)
-    FX_SW *= corr_d
-    FY_SW *= corr_d
-    MN_SW *= corr_d
-
-    # speed correction
-    FX_SW *= (0.87/C_b)**(1 + 4*math.sqrt(Fn)) * 1/np.cos(alpha_WL)
-    
-    return FX_SW, FY_SW, MN_SW
+        # draft correction
+        corr_d = 1 - math.exp(-2 * k * T)
+        FX_SW *= corr_d
+        FY_SW *= corr_d
+        MN_SW *= corr_d
+        
+        return FX_SW, FY_SW, MN_SW

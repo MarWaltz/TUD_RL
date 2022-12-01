@@ -47,6 +47,10 @@ gym.register(
     entry_point=loc + "HHOS_PathFollowing_Env"
 )
 gym.register(
+    id="HHOS-PathFollowing-Validation-v0",
+    entry_point=loc + "HHOS_PathFollowing_Validation"
+)
+gym.register(
     id="HHOS-PathPlanning-v0",
     entry_point=loc + "HHOS_PathPlanning_Env"
 )
