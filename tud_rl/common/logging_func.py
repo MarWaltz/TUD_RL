@@ -6,7 +6,6 @@ import atexit
 import json
 import os
 import os.path as osp
-import random
 from datetime import date
 
 import numpy as np
@@ -16,11 +15,9 @@ from mpi4py import MPI
 def allreduce(*args, **kwargs):
     return MPI.COMM_WORLD.Allreduce(*args, **kwargs)
 
-
 def num_procs():
     """Count active MPI processes."""
     return MPI.COMM_WORLD.Get_size()
-
 
 def mpi_op(x, op):
     x, scalar = ([x], True) if np.isscalar(x) else (x, False)
@@ -29,15 +26,12 @@ def mpi_op(x, op):
     allreduce(x, buff, op=op)
     return buff[0] if scalar else buff
 
-
 def mpi_sum(x):
     return mpi_op(x, MPI.SUM)
-
 
 def mpi_avg(x):
     """Average a scalar or vector over MPI processes."""
     return mpi_sum(x) / num_procs()
-
 
 def mpi_statistics_scalar(x, with_min_and_max=False):
     """
@@ -61,14 +55,12 @@ def mpi_statistics_scalar(x, with_min_and_max=False):
         return mean, std, global_min, global_max
     return mean, std
 
-
 def is_json_serializable(v):
     try:
         json.dumps(v)
         return True
     except:
         return False
-
 
 def convert_json(obj):
     """ Convert obj to a version which can be serialized with JSON. """
@@ -94,7 +86,6 @@ def convert_json(obj):
             return {str(obj): obj_dict}
 
         return str(obj)
-
 
 class Logger:
     """
@@ -218,7 +209,6 @@ class Logger:
             self.output_file.flush()
         self.log_current_row.clear()
         self.first_row = False
-
 
 class EpochLogger(Logger):
     """

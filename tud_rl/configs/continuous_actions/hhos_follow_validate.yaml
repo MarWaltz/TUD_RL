@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-PathFollowing-Validation-v0
-  max_episode_steps: 1000
+  max_episode_steps: 600
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -51,7 +51,7 @@ agent:
 seed: 12
 timesteps: 5_000_000
 epoch_length: 5000
-eval_episodes: 10
+eval_episodes: 1
 actor_weights:
 critic_weights:
 gamma: 0.99

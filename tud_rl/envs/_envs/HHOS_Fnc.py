@@ -1,7 +1,9 @@
 import math
 
 import numpy as np
+import pandas as pd
 import utm
+
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
                                          bng_abs, bng_rel, cpa, rtd)
@@ -507,12 +509,18 @@ class HHOSPlotter:
         self.sim_t = []
 
         # OS status
-        self.OS_lat = []
-        self.OS_lon = []
+        self.OS_N = []
+        self.OS_E = []
+        self.OS_head = []
+        self.OS_u = []
+        self.OS_v = []
+        self.OS_r = []
         self.loc_ye = []
         self.glo_ye = []
         self.loc_course_error = []
         self.glo_course_error = []
+        self.rud_angle = []
+        self.nps = []
 
         # env disturbances
         self.V_c = []
@@ -524,6 +532,11 @@ class HHOSPlotter:
         self.beta_wave = []
         self.lambda_wave = []
 
-    def store(self, *args):
-        for arg in args:
-            eval(f"self.{arg}.append({arg})")
+    def store(self, **kwargs):
+        for key, value in kwargs.items():
+            eval(f"self.{key}.append({value})")
+
+    def dump(self, val_disturbance):
+        df = pd.DataFrame(vars(self))
+        df.replace(to_replace=[None], value=0.0, inplace=True) # clear None
+        df.to_pickle(f"HHOS_Follow_Validate_{val_disturbance}.pkl")

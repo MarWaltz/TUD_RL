@@ -562,7 +562,7 @@ class KVLCC2:
 
         # continuous
         if self.cont_acts:
-            raise NotImplementedError("Continous action updating inside the KVLCC2-object is deprecated.")
+            raise NotImplementedError("Continuous action updating inside the KVLCC2-object is deprecated.")
 
         # discrete
         else:

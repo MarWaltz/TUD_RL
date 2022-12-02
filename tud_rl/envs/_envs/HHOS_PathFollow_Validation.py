@@ -1,4 +1,5 @@
 from tud_rl.envs._envs.HHOS_Env import *
+from tud_rl.envs._envs.HHOS_Fnc import HHOSPlotter
 
 
 class HHOS_PathFollowing_Validation(HHOS_Env):
@@ -28,7 +29,7 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
                                        high = np.full(act_size,  1, dtype=np.float32))
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 600
 
         # vessel config
         self.desired_V = 3.0
@@ -37,6 +38,9 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         self.nps_inc = 0.25
         self.nps_min = 0.5
         self.nps_max = 5.0
+
+        # viz
+        self.plotter = HHOSPlotter()
 
     def _sample_depth_data(self, OS_lat, OS_lon):
         """Generates random depth data."""
@@ -103,7 +107,6 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
 
             if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
                 break
-        self.DepthData["data"] *= 50
         # log
         self.log_Depth = np.log(self.DepthData["data"])
 
@@ -174,8 +177,8 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             period = np.zeros_like(height)
             angle = np.zeros_like(height)
 
-            height_const = 0.3
-            length_const = 10
+            height_const = 1.0
+            length_const = 20
             period_const = 3
 
             # sampling
@@ -330,7 +333,7 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         # perform control action
         a = a.flatten()
         self.a = a
-        #self._OS_control(a)
+        self._OS_control(a)
 
         # update agent dynamics
         self.OS._upd_dynamics(V_w=self.V_w, beta_w=self.beta_w, V_c=self.V_c, beta_c=self.beta_c, H=self.H, 
@@ -361,6 +364,13 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         self._set_state()
         self._calculate_reward(a)
         d = self._done()
+
+        # viz
+        self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
+                OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
+                    glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
+                    T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
+                         rud_angle=self.OS.rud_angle, nps=self.OS.nps)
         return self.state, self.r, d, {}
 
     def _OS_control(self, a):
@@ -416,15 +426,21 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
+        d = False
+
         # OS hit land
         if self.H <= self.OS.critical_depth:
-            return True
+            d = True
 
         # OS reaches end of global waypoints
         if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
-            return True
+            d = True
 
         # artificial done signal
         elif self.step_cnt >= self._max_episode_steps:
-            return True
-        return False
+            d = True
+        
+        # viz
+        if d:
+            self.plotter.dump(val_disturbance=self.val_disturbance)
+        return d
