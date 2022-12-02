@@ -6,7 +6,7 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents: 3
+    N_agents: 2
   info: ''
 agent:
   MADDPG: {}
@@ -20,7 +20,7 @@ epoch_length: 5000
 eval_episodes: 10
 actor_weights:
 critic_weights:
-gamma: 0.95
+gamma: 0.99
 tau: 0.01
 net_struc_actor:
 - - 64

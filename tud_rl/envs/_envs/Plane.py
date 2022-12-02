@@ -723,7 +723,7 @@ class Plane:
         self.lon = self.lon + np.degrees(self.dt * self.gseast / self.coslat / aero.Rearth)
 
         if dest is not None:
-            if latlondist(latd1=self.lat, lond1=self.lon, latd2=dest.lat, lond2=dest.lon) >= dest.hold_radius:
+            if latlondist(latd1=self.lat, lond1=self.lon, latd2=dest.lat, lond2=dest.lon) >= dest.respawn_radius:
                 self.alt = self.alt_old
                 self.lat = self.lat_old
                 self.coslat = self.coslat_old

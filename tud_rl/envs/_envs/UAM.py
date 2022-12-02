@@ -15,13 +15,14 @@ COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)
 
 class Destination:
     def __init__(self, dt) -> None:
-        self.radius = 100       # [m]
-        self.hold_radius = 1200 # [m]
-        self.lat = 10           # [deg]
-        self.lon = 10           # [deg]
-        self.dt = dt            # [s], simulation time step
-        self._t_close = 60      # [s], time the destination is closed after an aircraft has entered 
-        self._t_nxt_open = 0    # [s], current time until the destination opens again
+        self.radius = 100          # [m]
+        self.spawn_radius   = 1100 # [m]
+        self.respawn_radius = 1300 # [m]
+        self.lat = 10              # [deg]
+        self.lon = 10              # [deg]
+        self.dt = dt               # [s], simulation time step
+        self._t_close = 60         # [s], time the destination is closed after an aircraft has entered 
+        self._t_nxt_open = 0       # [s], current time until the destination opens again
         self.open()
 
     def reset(self):
@@ -31,7 +32,7 @@ class Destination:
         """Updates status of the destination and computes destination reward component.
         Returns:
             np.array([len(planes),1]) with rewards
-            np.array(len(planes),) with respawn flags"""
+            np.array(len(planes),) with respawn flags from entering the destination area"""
         # count time until next opening
         if self._is_open is False:
             self._t_nxt_open -= self.dt
@@ -47,11 +48,11 @@ class Destination:
                 
                 # respawn only if airplane entered open destination
                 if self._is_open:
-                    r[i] += 10.0
+                    r[i] += 5.0
                     respawn_flags[i] = True
                     self.close()
                 else:
-                    r[i] -= 10.0               
+                    r[i] -= 5.0               
 
         return r, respawn_flags
 
@@ -86,7 +87,6 @@ class UAM(gym.Env):
         self.actype = "MAVIC"
 
         # domain params
-        self.r_outer = 1100 # [m]
         self.LoS_dist = 100 # [m]
         self.clock_degs = np.linspace(0.0, 360.0, num=100, endpoint=True)
 
@@ -128,10 +128,16 @@ class UAM(gym.Env):
         return self.state
   
     def _spawn_plane(self):
+        # sample heading and speed        
         hdg = float(np.random.uniform(0.0, 360.0, size=1))
         tas = float(np.random.uniform(self.actas-3.0, self.actas+3.0, size=1))
-        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=hdg, dist=meter_to_NM(self.r_outer))
+        
+        # set plane
+        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=hdg, dist=meter_to_NM(self.dest.spawn_radius))
         p = Plane(dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)
+
+        # compute initial distance to destination
+        p.D_dest_old = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
         p.just_spawned = True
         return p
 
@@ -145,29 +151,30 @@ class UAM(gym.Env):
 
             # distance, bearing to goal and time to opening
             bng_goal, d_goal = qdrdist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
-            s_i = np.array([angle_to_pi(np.radians(bng_goal))/np.pi,\
-                            NM_to_meter(d_goal)/self.dest.radius,\
+            s_i = np.array([np.radians(bng_goal)/np.pi,\
+                            NM_to_meter(d_goal)/self.dest.spawn_radius,\
                             1.0-self.dest.t_nxt_open/self.dest.t_close])
 
             # four information about other planes
-            TS_info = []
-            for other in self.planes:
-                if p is not other:
-                    # relative speed
-                    v_r = other.tas - p.tas
+            if self.N_agents > 1:
+                TS_info = []
+                for other in self.planes:
+                    if p is not other:
+                        # relative speed
+                        v_r = other.tas - p.tas
 
-                    # bearing and distance
-                    bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
-                    bng = angle_to_pi(np.radians(bng))/np.pi
-                    d = NM_to_meter(d)/self.dest.radius
+                        # bearing and distance
+                        bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
+                        bng = np.radians(bng)/np.pi
+                        d = NM_to_meter(d)/self.dest.spawn_radius
 
-                    # heading intersection
-                    C_T = angle_to_pi(np.radians(other.hdg - p.hdg))/np.pi
-                    TS_info.append([d, bng, v_r, C_T])
-            
-            # sort array
-            TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0])).astype(np.float32)
-            s_i = np.concatenate((s_i, TS_info))
+                        # heading intersection
+                        C_T = angle_to_pi(np.radians(other.hdg - p.hdg))/np.pi
+                        TS_info.append([d, bng, v_r, C_T])
+                
+                # sort array
+                TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0])).astype(np.float32)
+                s_i = np.concatenate((s_i, TS_info))
 
             # store it
             self.state[i] = s_i
@@ -179,7 +186,7 @@ class UAM(gym.Env):
         self.sim_t += self.dt
  
         # fly planes
-        [p.upd_dynamics(a[i], perf=self.perf, dest=self.dest) for i, p in enumerate(self.planes)]
+        [p.upd_dynamics(a[i], perf=self.perf, dest=None) for i, p in enumerate(self.planes)]
 
         # check destination entries
         r, respawn_flags = self.dest.step(self.planes)
@@ -194,12 +201,13 @@ class UAM(gym.Env):
         return self.state, self.r, d, {}
  
     def _handle_respawn(self, respawn_flags):
-        """Respawns planes when they entered the open destination area."""
-        for i, _ in enumerate(self.planes):
-            if respawn_flags[i]:
+        """Respawns planes when they entered the open destination area or are at the outer simulation radius."""
+        for i, p in enumerate(self.planes):
+            if (latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon) >= self.dest.respawn_radius)\
+                 or respawn_flags[i]:
                 self.planes[i] = self._spawn_plane()
             else:
-                self.planes[i].just_spawned = False
+                p.just_spawned = False
 
     def _calculate_reward(self, r, a):
         """Computes reward.
@@ -211,31 +219,24 @@ class UAM(gym.Env):
         """
         for i, pi in enumerate(self.planes):
 
-            # don't consider if just respawned
-            if pi.just_spawned:
-                continue
-
             # collision reward
             for j, pj in enumerate(self.planes):
-
-                # don't consider if other plane just respawned
-                if pj.just_spawned:
-                    continue                
                 if i != j:
                     D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)-self.LoS_dist
                     if D <= 0:
-                        r[i] -= 10.0
+                        r[i] -= 5.0
                     else:
                         r[i] -= np.exp(-D/self.LoS_dist)
             
             # off-map reward
             D_dest = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=self.dest.lat, lond2=self.dest.lon)
-            if D_dest >= self.r_outer:
-                r[i] -= 10.0
+            if D_dest > (self.dest.spawn_radius+5): # against numerical issues
+                r[i] -= 5.0
 
             # positive reward for approaching goal when it is open
-            if self.dest.t_nxt_open == 0:
-                r[i] += np.exp(-(D_dest-self.dest.radius)/(3*self.LoS_dist))
+            if (not pi.just_spawned) and (self.dest.t_nxt_open == 0):
+                r[i] += (pi.D_dest_old - D_dest) / (15.0)
+            pi.D_dest_old = D_dest
 
         self.r = r
 
@@ -280,12 +281,12 @@ class UAM(gym.Env):
             self.ax1.plot(lons, lats, color=self.dest.color)
             
             # spawning area
-            lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.r_outer))\
+            lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.dest.spawn_radius))\
                  for deg in self.clock_degs]))
             self.ax1.plot(lons, lats, color="grey")
 
-            # holding area
-            lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.dest.hold_radius))\
+            # respawn area
+            lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.dest.respawn_radius))\
                  for deg in self.clock_degs]))
             self.ax1.plot(lons, lats, color="black")
 
