@@ -11,7 +11,7 @@ env:
     thrust_control_planner : false
     thrust_control_planner_safety_net : true
     nps_control_follower: true
-    data: sampled
+    data: real
     scenario_based: false
     N_TSs_max : 5
     N_TSs_random : false

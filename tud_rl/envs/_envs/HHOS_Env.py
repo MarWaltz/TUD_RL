@@ -66,15 +66,15 @@ class HHOS_Env(gym.Env):
 
         # data loading
         if self.data == "real":
-            path_to_HHOS = "C:/Users/localadm/Desktop/Forschung/RL_packages/HHOS"
+            path_to_HHOS = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS"
             self._load_global_path(path_to_HHOS)
             self._load_depth_data(path_to_HHOS + "/DepthData")
             self._load_wind_data(path_to_HHOS + "/winds")
             self._load_current_data(path_to_HHOS + "/currents")
             self._load_wave_data(path_to_HHOS + "/waves")
         else:
-            self.n_wps_glo = 100            # number of wps of the global path
-            self.l_seg_path = 0.005        # wp distance of the global path in °Lat
+            self.n_wps_glo = 100         # number of wps of the global path
+            self.l_seg_path = 200        # wp distance of the global path in m
 
             # depth data sampling parameters
             self.river_dist_left_loc  = 300
@@ -89,7 +89,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 200
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.025
+        self.show_lon_lat = 0.05
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -99,7 +99,7 @@ class HHOS_Env(gym.Env):
         self.plot_current = False
         self.plot_waves = False
         self.plot_lidar = True
-        self.plot_reward = True
+        self.plot_reward = False
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
         self.first_init = True
 
@@ -116,10 +116,6 @@ class HHOS_Env(gym.Env):
                                                        # if false, always have N_TSs_max
         self.TCPA_respawn = 120                        # (negative) TCPA in seconds considered as respawning condition
         self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(0.75)]
-
-        # CR calculation
-        #self.CR_rec_dist = 300                   # collision risk distance [m]
-        #self.CR_al = 0.1                         # collision risk metric normalization
 
         # trajectory or path-planning and following
         assert nps_control_follower is None or thrust_control_planner is None, "Specify a planner or a follower, not both."
@@ -152,20 +148,7 @@ class HHOS_Env(gym.Env):
     def _load_global_path(self, path_to_global_path):
         with open(f"{path_to_global_path}/Path_latlon.pickle", "rb") as f:
             self.GlobalPath = pickle.load(f)
-        
-        # store number of waypoints
-        self.GlobalPath["n_wps"] = len(self.GlobalPath["lat"])
         self.n_wps_glo = self.GlobalPath["n_wps"]
-
-        # add utm coordinates
-        path_n = np.zeros_like(self.GlobalPath["lat"])
-        path_e = np.zeros_like(self.GlobalPath["lon"])
-
-        for idx in range(len(path_n)):
-            path_n[idx], path_e[idx], _ = to_utm(lat=self.GlobalPath["lat"][idx], lon=self.GlobalPath["lon"][idx])
-        
-        self.GlobalPath["north"] = path_n
-        self.GlobalPath["east"] = path_e
 
     def _load_depth_data(self, path_to_depth_data):
         with open(f"{path_to_depth_data}/DepthData.pickle", "rb") as f:
@@ -195,24 +178,23 @@ class HHOS_Env(gym.Env):
             self.WaveData = pickle.load(f)
 
     def _sample_global_path(self):
-        """Constructs a path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
+        """Constructs a path with n_wps equally-spaced way points. 
         The agent should follows the path always in direction of increasing indices."""
         self.GlobalPath = {"n_wps" : self.n_wps_glo}
 
         # do it until we have a path whichs stays in our simulation domain
         while True:
 
-            # sample starting point
-            lat = np.zeros(self.n_wps_glo)
-            lon = np.zeros(self.n_wps_glo)
-            lat[0] = 56.0
-            lon[0] = 9.0
+            # set starting point
+            path_n = np.zeros(self.n_wps_glo)
+            path_e = np.zeros(self.n_wps_glo)
+            path_n[0], path_e[0], _ = to_utm(lat=56.0, lon=9.0)
 
             # sample other points
             ang = np.random.uniform(0, 2*math.pi)
             ang_diff = dtr(np.random.uniform(-20., 20.))
             ang_diff2 = 0.0
-            for n in range(1, self.n_wps_glo):
+            for i in range(1, self.n_wps_glo):
                 
                 # next angle
                 ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
@@ -220,29 +202,26 @@ class HHOS_Env(gym.Env):
                 ang = angle_to_2pi(ang + ang_diff)
 
                 # next point
-                lon_diff, lat_diff = xy_from_polar(r=self.l_seg_path, angle=ang)
-                lat[n] = lat[n-1] + lat_diff
-                lon[n] = lon[n-1] + lon_diff
+                e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=ang)
+                path_n[i] = path_n[i-1] + n_add
+                path_e[i] = path_e[i-1] + e_add
 
+            # to latlon
+            lat, lon = to_latlon(north=path_n, east=path_e, number=32)
+
+            # check
             if all(self.lat_lims[0] <= lat) and all(self.lat_lims[1] >= lat) and \
                 all(6.1 <= lon) and all(11.9 >= lon):
                 break
 
+        # store
         self.GlobalPath["lat"] = lat
         self.GlobalPath["lon"] = lon
-
-        # add utm coordinates
-        path_n = np.zeros_like(self.GlobalPath["lat"])
-        path_e = np.zeros_like(self.GlobalPath["lon"])
-
-        for idx in range(len(path_n)):
-            path_n[idx], path_e[idx], _ = to_utm(lat=self.GlobalPath["lat"][idx], lon=self.GlobalPath["lon"][idx])
-        
         self.GlobalPath["north"] = path_n
         self.GlobalPath["east"] = path_e
 
         # overwrite data range
-        self.off = 15*self.l_seg_path
+        self.off = 0.075
         self.lat_lims = [np.min(lat)-self.off, np.max(lat)+self.off]
         self.lon_lims = [np.min(lon)-self.off, np.max(lon)+self.off]
 
@@ -321,7 +300,6 @@ class HHOS_Env(gym.Env):
 
             # smoothing things
             self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[3, 3], mode="constant"), 1.0, np.infty)
-            #self.DepthData["data"] = np.clip(self.DepthData["data"], 1.0, np.infty)
 
             if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
                 break
@@ -617,9 +595,9 @@ class HHOS_Env(gym.Env):
         self._add_rev_global_path()
 
         # init OS
-        wp_idx = 10
-        lat_init = self.GlobalPath["lat"][wp_idx]# if self.data == data else 56.635
-        lon_init = self.GlobalPath["lon"][wp_idx]# if self.data == data else 7.421
+        wp_idx = 50
+        lat_init = self.GlobalPath["lat"][wp_idx]
+        lon_init = self.GlobalPath["lon"][wp_idx]
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 

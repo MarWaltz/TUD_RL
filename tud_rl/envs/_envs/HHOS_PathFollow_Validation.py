@@ -7,7 +7,7 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         super().__init__(nps_control_follower=nps_control_follower, thrust_control_planner=None, data=data, \
             scenario_based=None, N_TSs_max=0, N_TSs_random=False,w_ye=None, w_ce=None, w_coll=None, w_comf=None, w_speed=None)
 
-        assert val_disturbance in ["currents", "winds", "waves"],\
+        assert val_disturbance in [None, "currents", "winds", "waves"],\
             "Unknown environmental disturbance to validate. Should be 'currents', 'winds', or 'waves'."
         self.val_disturbance = val_disturbance
 
@@ -29,7 +29,10 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
                                        high = np.full(act_size,  1, dtype=np.float32))
-        self._max_episode_steps = 600
+        if self.val_disturbance is None:
+            self._max_episode_steps = np.inf
+        else:
+            self._max_episode_steps = 600
 
         # vessel config
         self.desired_V = 3.0
