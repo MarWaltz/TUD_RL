@@ -1,4 +1,5 @@
 from copy import copy
+from string import ascii_letters
 from typing import List
 
 import gym
@@ -112,7 +113,12 @@ class UAM(gym.Env):
         self.plot_reward = True
         self.r = np.zeros((self.N_agents, 1))
         self.state = np.zeros((self.N_agents, self.obs_size))
-        self.obs_names = ["bng_goal", "D_goal", "t_close", "D_TS", "bng_TS", "V_R", "C_T"]
+        atts = ["D_TS", "bng_TS", "V_R", "C_T"]
+        other_names = []
+        for i in range(self.N_agents-1):
+            others = [ele + ascii_letters[i] for ele in atts]
+            other_names += others
+        self.obs_names = ["bng_goal", "D_goal", "t_close"] + other_names
 
     def reset(self):
         """Resets environment to initial state."""
@@ -257,7 +263,7 @@ class UAM(gym.Env):
         """Renders the current environment."""
 
         # plot every nth timestep
-        if self.step_cnt % 1 == 0: 
+        if self.step_cnt % 2 == 0: 
             
             # init figure
             if len(plt.get_fignums()) == 0:
