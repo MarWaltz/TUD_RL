@@ -17,11 +17,9 @@ def dtr(angle):
     """Takes angle in degree an transforms it to radiant."""
     return angle * math.pi / 180
 
-
 def rtd(angle):
     """Takes angle in degree an transforms it to radiant."""
     return angle * 180 / math.pi
-
 
 def angle_to_2pi(angle):
     """Transforms an angle to [0, 2pi)."""
@@ -30,14 +28,12 @@ def angle_to_2pi(angle):
     else:
         return angle + (math.floor(-angle / (2*math.pi)) + 1) * 2*math.pi
 
-
 def angle_to_pi(angle):
     """Transforms an angle to [-pi, pi)."""
     if angle >= 0:
         return angle - math.floor((angle + math.pi) / (2*math.pi)) * 2*math.pi
     else:
         return angle + math.floor((-angle + math.pi)  / (2*math.pi)) * 2*math.pi
-
 
 def head_inter(head_OS, head_TS, to_2pi=True):
     """Computes the intersection angle between headings in radiant (in [0, 2pi) if to_2pi, else [-pi, pi)).
@@ -47,7 +43,6 @@ def head_inter(head_OS, head_TS, to_2pi=True):
     else:
         return angle_to_pi(head_TS - head_OS)
 
-
 def ED(N0, E0, N1, E1, sqrt=True):
     """Computes the euclidean distance between two points."""
     d_sq = (N0 - N1)**2 + (E0 - E1)**2
@@ -55,7 +50,6 @@ def ED(N0, E0, N1, E1, sqrt=True):
     if sqrt:
         return np.sqrt(d_sq)
     return d_sq
-
 
 def polar_from_xy(x, y, with_r=True, with_angle=True):
     """Get polar coordinates (r, angle in rad in [0, 2pi)) from x,y-coordinates. Angles are defined clockwise with zero at the y-axis.
@@ -69,16 +63,13 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
     angle = angle_to_2pi(math.atan2(x, y)) if with_angle else None
     return r, angle
 
-
 def xy_from_polar(r, angle):
     """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
     return r * math.sin(angle), r * math.cos(angle)
 
-
 def bng_abs(N0, E0, N1, E1):
     """Computes the absolute bearing (in radiant, [0, 2pi)) of (N1, E1) from perspective of (N0, E0)."""
     return polar_from_xy(x=E1-E0, y=N1-N0, with_r=False, with_angle=True)[1]
-
 
 def bng_rel(N0, E0, N1, E1, head0, to_2pi=True):
     """Computes the relative bearing (in radiant in [0, 2pi) if to_2pi, else [-pi, pi)) of 
@@ -87,7 +78,6 @@ def bng_rel(N0, E0, N1, E1, head0, to_2pi=True):
         return angle_to_2pi(bng_abs(N0, E0, N1, E1) - head0)
     else:
         return angle_to_pi(bng_abs(N0, E0, N1, E1) - head0)
-
 
 def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     """Computes the time to closest point of approach (TCPA). Follows Lenart (1983)."""
@@ -111,7 +101,6 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     den = vrx**2 + vry**2
 
     return - nom / den
-
 
 def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS, get_positions=False):
     """Returns DCPA and TCPA. Follows Chun et al. (2021, OE).
@@ -143,7 +132,6 @@ def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS, get_positions=False):
     else:
         return ED(N0=yOS_tcpa, E0=xOS_tcpa, N1=yTS_tcpa, E1=xTS_tcpa), TCPA
 
-
 def project_vector(VA, angleA, VB, angleB):
     """Projects vector A, characterized in polar coordinates VA and angleA, onto vector B (also polar coordinates).
     Angles are defined clockwise with zero at the y-axis.
@@ -168,7 +156,6 @@ def project_vector(VA, angleA, VB, angleB):
     # x,y components of projection
     return xy_from_polar(r=v_proj, angle=angleB)
 
-
 def get_ship_domain(A, B, C, D, OS, TS, ang=None):
     """Computes a ship domain for the OS with respect to TS following Chun et al. (2021, Ocean Engineering).
     Args:
@@ -184,29 +171,23 @@ def get_ship_domain(A, B, C, D, OS, TS, ang=None):
     if 0 <= rtd(ang) < 90:
         a = D
         b = A
-
     elif 90 <= rtd(ang) < 180:
         ang = dtr(180) - ang
         a = D
         b = C
-
     elif 180 <= rtd(ang) < 270:
         ang = ang - dtr(180)
         a = B
         b = C
-
     else:
         ang = dtr(360) - ang
         a = B
         b = A
-
     return ((math.sin(ang) / a)**2 + (math.cos(ang) / b)**2)**(-0.5)
-
 
 def NM_to_meter(NM):
     """Convertes nautical miles in meter."""
     return NM * 1852
-
 
 def meter_to_NM(meter):
     """Convertes meter in nautical miles."""

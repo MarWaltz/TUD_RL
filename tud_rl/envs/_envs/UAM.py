@@ -8,7 +8,8 @@ from matplotlib import pyplot as plt
 from mycolorpy import colorlist as mcp
 
 from tud_rl.envs._envs.Plane import *
-from tud_rl.envs._envs.VesselFnc import NM_to_meter, angle_to_pi, meter_to_NM
+from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi,
+                                         angle_to_pi, dtr, meter_to_NM)
 
 COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + 5 * mcp.gen_color(cmap="tab20b", n=20) 
 
@@ -97,19 +98,21 @@ class UAM(gym.Env):
         # performance model
         self.perf = OpenAP(self.actype, self.actas, self.acalt)
 
-        # viz
-        self.plot_reward = True
-        self.r = np.zeros((self.N_agents, 1))
-
         # config
         self.N_agents = N_agents
-        obs_size = 3 + 4*(self.N_agents-1)
-        self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
-                                            high = np.full(obs_size,  np.inf, dtype=np.float32))
+        self.obs_size = 3 + 4*(self.N_agents-1)
+        self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
+                                            high = np.full(self.obs_size,  np.inf, dtype=np.float32))
         act_size = 1
         self.action_space = spaces.Box(low  = np.full(act_size, -1.0, dtype=np.float32), 
                                        high = np.full(act_size, +1.0, dtype=np.float32))
         self._max_episode_steps = 500
+
+        # viz
+        self.plot_reward = True
+        self.r = np.zeros((self.N_agents, 1))
+        self.state = np.zeros((self.N_agents, self.obs_size))
+        self.obs_names = ["bng_goal", "D_goal", "t_close", "D_TS", "bng_TS", "V_R", "C_T"]
 
     def reset(self):
         """Resets environment to initial state."""
@@ -144,14 +147,15 @@ class UAM(gym.Env):
     def _set_state(self):
         """State contains own relative bearing of goal, distance to goal, common four information about target ships
         (relative speed, relative bearing, distance, heading intersection angle), and time until destination opens again.
-        Overall 3 + 4*(N_agents-1) features. Thus, state is np.array([N_agents,  2 + 4*(N_agents-1)])."""
-        self.state = np.zeros((self.N_agents, 3 + 4*(self.N_agents-1)), dtype=np.float32)
+        Overall 3 + 4*(N_agents-1) features. Thus, state is np.array([N_agents, 3 + 4*(N_agents-1)])."""
+        self.state = np.zeros((self.N_agents, self.obs_size), dtype=np.float32)
 
         for i, p in enumerate(self.planes):
 
             # distance, bearing to goal and time to opening
-            bng_goal, d_goal = qdrdist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
-            s_i = np.array([np.radians(bng_goal)/np.pi,\
+            abs_bng_goal, d_goal = qdrdist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon) # outputs ABSOLUTE bearing
+            bng_goal = angle_to_pi(angle_to_2pi(dtr(abs_bng_goal)) - dtr(p.hdg))
+            s_i = np.array([bng_goal/np.pi,\
                             NM_to_meter(d_goal)/self.dest.spawn_radius,\
                             1.0-self.dest.t_nxt_open/self.dest.t_close])
 
@@ -164,8 +168,8 @@ class UAM(gym.Env):
                         v_r = other.tas - p.tas
 
                         # bearing and distance
-                        bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
-                        bng = np.radians(bng)/np.pi
+                        abs_bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
+                        bng = angle_to_pi(angle_to_2pi(dtr(abs_bng)) - dtr(p.hdg))/np.pi
                         d = NM_to_meter(d)/self.dest.spawn_radius
 
                         # heading intersection
@@ -259,9 +263,10 @@ class UAM(gym.Env):
             if len(plt.get_fignums()) == 0:
                 if self.plot_reward:
                     self.f = plt.figure(figsize=(14, 8))
-                    self.gs  = self.f.add_gridspec(1, 2)
-                    self.ax1 = self.f.add_subplot(self.gs[0, 0]) # ship
+                    self.gs  = self.f.add_gridspec(2, 2)
+                    self.ax1 = self.f.add_subplot(self.gs[:, 0]) # ship
                     self.ax2 = self.f.add_subplot(self.gs[0, 1]) # reward
+                    self.ax3 = self.f.add_subplot(self.gs[1, 1]) # state
                 else:
                     self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
                 plt.ion()
@@ -300,11 +305,11 @@ class UAM(gym.Env):
                 self.ax1.plot(lons, lats, color=COLORS[i])
 
                 # information
-                s = f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
+                s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
                 self.ax1.text(x=p.lon, y=p.lat, s=s, color=COLORS[i], fontdict={"size" : 8})
 
-            # reward
             if self.plot_reward:
+                # reward
                 if self.step_cnt == 0:
                     self.ax2.clear()
                     self.ax2.old_time = 0
@@ -316,12 +321,31 @@ class UAM(gym.Env):
 
                 for i in range(self.r.shape[0]):
                     self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r[i], self.r[i]],\
-                         color = COLORS[i], label=f"R {i+1}")
+                         color = COLORS[i], label=f"R {i}")
 
                 if self.step_cnt == 0:
                     self.ax2.legend()
 
                 self.ax2.old_time = self.step_cnt
                 self.ax2.old_r = self.r
+
+                # state
+                if self.step_cnt == 0:
+                    self.ax3.clear()
+                    self.ax3.old_time = 0
+                    self.ax3.old_s = np.zeros((self.N_agents, self.obs_size))
+
+                self.ax3.set_xlabel("Timestep in episode")
+                self.ax3.set_ylabel("State of Agent 0")
+
+                for i in range(self.obs_size):
+                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_s[0][i], self.state[0][i]],\
+                         label=self.obs_names[i], color=COLORS[i])
+
+                if self.step_cnt == 0:
+                    self.ax3.legend()
+
+                self.ax3.old_time = self.step_cnt
+                self.ax3.old_s = self.state
                 
             plt.pause(0.001)
