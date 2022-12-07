@@ -34,7 +34,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
                                        high = np.full(act_size,  1, dtype=np.float32))
-
         # control scales
         self.d_head_scale = dtr(10.0)
         self.surge_scale = 0.5
@@ -43,7 +42,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.desired_V = 3.0
 
         self._max_episode_steps = 50
-
 
     def reset(self):
         s = super().reset()
@@ -54,24 +52,16 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         del self.loc_desired_course
         del self.loc_course_error
         del self.loc_pi_path
-
-        # collision signal
-        self.collision_flag = False
-
         return s
 
     def _update_local_path(self):
-        pass
+        raise NotImplementedError("Updating the local path should not be called for the path planner.")
 
     def step(self, a, control_TS=True):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
         # control action
-        a = a.flatten()
-        self.a = a
-        self.OS = self._manual_heading_control(vessel=self.OS, a=float(a[0]))
-        if self.thrust_control_planner:
-            self.OS = self._manual_surge_control(vessel=self.OS, a=float(a[1]))
+        self._manual_control(a)
 
         # update agent dynamics (independent of environmental disturbances in this module)
         [self.OS._upd_dynamics() for _ in range(self.n_loops)]
@@ -80,7 +70,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._update_disturbances()
 
         # update OS waypoints of global path
-        self.OS = self._init_wps(self.OS, "global")
+        self.OS:KVLCC2= self._init_wps(self.OS, "global")
 
         # compute new cross-track error and course error for global path
         self._set_cte(path_level="global")
@@ -98,55 +88,34 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             # simple heading control of target ships
             if control_TS:
-                self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
+                for TS in self.TSs:
+                    other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                    TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.n_loops * self.delta_t
 
-        # update collision flag
-        self._check_collision()
-
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward(a)
+        self._calculate_reward(self.a)
         d = self._done()
         return self.state, self.r, d, {}
 
-    def _manual_heading_control(self, vessel, a):
-        """Adjust the heading of a vessel."""
-        assert -1 <= a <= 1, "Unknown action."
+    def _manual_control(self, a:np.ndarray):
+        """'Manually' controls heading and surge of the own ship."""
+        a = a.flatten()
+        self.a = a
 
-        vessel.eta[2] = angle_to_2pi(vessel.eta[2] + a*self.d_head_scale)
-        return vessel
+        # heading control
+        assert -1 <= float(a[0]) <= 1, "Unknown action."
+        self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] + float(a[0])*self.d_head_scale)
 
-    def _manual_surge_control(self, vessel : KVLCC2, a):
-        """Adjust the surge of a vessel."""
-        assert -1 <= a <= 1, "Unknown action."
-
-        vessel.nu[0] = np.clip(vessel.nu[0] + a*self.surge_scale, self.surge_min, self.surge_max)
-        vessel.nps = vessel._get_nps_from_u(vessel.nu[0])
-        return vessel
-
-    def _check_collision(self):
-        # go ground
-        if self.H <= self.OS.critical_depth:
-            self.collision_flag = True
-            return
-        else:
-            self.collision_flag = False
-
-        # TS collision
-        for TS in self.TSs:
-            N0, E0, _ = self.OS.eta
-            N1, E1, _ = TS.eta
-            
-            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
-            ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-            
-            if ED_OS_TS <= D:
-                self.collision_flag = True
-                break
+         # surge control        
+        if self.thrust_control_planner:
+            assert -1 <= float(a[1]) <= 1, "Unknown action."
+            self.OS.nu[0] = np.clip(self.OS.nu[0] + float(a[1])*self.surge_scale, self.surge_min, self.surge_max)
+            self.OS.nps = self.OS._get_nps_from_u(self.OS.nu[0])
 
     def _set_state(self):
         #--------------------------- OS information ----------------------------
@@ -164,10 +133,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # ----------------------- TS information ------------------------------
         N0, E0, head0 = self.OS.eta
+        OS_V = self.OS._get_V()
         state_TSs = []
 
         for TS in self.TSs:
             N, E, headTS = TS.eta
+            TS_V = TS._get_V()
 
             # closeness
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
@@ -183,15 +154,15 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             # speed
             if self.thrust_control_planner:
-                V_TS = TS._get_V()-self.desired_V
+                V_TS = TS_V-self.desired_V
             else:
-                V_TS = TS._get_V()/self.desired_V
+                V_TS = TS_V/self.desired_V
 
             # direction
             TS_dir = -1.0 if TS.rev_dir else 1.0
 
             # speedy
-            TS_speedy = 1.0 if TS.speedy else -1.0
+            TS_speedy = 1.0 if TS_V > OS_V else -1.0
 
             # store it
             state_TSs.append([closeness, bng_rel_TS, C_TS_path, V_TS, TS_dir, TS_speedy])          
@@ -223,39 +194,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
 
-
-    def _MPC_reward(self):
-        """Computes a simplified reward used for solely safety-evaluation."""
-        r = 0.0
-
-        # cross-track error
-        k_ye = 0.05
-        r += math.exp(-k_ye * abs(self.glo_ye))
-
-        # turning around
-        if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
-            r = -100.0
-
-        # collision
-        for TS in self.TSs:
-            N0, E0, _ = self.OS.eta
-            N1, E1, _ = TS.eta
-
-            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
-            ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-
-            if ED_OS_TS <= 100:
-                r -= 100.0
-            else:
-                r -= math.exp(-(ED_OS_TS-D)/200)
-
-        # hit ground
-        if self.H <= self.OS.critical_depth:
-            r -= 100.0
-
-        return r
-
-
     def _calculate_reward(self, a):
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -278,12 +216,17 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.r_speed = max([-(self.OS.nu[0]-self.desired_V)**2, -1.0])
 
         # ---------------------- Collision Avoidance reward -----------------
-        self.r_coll = 0
+        # hit ground
+        if self.H <= self.OS.critical_depth:
+            self.r_coll = -10.0
+        else:
+            self.r_coll = 0
 
         # other vessels
         for TS in self.TSs:
+
             # compute ship domain
-            N0, E0, _ = self.OS.eta
+            N0, E0, head0 = self.OS.eta
             N1, E1, head1 = TS.eta
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
         
@@ -294,29 +237,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             else:
                 self.r_coll -= math.exp(-(ED_OS_TS-D)/200)
 
-            #-- violating traffic rules is considered a collision--
-            bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
-
-            # OS should let speedys pass on its portside
-            if TS.speedy:
-                if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0) and ED_OS_TS <= 10*self.OS.Lpp:
+            # violating traffic rules is considered a collision
+            if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, head1=head1,\
+                 v1=TS._get_V(), rev_dir=TS.rev_dir, Lpp=self.OS.Lpp):
                     self.r_coll -= 10.0
-
-            # OS should not pass opposing ships on their portside
-            elif TS.rev_dir:
-                if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0) and ED_OS_TS <= 10*self.OS.Lpp:
-                    self.r_coll -= 10.0
-
-            # normal target ships should be overtaken on their portside
-            else:
-                if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
-                    l = (10 - 5/math.pi * bng_rel_TS_pers)*self.OS.Lpp
-                    if ED_OS_TS <= l:
-                        self.r_coll -= 10.0
-
-        # hit ground
-        if self.H <= self.OS.critical_depth:
-            self.r_coll -= 10.0
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
@@ -328,14 +252,13 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
 
-
     def _done(self):
         """Returns boolean flag whether episode is over."""
         # OS is too far away from path
         if abs(self.glo_ye) > 1000:
             return True
 
-        # OS reached final waypoint
+        # OS approaches end of global path
         elif any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 

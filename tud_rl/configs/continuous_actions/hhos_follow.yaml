@@ -1,17 +1,17 @@
 ---
 env:
   name: HHOS-PathFollowing-v0
-  max_episode_steps: 100
+  max_episode_steps: 500
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
     planner_weights: plan_actor.pth
-    planner_safety_net: false
+    planner_safety_net: true
     thrust_control_planner : false
     thrust_control_planner_safety_net : true
     nps_control_follower: true
-    data: real
+    data: sampled
     scenario_based: false
     N_TSs_max : 5
     N_TSs_random : false

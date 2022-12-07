@@ -1,12 +1,12 @@
 ---
 env:
   name: UAM-v0
-  max_episode_steps: 500
+  max_episode_steps: 250
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents: 2
+    N_agents: 7
   info: ''
 agent:
   MADDPG: {}

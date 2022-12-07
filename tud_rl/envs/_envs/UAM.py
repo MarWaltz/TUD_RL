@@ -107,10 +107,11 @@ class UAM(gym.Env):
         act_size = 1
         self.action_space = spaces.Box(low  = np.full(act_size, -1.0, dtype=np.float32), 
                                        high = np.full(act_size, +1.0, dtype=np.float32))
-        self._max_episode_steps = 500
+        self._max_episode_steps = 250
 
         # viz
         self.plot_reward = True
+        self.plot_state = False
         self.r = np.zeros((self.N_agents, 1))
         self.state = np.zeros((self.N_agents, self.obs_size))
         atts = ["D_TS", "bng_TS", "V_R", "C_T"]
@@ -263,16 +264,29 @@ class UAM(gym.Env):
         """Renders the current environment."""
 
         # plot every nth timestep
-        if self.step_cnt % 2 == 0: 
+        if self.step_cnt % 1 == 0: 
             
             # init figure
             if len(plt.get_fignums()) == 0:
-                if self.plot_reward:
+                if self.plot_reward and self.plot_state:
                     self.f = plt.figure(figsize=(14, 8))
                     self.gs  = self.f.add_gridspec(2, 2)
                     self.ax1 = self.f.add_subplot(self.gs[:, 0]) # ship
                     self.ax2 = self.f.add_subplot(self.gs[0, 1]) # reward
                     self.ax3 = self.f.add_subplot(self.gs[1, 1]) # state
+
+                elif self.plot_reward:
+                    self.f = plt.figure(figsize=(14, 8))
+                    self.gs  = self.f.add_gridspec(1, 2)
+                    self.ax1 = self.f.add_subplot(self.gs[0, 0]) # ship
+                    self.ax2 = self.f.add_subplot(self.gs[0, 1]) # reward
+
+                elif self.plot_state:
+                    self.f = plt.figure(figsize=(14, 8))
+                    self.gs  = self.f.add_gridspec(1, 2)
+                    self.ax1 = self.f.add_subplot(self.gs[0, 0]) # ship
+                    self.ax3 = self.f.add_subplot(self.gs[0, 1]) # state
+
                 else:
                     self.f, self.ax1 = plt.subplots(1, 1, figsize=(10, 10))
                 plt.ion()
@@ -320,7 +334,7 @@ class UAM(gym.Env):
                     self.ax2.clear()
                     self.ax2.old_time = 0
                     self.ax2.old_r = np.zeros((self.N_agents, 1))
-                    self.ax2.set_title(type(self).__name__)
+                    self.ax2.set_title("Urban Air Mobility")
 
                 self.ax2.set_xlabel("Timestep in episode")
                 self.ax2.set_ylabel("Reward")
@@ -335,9 +349,10 @@ class UAM(gym.Env):
                 self.ax2.old_time = self.step_cnt
                 self.ax2.old_r = self.r
 
-                # state
+            # state
+            if self.plot_state:
                 if self.step_cnt == 0:
-                    self.ax3.clear()
+                    self.ax3.clear(loc='upper right')
                     self.ax3.old_time = 0
                     self.ax3.old_s = np.zeros((self.N_agents, self.obs_size))
 
@@ -349,7 +364,7 @@ class UAM(gym.Env):
                          label=self.obs_names[i], color=COLORS[i])
 
                 if self.step_cnt == 0:
-                    self.ax3.legend()
+                    self.ax3.legend(loc='upper right')
 
                 self.ax3.old_time = self.step_cnt
                 self.ax3.old_s = self.state

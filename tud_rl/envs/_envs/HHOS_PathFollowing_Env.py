@@ -1,6 +1,8 @@
 from copy import deepcopy
+from typing import List, Union
 
 import torch
+
 from tud_rl.common.nets import MLP
 from tud_rl.envs._envs.HHOS_Env import *
 from tud_rl.envs._envs.HHOS_Fnc import apf
@@ -42,12 +44,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planning_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_planner,\
                  data=data, scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0,\
                      w_coll=0.0, w_comf=0.0, w_speed=0.0)
-
-            # construct safe-planning env
-            if self.planner_safety_net:
-                self.safe_plan_env = HHOS_PathPlanning_Env(state_design="conventional", thrust_control_planner=thrust_control_planner_safety_net,\
-                    data=data, scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0,\
-                        w_coll=0.0, w_comf=0.0, w_speed=0.0)
         else:
             self.planner = None
 
@@ -71,8 +67,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.nps_min = 0.5
         self.nps_max = 5.0
         
-        self._max_episode_steps = 100
-    
+        self._max_episode_steps = 500
 
     def reset(self):
         # the local path equals the first couple of entries of the global path after the super().reset() call
@@ -87,14 +82,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.planning_env.step_cnt = 0
         self.planning_env.sim_t = 0.0
 
-        # possibly prepare safe-planning env
-        if self.planner_safety_net:
-            self.safe_plan_env = self.setup_planning_env(env=self.safe_plan_env, initial=True)
-            self.safe_plan_env, _ = self.setup_planning_env(env=self.safe_plan_env, initial=False)
-            self.safe_plan_env.step_cnt = 0
-            self.safe_plan_env.sim_t = 0.0
-
-        # override the local path since our planning agent should work from the beginning
+        # override the local path to start the control-system from the beginning
         self._update_local_path()
 
         # update wps and error
@@ -107,8 +95,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.state_init = self.state
         return self.state
 
-
-    def setup_planning_env(self, env, initial : bool):
+    def setup_planning_env(self, env:HHOS_PathPlanning_Env, initial : bool):
         """Prepares the planning env depending on the current status of the following env. Returns the env if initial, else
         returns env, state."""
 
@@ -136,10 +123,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             env.clev = self.clev
             return env
         else:
-            # collision signal
-            if self.planner_safety_net:
-                env.collision_flag = False
-
             # step count
             env.step_cnt = 0
 
@@ -162,13 +145,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             env._set_state()
             return env, env.state
 
-    def step(self, a):
+    def step(self, a:np.ndarray):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
 
         # perform control action
-        a = a.flatten()
-        self.a = a
         self._OS_control(a)
 
         # update agent dynamics
@@ -182,15 +163,15 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         [TS._upd_dynamics() for TS in self.TSs]
 
         # check respawn
-        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
+        self.TSs : List[TargetShip] = [self._handle_respawn(TS) for TS in self.TSs]
 
         # set the local path
         if self.step_cnt % self.loc_path_upd_freq == 0:
             self._update_local_path()
 
         # update OS waypoints of global and local path
-        self.OS = self._init_wps(self.OS, "global")
-        self.OS = self._init_wps(self.OS, "local")
+        self.OS:KVLCC2 = self._init_wps(self.OS, "global")
+        self.OS:KVLCC2 = self._init_wps(self.OS, "local")
 
         # compute new cross-track error and course error (for local and global path)
         self._set_cte(path_level="global")
@@ -202,7 +183,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.TSs = [self._init_wps(TS, path_level="global") for TS in self.TSs]
 
         # control of target ships
-        self.TSs = [self._rule_based_control(TS) for TS in self.TSs]
+        for TS in self.TSs:
+            other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+            TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
 
         # increase step cnt and overall simulation time
         self.sim_t += self.delta_t
@@ -214,9 +197,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         d = self._done()
         return self.state, self.r, d, {}
 
-
-    def _OS_control(self, a):
+    def _OS_control(self, a:np.ndarray):
         """Performs the control action for the own ship."""
+        # store for viz
+        a = a.flatten()
+        self.a = a
+
         # rudder control
         assert -1 <= float(a[0]) <= 1, "Unknown action."
         self.OS.rud_angle = np.clip(self.OS.rud_angle + float(a[0])*self.rud_angle_inc, -self.rud_angle_max, self.rud_angle_max)
@@ -226,117 +212,191 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             assert -1 <= float(a[1]) <= 1, "Unknown action."
             self.OS.nps = np.clip(self.OS.nps + float(a[1])*self.nps_inc, self.nps_min, self.nps_max)
 
+    def _hasConflict(self, localPath:Path, TSnavData : Union[List[Path], None], method:str):
+        """Checks whether a given local path yields a conflict.
+        
+        Args:
+            localPath(Path): path of the OS
+            TSnavData(list): list of Path-objects, one for each TS. If None, the planning_env is used to generate this data.
+            method(str):    'RL' or 'APF'. If 'RL', checks for conflicts in the sense of collisions AND traffic rules. 
+                             If 'APF', checks only for collisions.
+        Returns:
+            bool, conflict (True) or no conflict (False)"""
+        assert method in ["RL", "APF"], "Use either 'RL' or 'APF' for conflict checking."
+
+        # always check for collisions with land
+        for i in range(localPath.n_wps):
+            if self._depth_at_latlon(lat_q=localPath.lat[i], lon_q=localPath.lon[i]) <= self.OS.critical_depth:
+                return True
+
+        # create TSnavData if not existent
+        if TSnavData is None:
+            TSnavData = self._update_local_path_safe(method=None)
+
+        #----- check for target ship collisions in both methods -----
+        n_TS = len(TSnavData)
+        n_wps = TSnavData[0].n_wps
+
+        for t in range(n_wps):
+            for i in range(n_TS):
+
+                # quick access
+                N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
+                N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
+
+                # compute ship domain
+                ang = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0)
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
+                    ang=ang, OS=None, TS=None)
+            
+                # check if collision
+                ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+                if ED_OS_TS <= D:
+                    return True
+
+        #----- check for traffic rules only in RL method -----
+        if method == "RL":
+            for t in range(n_wps):
+                for i in range(n_TS):
+
+                    # quick access
+                    N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
+                    v0 = localPath.vs[t]
+                    N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
+                    v1 = TSnavData[i].vs[t]
+                    rev_dir = TSnavData[i].rev_dir[t]
+
+                    # check
+                    if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1, \
+                        rev_dir=rev_dir, Lpp=self.OS.Lpp):
+                        return True
+        return False
 
     def _update_local_path(self):
-        """Updates the local path either by simply using the global path, using the RL-based path planner, or the safety net."""
+        """Updates the local path either by simply using the global path, using the RL-based path planner, or the APF safety net."""
+        # default: set part of global path as local path
+        super()._update_local_path()
+
         if self.planner is not None:
 
-            # flag for safe-planning mode
-            go_safe = False
+            # check local plan for conflicts (collisions AND traffic rules)
+            conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=None, method="RL")
+            if conflict:
+                TSnavData:List[Path] = self._update_local_path_safe(method="RL")
+                self.planning_method = "RL"
 
-            # prep planning env
-            self.planning_env, s = self.setup_planning_env(self.planning_env, initial=False)
-
-            # setup wps and potentially speed
-            ns, es = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]]
-            if self.nps_control_follower:
-                vs = [self.planning_env.OS._get_V()]
-
-            # planning loop
-            for _ in range(self.n_wps_loc-1):
-
-                # planner's move
-                s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
-                a = self.planner(s)
-
-                # planning env's reaction
-                s, _, d, _ = self.planning_env.step(a, control_TS=False)
-
-                # check for collision in safe-planning mode
+                # if we use safety net, check only for collisions
                 if self.planner_safety_net:
-                    if self.planning_env.collision_flag:
-                        go_safe = True
-                        break
+                    conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=TSnavData, method="APF")
+                    if conflict:
+                        self._update_local_path_safe(method="APF")
+                        self.planning_method = "APF"
 
-                # store wps and potentially speed
-                ns.append(self.planning_env.OS.eta[0])
-                es.append(self.planning_env.OS.eta[1])
-                if self.nps_control_follower:
-                    vs.append(self.planning_env.OS._get_V())
-                if d:
-                    break
-            
-            # use safety net
-            if self.planner_safety_net and go_safe:
-                self._update_local_path_safe()
+    def _update_local_path_safe(self, method:Union[str, None]):
+        """Updates the local path based on the RL or the APF planner. Can alternatively be used to solely generate TSNavData.
+        
+        Args:
+            method(str): 'RL', 'APF', or None
+        Returns:
+            List[Path]: TSNavData"""
+        assert method in [None, "RL", "APF"], "Use either 'RL' or 'APF' to safely update the local path. \
+            Alternatively, use None to generate TSNavData."
 
-            # use RL-planners local path
-            else:
-                self._set_local_path_from_traj(ns, es, vs if self.nps_control_follower else None)
-        else:
-            super()._update_local_path()
+        # prep planning env
+        self.planning_env, s = self.setup_planning_env(self.planning_env, initial=False)
 
+        # setup OS wps and speed in RL or APF case
+        if method in ["RL", "APF"]:
+            ns, es, heads = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]], [self.planning_env.OS.eta[2]]
+            vs = [self.planning_env.OS._get_V()]
 
-    def _update_local_path_safe(self):
-        """Uses the artificial potential field method to generate a safe path."""
-
-        # prep safe-planning env
-        self.safe_plan_env, _ = self.setup_planning_env(self.safe_plan_env, initial=False)
-
-        # setup wps and potentially speed
-        n_APF, e_APF = [self.safe_plan_env.OS.eta[0]], [self.safe_plan_env.OS.eta[1]]
-        if self.nps_control_follower:
-            v_APF = [self.safe_plan_env.OS._get_V()]
+        # TSNavData in RL or None mode
+        if method in [None, "RL"]:
+            TS_ns      = [[TS.eta[0]] for TS in self.planning_env.TSs]
+            TS_es      = [[TS.eta[1]] for TS in self.planning_env.TSs]
+            TS_heads   = [[TS.eta[2]] for TS in self.planning_env.TSs]
+            TS_vs      = [[TS._get_V()] for TS in self.planning_env.TSs]
+            TS_rev_dir = [[TS.rev_dir] for TS in self.planning_env.TSs]
 
         # planning loop
         for _ in range(self.n_wps_loc-1):
 
+            # planner's move
+            if method == "RL":
+                s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
+                a = self.planner(s)
+
             # get APF move, always two components
-            du, dh = self._get_APF_move(self.safe_plan_env)
+            elif method == "APF":
+                du, dh = self._get_APF_move(self.planning_env)
 
-            # always apply heading change
-            self.safe_plan_env.OS.eta[2] = angle_to_2pi(self.safe_plan_env.OS.eta[2] + dh)
+                # always apply heading change
+                self.planning_env.OS.eta[2] = angle_to_2pi(self.planning_env.OS.eta[2] + dh)
 
-            if self.thrust_control_planner_safety_net:
+                if self.thrust_control_planner_safety_net:
 
-                # longitudinal speed change only when allowed
-                self.safe_plan_env.OS.nu[0] = np.clip(self.safe_plan_env.OS.nu[0] + du, \
-                    self.safe_plan_env.surge_min, self.safe_plan_env.surge_max)
+                    # longitudinal speed change only when allowed
+                    self.planning_env.OS.nu[0] = np.clip(self.planning_env.OS.nu[0] + du, \
+                        self.planning_env.surge_min, self.planning_env.surge_max)
 
-                # set nps accordingly
-                self.safe_plan_env.OS.nps = self.safe_plan_env.OS._get_nps_from_u(self.safe_plan_env.OS.nu[0])
+                    # set nps accordingly
+                    self.planning_env.OS.nps = self.planning_env.OS._get_nps_from_u(self.planning_env.OS.nu[0])
 
-                # need to define dummy zero-actions since we control the OS outside the planning env
-                a = np.array([0.0, 0.0])
-            else:
-                a = np.array([0.0])
+                    # need to define dummy zero-actions since we control the OS outside the planning env
+                    a = np.array([0.0, 0.0])
+                else:
+                    a = np.array([0.0])
+
+            # TSnavData generation - use dummy zero-actions (although it does not matter anyways, we only extract TS info)
+            elif method is None:
+                if self.thrust_control_planner_safety_net:
+                    a = np.array([0.0, 0.0])
+                else:
+                    a = np.array([0.0])
 
             # planning env's reaction
-            _, _, d, _ = self.safe_plan_env.step(a, control_TS=False)
+            s, _, d, _ = self.planning_env.step(a, control_TS=False)
 
-            # store wps and potentially time
-            n_APF.append(self.safe_plan_env.OS.eta[0])
-            e_APF.append(self.safe_plan_env.OS.eta[1])
-            if self.nps_control_follower:
-                v_APF.append(self.safe_plan_env.OS._get_V())
+            # store wps and speed
+            if method in ["RL", "APF"]:
+                ns.append(self.planning_env.OS.eta[0])
+                es.append(self.planning_env.OS.eta[1])
+                heads.append(self.planning_env.OS.eta[2])
+                vs.append(self.planning_env.OS._get_V())
+
+            # TSNavData in RL or None mode
+            if method in ["RL", None]:
+                for i, TS in enumerate(self.planning_env.TSs):
+                    TS_ns[i].append(TS.eta[0])
+                    TS_es[i].append(TS.eta[1])
+                    TS_heads[i].append(TS.eta[2])
+                    TS_vs[i].append(TS._get_V())
+                    TS_rev_dir[i].append(TS.rev_dir)
             if d:
                 break
-        
-        # set local-plan
-        self._set_local_path_from_traj(ns=n_APF, es=e_APF, vs=v_APF if self.nps_control_follower else None)
 
+        # update the path in RL or APF mode
+        if method in ["RL", "APF"]:
+            self.LocalPath = Path(level="local", north=ns, east=es, heads=heads, vs=vs)
+
+        # generate TSnavData object for conflict detection
+        if method in ["RL", None]:
+            TSnavData = []
+            for i in range(len(TS_ns)):
+                TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i], rev_dir=TS_rev_dir[i]))
+            return TSnavData
 
     def _get_APF_move(self, env : HHOS_PathPlanning_Env):
         """Takes an env as input and returns the du, dh suggested by the APF-method."""
         # define goal for attractive forces of APF
         try:
             g_idx = env.OS.glo_wp3_idx + 3
-            g_n = env.GlobalPath["north"][g_idx]
-            g_e = env.GlobalPath["east"][g_idx]
+            g_n = env.GlobalPath.north[g_idx]
+            g_e = env.GlobalPath.east[g_idx]
         except:
             g_idx = env.OS.glo_wp3_idx
-            g_n = env.GlobalPath["north"][g_idx]
-            g_e = env.GlobalPath["east"][g_idx]
+            g_n = env.GlobalPath.north[g_idx]
+            g_e = env.GlobalPath.east[g_idx]
 
         # consider river geometry
         dists, _, river_n, river_e = env._sense_LiDAR()
@@ -348,20 +408,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                      du_clip=env.surge_scale, dh_clip=env.d_head_scale,
                      k_a=0.001, k_r_TS=250, k_r_river=100, r_min=250)
         return du, dh
-
-
-    def _set_local_path_from_traj(self, ns, es, vs):
-        """Sets the local path after it's trajectory has been computed via RL or MPC."""
-        if self.nps_control_follower:
-            self.LocalPath["v"] = vs
-        self.LocalPath["north"] = np.array(ns)
-        self.LocalPath["east"] = np.array(es)
-        self.LocalPath["lat"] = np.zeros_like(self.LocalPath["north"])
-        self.LocalPath["lon"] = np.zeros_like(self.LocalPath["north"])
-
-        for i in range(len(ns)):
-            self.LocalPath["lat"][i], self.LocalPath["lon"][i] = to_latlon(north=ns[i], east=es[i], number=32) 
-
 
     def _set_state(self):
         #--------------------------- OS information ----------------------------
@@ -397,11 +443,10 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_env], dtype=np.float32)
 
-
     def _get_v_desired(self):
         """Computes the desired velocity time at the position of the agent."""
-        v1 = self.LocalPath["v"][self.OS.loc_wp1_idx]
-        v2 = self.LocalPath["v"][self.OS.loc_wp2_idx]
+        v1 = self.LocalPath.vs[self.OS.loc_wp1_idx]
+        v2 = self.LocalPath.vs[self.OS.loc_wp2_idx]
 
         ate_12 = ate(N1 = self.OS.loc_wp1_N, 
                      E1 = self.OS.loc_wp1_E, 
@@ -409,10 +454,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                      E2 = self.OS.loc_wp2_E,
                      NA = self.OS.eta[0], 
                      EA = self.OS.eta[1])
-        d = self._wp_dist(wp1_idx=self.OS.loc_wp1_idx, wp2_idx=self.OS.loc_wp2_idx, path=self.LocalPath)
+        d = self.LocalPath.wp_dist(wp1_idx=self.OS.loc_wp1_idx, wp2_idx=self.OS.loc_wp2_idx)
         frac = np.clip(ate_12/d, 0.0, 1.0)
         return frac*v2 + (1-frac)*v1
-
 
     def _calculate_reward(self, a):
         # ----------------------- LocalPath-following reward --------------------
@@ -453,7 +497,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             rews = np.append(rews, [self.r_speed])
 
         self.r = np.sum(weights * rews) / np.sum(weights)
-
 
     def _done(self):
         """Returns boolean flag whether episode is over."""

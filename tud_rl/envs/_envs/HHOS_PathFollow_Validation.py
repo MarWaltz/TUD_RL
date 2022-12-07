@@ -45,6 +45,9 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         # viz
         self.plotter = HHOSPlotter()
 
+    def reset(self):
+        return super().reset(OS_wp_idx=0)
+
     def _sample_depth_data(self, OS_lat, OS_lon):
         """Generates random depth data."""
         self.DepthData = {}
@@ -436,7 +439,7 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             d = True
 
         # OS reaches end of global waypoints
-        if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= self.n_wps_glo-1 for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             d = True
 
         # artificial done signal

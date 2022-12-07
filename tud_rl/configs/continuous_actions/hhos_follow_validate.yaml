@@ -1,14 +1,14 @@
 ---
 env:
   name: HHOS-PathFollowing-Validation-v0
-  max_episode_steps: 600
+  max_episode_steps: -1
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
     nps_control_follower: true
-    data: sampled
-    val_disturbance: waves
+    data: real
+    val_disturbance: 
   info: MDP
 agent:
   DDPG: {}

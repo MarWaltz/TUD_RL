@@ -1,7 +1,8 @@
 import math
 import pickle
 import random
-from copy import copy
+from copy import copy, deepcopy
+from typing import List
 
 import gym
 import numpy as np
@@ -15,6 +16,7 @@ from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
                                         find_nearest, get_init_two_wp,
                                         mps_to_knots, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
+from tud_rl.envs._envs.MMG_TargetShip import Path, TargetShip
 from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
                                          angle_to_pi, bng_abs, bng_rel, cpa,
                                          dtr, get_ship_domain, rtd, tcpa,
@@ -48,8 +50,9 @@ class HHOS_Env(gym.Env):
         self.lidar_beam_angles = np.deg2rad(np.sort(self.lidar_beam_angles))
 
         self.lidar_n_beams   = len(self.lidar_beam_angles)
-        self.n_dots_per_beam = 10                                                              # number of subpoints per beam
-        self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
+        self.n_dots_per_beam = 10          # number of subpoints per beam
+        self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, 
+                                           num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
 
         # vector field guidance
         self.VFG_K = 0.001
@@ -85,7 +88,7 @@ class HHOS_Env(gym.Env):
             self.river_min = 75
 
         # path characteristics
-        self.n_wps_loc = 5
+        self.n_wps_loc = 7
         self.dist_des_rev_path = 200
 
         # how many longitude/latitude degrees to show for the visualization
@@ -147,8 +150,9 @@ class HHOS_Env(gym.Env):
 
     def _load_global_path(self, path_to_global_path):
         with open(f"{path_to_global_path}/Path_latlon.pickle", "rb") as f:
-            self.GlobalPath = pickle.load(f)
-        self.n_wps_glo = self.GlobalPath["n_wps"]
+            GlobalPath = pickle.load(f)
+        self.GlobalPath = Path(level="global", **GlobalPath)
+        self.n_wps_glo = self.GlobalPath.n_wps
 
     def _load_depth_data(self, path_to_depth_data):
         with open(f"{path_to_depth_data}/DepthData.pickle", "rb") as f:
@@ -180,8 +184,6 @@ class HHOS_Env(gym.Env):
     def _sample_global_path(self):
         """Constructs a path with n_wps equally-spaced way points. 
         The agent should follows the path always in direction of increasing indices."""
-        self.GlobalPath = {"n_wps" : self.n_wps_glo}
-
         # do it until we have a path whichs stays in our simulation domain
         while True:
 
@@ -215,10 +217,7 @@ class HHOS_Env(gym.Env):
                 break
 
         # store
-        self.GlobalPath["lat"] = lat
-        self.GlobalPath["lon"] = lon
-        self.GlobalPath["north"] = path_n
-        self.GlobalPath["east"] = path_e
+        self.GlobalPath = Path(level="global", lat=lat, lon=lon, north=path_n, east=path_e)
 
         # overwrite data range
         self.off = 0.075
@@ -253,8 +252,8 @@ class HHOS_Env(gym.Env):
                     depth[i] = np.clip(depth[i-1] + np.random.normal(loc=0.0, scale=10.0), 20, 100)
 
             # fill close points at that distance away from the path
-            lat_path = self.GlobalPath["lat"]
-            lon_path = self.GlobalPath["lon"]
+            lat_path = self.GlobalPath.lat
+            lon_path = self.GlobalPath.lon
 
             for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
                 
@@ -303,7 +302,6 @@ class HHOS_Env(gym.Env):
 
             if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
                 break
-
         # log
         self.log_Depth = np.log(self.DepthData["data"])
 
@@ -465,32 +463,6 @@ class HHOS_Env(gym.Env):
         self.WaveData["eastward"] = e
         self.WaveData["northward"] = n
 
-    def _add_rev_global_path(self):
-        """Sets the reversed version of the path based on a constant offset to the desired path."""
-        self.RevGlobalPath = {"n_wps" : self.GlobalPath["n_wps"]}
-        self.RevGlobalPath["north"] = np.zeros_like(self.GlobalPath["north"])
-        self.RevGlobalPath["east"] = np.zeros_like(self.GlobalPath["east"])
-        self.RevGlobalPath["lat"] = np.zeros_like(self.GlobalPath["lat"])
-        self.RevGlobalPath["lon"] = np.zeros_like(self.GlobalPath["lon"])
-
-        for i in range(self.n_wps_glo):
-            n = np.flip(self.GlobalPath["north"])[i]
-            e = np.flip(self.GlobalPath["east"])[i]
-
-            if i != (self.n_wps_glo-1):
-                n_nxt = np.flip(self.GlobalPath["north"])[i+1]
-                e_nxt = np.flip(self.GlobalPath["east"])[i+1]
-                ang = angle_to_2pi(bng_abs(N0=n, E0=e, N1=n_nxt, E1=e_nxt) + math.pi/2)
-            else:
-                n_last = np.flip(self.GlobalPath["north"])[i-1]
-                e_last = np.flip(self.GlobalPath["east"])[i-1]
-                ang = angle_to_2pi(bng_abs(N0=n_last, E0=e_last, N1=n, E1=e) + math.pi/2)
-
-            e_add, n_add = xy_from_polar(r=self.dist_des_rev_path, angle=ang)
-            self.RevGlobalPath["north"][i] = n + n_add
-            self.RevGlobalPath["east"][i] = e + e_add
-            self.RevGlobalPath["lat"][i], self.RevGlobalPath["lon"][i] = to_latlon(north=n + n_add, east=e + e_add, number=32)
-
     def _depth_at_latlon(self, lat_q, lon_q):
         """Computes the water depth at a (queried) longitude-latitude position based on linear interpolation."""
         return Z_at_latlon(Z=self.DepthData["data"], lat_array=self.DepthData["lat"], lon_array=self.DepthData["lon"],
@@ -582,7 +554,7 @@ class HHOS_Env(gym.Env):
 
         return out_dists, out_lat_lon, np.array(out_n), np.array(out_e)
 
-    def reset(self):
+    def reset(self, OS_wp_idx=20):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
@@ -592,12 +564,13 @@ class HHOS_Env(gym.Env):
             self._sample_global_path()
 
         # add reversed global path for TS spawning
-        self._add_rev_global_path()
+        self.RevGlobalPath = deepcopy(self.GlobalPath)
+        self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
 
         # init OS
-        wp_idx = 50
-        lat_init = self.GlobalPath["lat"][wp_idx]
-        lon_init = self.GlobalPath["lon"][wp_idx]
+        wp_idx = OS_wp_idx
+        lat_init = self.GlobalPath.lat[wp_idx]
+        lon_init = self.GlobalPath.lon[wp_idx]
         N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
@@ -621,7 +594,7 @@ class HHOS_Env(gym.Env):
         # init local path
         self._init_local_path()
 
-        # init waypoints of and cte of OS for local path
+        # init waypoints and cte of OS for local path
         self.OS = self._init_wps(self.OS, "local")
         self._set_cte(path_level="local")
 
@@ -686,15 +659,15 @@ class HHOS_Env(gym.Env):
     def _init_wps(self, vessel, path_level):
         """Initializes the waypoints on the global and local path, respectively, based on the position of the vessel.
         Returns the vessel."""
-        assert path_level in ["global", "local"], "Unknown path."
+        assert path_level in ["global", "local"], "Unknown path level."
 
         if path_level == "global":
             path = self.RevGlobalPath if vessel.rev_dir else self.GlobalPath
             vessel.glo_wp1_idx, vessel.glo_wp1_N, vessel.glo_wp1_E, vessel.glo_wp2_idx, vessel.glo_wp2_N, \
-                vessel.glo_wp2_E = get_init_two_wp(lat_array=path["lat"], lon_array=path["lon"], a_n=vessel.eta[0], a_e=vessel.eta[1])
+                vessel.glo_wp2_E = get_init_two_wp(lat_array=path.lat, lon_array=path.lon, a_n=vessel.eta[0], a_e=vessel.eta[1])
             try:
                 vessel.glo_wp3_idx = vessel.glo_wp2_idx + 1
-                vessel.glo_wp3_N, vessel.glo_wp3_E, _ = to_utm(path["lat"][vessel.glo_wp3_idx], path["lon"][vessel.glo_wp3_idx])
+                vessel.glo_wp3_N, vessel.glo_wp3_E, _ = to_utm(path.lat[vessel.glo_wp3_idx], path.lon[vessel.glo_wp3_idx])
             except:
                 raise ValueError("Waypoint setting fails if vessel is not at least two waypoints away from the goal.")
         else:
@@ -703,42 +676,21 @@ class HHOS_Env(gym.Env):
 
             path = self.LocalPath
             vessel.loc_wp1_idx, vessel.loc_wp1_N, vessel.loc_wp1_E, vessel.loc_wp2_idx, vessel.loc_wp2_N, \
-                vessel.loc_wp2_E = get_init_two_wp(lat_array=path["lat"], lon_array=path["lon"], a_n=vessel.eta[0], a_e=vessel.eta[1])
+                vessel.loc_wp2_E = get_init_two_wp(lat_array=path.lat, lon_array=path.lon, a_n=vessel.eta[0], a_e=vessel.eta[1])
             try:
                 vessel.loc_wp3_idx = vessel.loc_wp2_idx + 1
-                vessel.loc_wp3_N, vessel.loc_wp3_E, _ = to_utm(path["lat"][vessel.loc_wp3_idx], path["lon"][vessel.loc_wp3_idx])
+                vessel.loc_wp3_N, vessel.loc_wp3_E, _ = to_utm(path.lat[vessel.loc_wp3_idx], path.lon[vessel.loc_wp3_idx])
             except:
                 raise ValueError("Waypoint setting fails if vessel is not at least two waypoints away from the goal.")
         return vessel
 
-    def _wp_dist(self, wp1_idx, wp2_idx, path):
-        """Computes the euclidean distance between two waypoints on a path."""
-        if wp1_idx not in range(path["n_wps"]) or wp2_idx not in range(path["n_wps"]):
-            raise ValueError("Your path index is out of order. Please check your sampling strategy.")
-
-        return ED(N0=path["north"][wp1_idx], E0=path["east"][wp1_idx], N1=path["north"][wp2_idx], E1=path["east"][wp2_idx])
-
-    def _get_rev_path_wps(self, wp1_idx, wp2_idx, path):
-        """Computes the waypoints from the reversed version of a path.
-        Returns: wp1_rev_idx, wp2_rev_idx."""
-        wp1_rev = path["n_wps"] - (wp2_idx+1)
-        wp2_rev = path["n_wps"] - (wp1_idx+1)
-
-        return wp1_rev, wp2_rev
-
     def _init_local_path(self):
         """Generates a local path based on the global one."""
-        self.LocalPath = {"n_wps" : self.n_wps_loc}
-        i = self.OS.glo_wp1_idx
-
-        # local equals global path
-        self.LocalPath["lat"] = copy(self.GlobalPath["lat"][i:i+self.n_wps_loc])
-        self.LocalPath["lon"] = copy(self.GlobalPath["lon"][i:i+self.n_wps_loc])
-        self.LocalPath["north"] = copy(self.GlobalPath["north"][i:i+self.n_wps_loc])
-        self.LocalPath["east"] = copy(self.GlobalPath["east"][i:i+self.n_wps_loc])
-
-        if self.two_actions:
-            self.LocalPath["v"] = np.ones_like(self.LocalPath["lat"]) * self.desired_V * np.random.uniform(0.8, 1.2)
+        self.LocalPath = self.GlobalPath.construct_local_path(wp_idx      = self.OS.glo_wp1_idx, 
+                                                              n_wps_loc   = self.n_wps_loc,
+                                                              two_actions = self.two_actions, 
+                                                              desired_V   = self.desired_V)
+        self.planning_method = "Global"
 
     def _update_local_path(self):
         self._init_local_path()
@@ -776,10 +728,9 @@ class HHOS_Env(gym.Env):
             self.N_TSs = 3
 
         # no list comprehension since we need access to previously spawned TS
-        self.TSs = []
+        self.TSs : List[TargetShip]= []
         for n in range(self.N_TSs):
             self.TSs.append(self._get_TS(scene=self.scene, n=n))
-
 
     def _get_TS(self, scene, n=None):
         """Places a target ship by setting a 
@@ -891,8 +842,8 @@ class HHOS_Env(gym.Env):
 
         # get wps
         if speedy:
-            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.RevGlobalPath["lat"], 
-                                                                   lon_array = self.RevGlobalPath["lon"], 
+            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.RevGlobalPath.lat, 
+                                                                   lon_array = self.RevGlobalPath.lon, 
                                                                    a_n       = self.OS.eta[0], 
                                                                    a_e       = self.OS.eta[1])
             path = self.RevGlobalPath
@@ -909,7 +860,7 @@ class HHOS_Env(gym.Env):
 
         # determine starting position
         ate_init = ate(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
-        d_to_nxt_wp = self._wp_dist(wp1, wp2, path=path) - ate_init
+        d_to_nxt_wp = path.wp_dist(wp1, wp2) - ate_init
         orig_seg = True
 
         while True:
@@ -917,13 +868,13 @@ class HHOS_Env(gym.Env):
                 d -= d_to_nxt_wp
                 wp1 += 1
                 wp2 += 1
-                d_to_nxt_wp = self._wp_dist(wp1, wp2, path=path)
+                d_to_nxt_wp = path.wp_dist(wp1, wp2)
                 orig_seg = False
             else:
                 break
 
         # path angle
-        pi_path_spwn = bng_abs(N0=path["north"][wp1], E0=path["east"][wp1], N1=path["north"][wp2], E1=path["east"][wp2])
+        pi_path_spwn = bng_abs(N0=path.north[wp1], E0=path.east[wp1], N1=path.north[wp2], E1=path.east[wp2])
 
         # still in original segment
         if orig_seg:
@@ -932,8 +883,8 @@ class HHOS_Env(gym.Env):
             E_add, N_add = xy_from_polar(r=d, angle=pi_path_spwn)
 
         # determine position
-        N_TS = path["north"][wp1] + N_add
-        E_TS = path["east"][wp1] + E_add
+        N_TS = path.north[wp1] + N_add
+        E_TS = path.east[wp1] + E_add
         
         # jump on the other path: either due to speedy or opposing traffic
         if speedy or rev_dir:
@@ -951,26 +902,25 @@ class HHOS_Env(gym.Env):
             E_TS += E_add_rev
 
         # generate TS
-        TS = KVLCC2(N_init    = N_TS,
-                    E_init    = E_TS,
-                    psi_init  = TS_head,
-                    u_init    = 0.0,
-                    v_init    = 0.0,
-                    r_init    = 0.0,
-                    delta_t   = self.delta_t,
-                    N_max     = np.infty,
-                    E_max     = np.infty,
-                    nps       = nps,
-                    full_ship = False)
+        TS = TargetShip(N_init    = N_TS,
+                        E_init    = E_TS,
+                        psi_init  = TS_head,
+                        u_init    = 0.0,
+                        v_init    = 0.0,
+                        r_init    = 0.0,
+                        delta_t   = self.delta_t,
+                        N_max     = np.infty,
+                        E_max     = np.infty,
+                        nps       = nps,
+                        full_ship = False)
         TS.utm_number = 32
 
         # store waypoint information
-        TS.speedy  = speedy 
         TS.rev_dir = rev_dir
 
         if speedy:
-            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.GlobalPath["lat"], 
-                                                                   lon_array = self.GlobalPath["lon"], 
+            wp1, wp1_N, wp1_E, wp2, wp2_N, wp2_E = get_init_two_wp(lat_array = self.GlobalPath.lat, 
+                                                                   lon_array = self.GlobalPath.lon, 
                                                                    a_n       = TS.eta[0], 
                                                                    a_e       = TS.eta[1])
             TS.glo_wp1_idx = wp1
@@ -980,25 +930,59 @@ class HHOS_Env(gym.Env):
             TS.glo_wp2_N = wp2_N
             TS.glo_wp2_E = wp2_E
             TS.glo_wp3_idx = wp2 + 1
-            TS.glo_wp3_N = self.GlobalPath["north"][wp2 + 1]
-            TS.glo_wp3_E = self.GlobalPath["east"][wp2 + 1]
+            TS.glo_wp3_N = self.GlobalPath.north[wp2 + 1]
+            TS.glo_wp3_E = self.GlobalPath.east[wp2 + 1]
         else:
             if rev_dir:
-                TS.glo_wp1_idx, TS.glo_wp2_idx = self._get_rev_path_wps(wp1, wp2, path=self.GlobalPath)
+                TS.glo_wp1_idx, TS.glo_wp2_idx = self.GlobalPath.get_rev_path_wps(wp1, wp2)
                 TS.glo_wp3_idx = TS.glo_wp2_idx + 1
                 path = self.RevGlobalPath
             else:
                 TS.glo_wp1_idx, TS.glo_wp2_idx, TS.glo_wp3_idx = wp1, wp2, wp2 + 1
                 path = self.GlobalPath
 
-            TS.glo_wp1_N, TS.glo_wp1_E = path["north"][TS.glo_wp1_idx], path["east"][TS.glo_wp1_idx]
-            TS.glo_wp2_N, TS.glo_wp2_E = path["north"][TS.glo_wp2_idx], path["east"][TS.glo_wp2_idx]
-            TS.glo_wp3_N, TS.glo_wp3_E = path["north"][TS.glo_wp3_idx], path["east"][TS.glo_wp3_idx]
+            TS.glo_wp1_N, TS.glo_wp1_E = path.north[TS.glo_wp1_idx], path.east[TS.glo_wp1_idx]
+            TS.glo_wp2_N, TS.glo_wp2_E = path.north[TS.glo_wp2_idx], path.east[TS.glo_wp2_idx]
+            TS.glo_wp3_N, TS.glo_wp3_E = path.north[TS.glo_wp3_idx], path.east[TS.glo_wp3_idx]
 
         # predict converged speed of sampled TS
         TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
         return TS
 
+    def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float, v1:float, rev_dir:bool, Lpp:float):
+        """Checks whether a situation violates the rules on the Elbe from Lighthouse Tinsdal to Cuxhaven.
+        Args:
+            N0(float):     north of OS
+            E0(float):     east of OS
+            head0(float):  heading of OS (currently not relevant)
+            v0(float):     speed of OS
+            N1(float):     north of TS
+            E1(float):     east of TS
+            head1(float):  heading of TS
+            v1(float):     speed of TS
+            rev_dir(bool): whether TS follows the reversed path
+            Lpp(float):    lenght between perpendiculars of OS
+            """
+        # preparation
+        ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+        bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
+
+        # OS should let speedys pass on OS's portside
+        if v1 > v0:
+            if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0) and ED_OS_TS <= 10*Lpp:
+                return True
+
+        # OS should not pass opposing ships on their portside
+        if rev_dir:
+            if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0) and ED_OS_TS <= 10*Lpp:
+                return True
+
+        # normal target ships should be overtaken on their portside
+        if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
+            l = (10 - 5/math.pi * bng_rel_TS_pers)*Lpp
+            if ED_OS_TS <= l:
+                return True
+        return False
 
     def _set_cte(self, path_level, smooth_dc=True):
         """Sets the cross-track error based on VFG for both the local and global path."""
@@ -1043,96 +1027,7 @@ class HHOS_Env(gym.Env):
         else:
             self.loc_course_error = angle_to_pi(self.loc_desired_course - self.OS._get_course())
 
-
-    def _is_overtaking(self, vessel1, vessel2):
-        """Checks whether vessel1 overtakes vessel2. Returns bool."""
-        if vessel1 is vessel2:
-            return False
-
-        dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
-        if (vessel1._get_V() > vessel2._get_V()) and (dist <= 10*max([vessel1.Lpp, vessel2.Lpp])):
-            if 135 <= rtd(bng_rel(N0=vessel2.eta[0], E0=vessel2.eta[1], N1=vessel1.eta[0], E1=vessel1.eta[1], head0=vessel2.eta[2])) <= 315:
-                return True
-        return False
-
-
-    def _is_opposing(self, vessel1, vessel2):
-        """Checks whether the two vessels are in an opposing situation to each other."""
-        dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
-        if (vessel1 is vessel2) or (vessel1.rev_dir == vessel2.rev_dir) or (dist > 10*max([vessel1.Lpp, vessel2.Lpp])):
-            return False
-
-        DCPA, TCPA = cpa(NOS=vessel1.eta[0], EOS=vessel1.eta[1], NTS=vessel2.eta[0], ETS=vessel2.eta[1], chiOS=vessel1._get_course(),\
-            chiTS=vessel2._get_course(), VOS=vessel1._get_V(), VTS=vessel2._get_V())
-        
-        if (TCPA > 0.0) and (DCPA < 2*max([vessel1.B, vessel2.B])):
-            return True
-        return False
-
-
-    def _rule_based_control(self, vessel):
-        """Defines a deterministic rule-based target ship controller."""
-        # easy access
-        ye, dc, _, smoothed_path_ang = VFG(N1 = vessel.glo_wp1_N, 
-                                           E1 = vessel.glo_wp1_E, 
-                                           N2 = vessel.glo_wp2_N, 
-                                           E2 = vessel.glo_wp2_E,
-                                           NA = vessel.eta[0], 
-                                           EA = vessel.eta[1], 
-                                           K  = self.VFG_K, 
-                                           N3 = vessel.glo_wp3_N, 
-                                           E3 = vessel.glo_wp3_E)
-        all_vessels = [self.OS] + self.TSs
-        
-        # consider vessel with smallest euclidean distance
-        EDs = [ED(N0=vessel.eta[0], E0=vessel.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in all_vessels]
-        i = EDs.index(sorted(EDs)[1])
-        other_vessel = all_vessels[i]
-
-        # opposing traffic is a threat
-        opposing_traffic = self._is_opposing(vessel1=other_vessel, vessel2=vessel)
-        if opposing_traffic:
-            vessel.eta[2] = angle_to_2pi(dc + dtr(5.0))
-            return vessel
-
-        # vessel gets overtaken by other ship
-        gets_overtaken = self._is_overtaking(vessel1=other_vessel, vessel2=vessel)
-        if gets_overtaken:
-            ang = smoothed_path_ang if ye > 0.0 else dc
-            delta = self._control_hlp(ye=ye, x1=5*vessel.B, situation="gets_overtaken")
-            vessel.eta[2] = angle_to_2pi(ang + dtr(delta))
-            return vessel
-        
-        # vessel is overtaking someone else
-        is_overtaking = self._is_overtaking(vessel1=vessel, vessel2=other_vessel)
-        if is_overtaking:
-            ang = dc if ye > 0.0 else smoothed_path_ang
-            delta = self._control_hlp(ye=ye, x1=5*vessel.B, situation="is_overtaking")
-            vessel.eta[2] = angle_to_2pi(ang - dtr(delta))
-            return vessel
-
-        # otherwise we just use basic VFG control
-        vessel.eta[2] = dc
-        return vessel
-
-    def _control_hlp(self, situation, ye, x1):
-        """Rule-based control helper fnc to determine the heading adjustment."""
-        assert situation in ["gets_overtaken", "is_overtaking"], "Unknown scenario for rule-based heading control."
-        
-        if situation == "gets_overtaken":
-            y1 = 1
-            y2 = 8
-            if ye < 0.0:
-                return y2
-            return y2 * math.exp(ye/x1 * math.log(y1/y2))
-        else:
-            y1 = 2
-            y2 = 8
-            if ye > 0.0:
-                return y2
-            return y2 * math.exp(ye/x1 * math.log(y2/y1))
-
-    def _handle_respawn(self, TS):
+    def _handle_respawn(self, TS:TargetShip):
         """Checks whether the respawning condition of the target ship is fulfilled."""
         N0, E0, _ = self.OS.eta
         N1, E1, _ = TS.eta
@@ -1210,7 +1105,6 @@ class HHOS_Env(gym.Env):
             return out + "\n" + loc_path_info
         return out
 
-
     def _render_ship(self, ax, vessel, color, plot_CR=False):
         """Draws the ship on the axis. Vessel should by of type KVLCC2. Returns the ax."""
         # quick access
@@ -1272,7 +1166,6 @@ class HHOS_Env(gym.Env):
                      fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         return ax
 
-
     def _render_wps(self, ax, vessel, path_level, color):
         """Renders the current waypoints of a vessel."""
         assert path_level in ["global", "local"], "Choose between the global and local path for waypoint rendering."
@@ -1287,10 +1180,8 @@ class HHOS_Env(gym.Env):
         ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color=color, linewidth=1.0, markersize=3)
         return ax
 
-
     def render(self, data=None):
         """Renders the current environment. Note: The 'data' argument is needed since a recent update of the 'gym' package."""
-
         # check whether figure has been initialized
         if len(plt.get_fignums()) == 0:
             if self.plot_reward:
@@ -1305,7 +1196,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 2 == 0:
+        if self.step_cnt % 1 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
@@ -1345,9 +1236,9 @@ class HHOS_Env(gym.Env):
 
                     # contour plot from depth data
                     con = ax.contourf(self.DepthData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                                    self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                                    self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                                    self.clev, cmap=cm.ocean)
+                                      self.DepthData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                                      self.log_Depth[lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                                      self.clev, cmap=cm.ocean)
 
                     # colorbar as legend
                     if self.step_cnt == 0 and self.first_init:
@@ -1397,13 +1288,17 @@ class HHOS_Env(gym.Env):
 
                     if self.plot_in_latlon:
                         # global
-                        ax.plot(self.GlobalPath["lon"], self.GlobalPath["lat"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
+                        ax.plot(self.GlobalPath.lon, self.GlobalPath.lat, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
                         if type(self).__name__ != "HHOS_PathFollowing_Validation":
-                            ax.plot(self.RevGlobalPath["lon"], self.RevGlobalPath["lat"], marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                            ax.plot(self.RevGlobalPath.lon, self.RevGlobalPath.lat, marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
-                            ax.plot(self.LocalPath["lon"], self.LocalPath["lat"], marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label="Local Path")
+                            if "PathFollowing" in type(self).__name__:
+                                label = "Local Path" + f" ({self.planning_method})"
+                            else:
+                                label = "Local Path"
+                            ax.plot(self.LocalPath.lon, self.LocalPath.lat, marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label=label)
                         ax.legend(loc="lower left")
 
                         # wps of OS
@@ -1419,13 +1314,17 @@ class HHOS_Env(gym.Env):
 
                     else:
                         # global
-                        ax.plot(self.GlobalPath["east"], self.GlobalPath["north"], marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
+                        ax.plot(self.GlobalPath.east, self.GlobalPath.north, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
                         if type(self).__name__ != "HHOS_PathFollowing_Validation":
-                            ax.plot(self.RevGlobalPath["east"], self.RevGlobalPath["north"], marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                            ax.plot(self.RevGlobalPath.east, self.RevGlobalPath.north, marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
-                            ax.plot(self.LocalPath["east"], self.LocalPath["north"], marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label="Local Path")
+                            if "PathFollowing" in type(self).__name__:
+                                label = "Local Path" + f" ({self.planning_method})"
+                            else:
+                                label = "Local Path"
+                            ax.plot(self.LocalPath.east, self.LocalPath.north, marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label=label)
                         ax.legend(loc="lower left")
 
                         # current global waypoints

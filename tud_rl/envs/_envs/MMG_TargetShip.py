@@ -1,0 +1,235 @@
+import math
+from typing import List, Union
+
+import numpy as np
+
+from tud_rl.envs._envs.HHOS_Fnc import VFG, to_latlon, to_utm
+from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
+from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_abs, bng_rel,
+                                         cpa, dtr, rtd, xy_from_polar)
+
+
+class TargetShip(KVLCC2):
+    """This class provides a target ship based on the dynamics of the KVLCC2 tanker."""
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True, cont_acts=False) -> None:
+        super().__init__(N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, cont_acts)
+
+    def _is_overtaking(self, other_vessel : KVLCC2, role : str):
+        """Checks whether a vessel overtakes an other one.
+        Args:
+            role(str): Either 'get_overtaken' or 'is_overtaking'. If 'get_overtaken', the function checks whether self gets 
+                       overtaken by other_vessel, and vice verse if 'is_overtaking'.
+        Returns:
+            bool."""
+
+        assert role in ["gets_overtaken", "is_overtaking"], "Unknown role in overtaking scenario."
+
+        # vessel1 overtakes vessel2
+        if role == "gets_overtaken":
+            vessel1 = other_vessel
+            vessel2 = self
+        else:
+            vessel1 = self
+            vessel2 = other_vessel
+
+        dist = ED(N0=vessel1.eta[0], E0=vessel1.eta[1], N1=vessel2.eta[0], E1=vessel2.eta[1])
+        if (vessel1._get_V() > vessel2._get_V()) and (dist <= 10*max([vessel1.Lpp, vessel2.Lpp])):
+            if 135 <= rtd(bng_rel(N0=vessel2.eta[0], E0=vessel2.eta[1], N1=vessel1.eta[0], E1=vessel1.eta[1], head0=vessel2.eta[2])) <= 315:
+                return True
+        return False
+
+    def _is_opposing(self, other_vessel : KVLCC2):
+        """Checks whether the other vessel is opposing to the target ship."""
+        dist = ED(N0=other_vessel.eta[0], E0=other_vessel.eta[1], N1=self.eta[0], E1=self.eta[1])
+        if (other_vessel.rev_dir == self.rev_dir) or (dist > 10*max([other_vessel.Lpp, self.Lpp])):
+            return False
+
+        DCPA, TCPA = cpa(NOS=self.eta[0], EOS=self.eta[1], NTS=other_vessel.eta[0], ETS=other_vessel.eta[1],\
+             chiOS=self._get_course(), chiTS=other_vessel._get_course(), VOS=self._get_V(), VTS=other_vessel._get_V())
+        
+        if (TCPA > 0.0) and (DCPA < 2*max([other_vessel.B, self.B])):
+            return True
+        return False
+
+    def rule_based_control(self, other_vessels : List[KVLCC2], VFG_K : float):
+        """Defines a deterministic rule-based target ship controller."""
+        # easy access
+        ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
+                                           E1 = self.glo_wp1_E, 
+                                           N2 = self.glo_wp2_N, 
+                                           E2 = self.glo_wp2_E,
+                                           NA = self.eta[0], 
+                                           EA = self.eta[1], 
+                                           K  = VFG_K, 
+                                           N3 = self.glo_wp3_N, 
+                                           E3 = self.glo_wp3_E)
+
+        # consider vessel with smallest euclidean distance
+        EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]
+        i = EDs.index(min(EDs))
+        other_vessel = other_vessels[i]
+
+        # opposing traffic is a threat
+        opposing_traffic = self._is_opposing(other_vessel)
+        if opposing_traffic:
+            self.eta[2] = angle_to_2pi(dc + dtr(5.0))
+
+        # vessel gets overtaken by other ship
+        gets_overtaken = self._is_overtaking(other_vessel=other_vessel, role="gets_overtaken")
+        if gets_overtaken:
+            ang = smoothed_path_ang if ye > 0.0 else dc
+            delta = self._control_hlp(ye=ye, x1=5*self.B, role="gets_overtaken")
+            self.eta[2] = angle_to_2pi(ang + dtr(delta))
+        
+        # vessel is overtaking someone else
+        is_overtaking = self._is_overtaking(other_vessel=other_vessel, role="is_overtaking")
+        if is_overtaking:
+            ang = dc if ye > 0.0 else smoothed_path_ang
+            delta = self._control_hlp(ye=ye, x1=5*self.B, role="is_overtaking")
+            self.eta[2] = angle_to_2pi(ang - dtr(delta))
+
+        # otherwise we just use basic VFG control
+        self.eta[2] = dc
+
+    def _control_hlp(self, role, ye, x1):
+        """Rule-based control helper fnc to determine the heading adjustment."""
+        assert role in ["gets_overtaken", "is_overtaking"], "Unknown scenario for rule-based heading control."
+        
+        if role == "gets_overtaken":
+            y1 = 1
+            y2 = 8
+            if ye < 0.0:
+                return y2
+            return y2 * math.exp(ye/x1 * math.log(y1/y2))
+        else:
+            y1 = 2
+            y2 = 8
+            if ye > 0.0:
+                return y2
+            return y2 * math.exp(ye/x1 * math.log(y2/y1))
+
+
+class Path:
+    """Defines a path in the HHOS-project."""
+    def __init__(self, level, lat=None, lon=None, n_wps=None, north=None, east=None, vs=None, **kwargs) -> None:
+        # checks
+        assert level in ["global", "local"], "Path is either 'global' or 'local'."
+        assert not ((lat is None and lon is None) and (north is None and east is None)), "Need some data to construct the path."
+
+        # UTM and lat-lon
+        if (lat is None) or (lon is None):
+            self._store(north, "north")
+            self._store(east, "east")
+            self.lat, self.lon = to_latlon(north=self.north, east=self.east, number=32)
+        else:
+            self._store(lat, "lat")
+            self._store(lon, "lon")
+
+        # UTM coordinates
+        if (north is None) or (east is None):
+            self.north, self.east, _ = to_utm(lat=self.lat, lon=self.lon)
+        else:
+            self._store(north, "north")
+            self._store(east, "east")
+
+        # velocity
+        if vs is not None:
+            self._store(vs, "vs")
+
+        # number of waypoints
+        if n_wps is None:
+            self.n_wps = len(self.lat)
+        else:
+            assert n_wps == len(self.lat), "Number of waypoints do not match given data."
+            self.n_wps = n_wps
+
+        # optionally store kwarg information
+        for key, value in kwargs.items():
+            self._store(value, key)
+
+    def _store(self, data:Union[list,np.ndarray], name:str):
+        """Stores data by transforming to np.ndarray."""
+        if not isinstance(data, np.ndarray):
+            setattr(self, name, np.array(data))
+        else:
+            setattr(self, name, data)
+
+    def reverse(self, offset:float):
+        """Reverses the path based on a constant offset."""
+        rev_north = np.zeros_like(self.north)
+        rev_east = np.zeros_like(self.east)
+
+        flipped_north = np.flip(self.north)
+        flipped_east = np.flip(self.east)
+
+        for i in range(self.n_wps):
+            n = flipped_north[i]
+            e = flipped_east[i]
+
+            if i != (self.n_wps-1):
+                n_nxt = flipped_north[i+1]
+                e_nxt = flipped_east[i+1]
+                ang = angle_to_2pi(bng_abs(N0=n, E0=e, N1=n_nxt, E1=e_nxt) + math.pi/2)
+            else:
+                n_last = flipped_north[i-1]
+                e_last = flipped_east[i-1]
+                ang = angle_to_2pi(bng_abs(N0=n_last, E0=e_last, N1=n, E1=e) + math.pi/2)
+
+            e_add, n_add = xy_from_polar(r=offset, angle=ang)
+            rev_north[i] = n + n_add
+            rev_east[i] = e + e_add
+
+        # store
+        self.north = rev_north
+        self.east = rev_east
+
+        # lat-lon
+        self.lat, self.lon = to_latlon(north=self.north, east=self.east, number=32)
+
+    def wp_dist(self, wp1_idx, wp2_idx):
+        """Computes the euclidean distance between two waypoints."""
+        if wp1_idx not in range(self.n_wps) or wp2_idx not in range(self.n_wps):
+            raise ValueError("Your path index is out of order. Please check your sampling strategy.")
+
+        return ED(N0=self.north[wp1_idx], E0=self.east[wp1_idx], N1=self.north[wp2_idx], E1=self.east[wp2_idx])
+
+    def get_rev_path_wps(self, wp1_idx, wp2_idx):
+        """Computes the waypoints from the reversed version of the path.
+        Returns: wp1_rev_idx, wp2_rev_idx."""
+        wp1_rev = self.n_wps - (wp2_idx+1)
+        wp2_rev = self.n_wps - (wp1_idx+1)
+
+        return wp1_rev, wp2_rev
+
+    def construct_local_path(self, wp_idx:int, n_wps_loc:int, two_actions:bool, desired_V:float):
+        """Constructs a local path based on a given wp_idx and number of waypoints.
+        Args:
+            wp_idx(int):       Waypoint index where the local path starts
+            n_wps_loc(int):    Length of the constructed path
+            two_actions(bool): whether to construct 'v' as well in the new path
+            desired_V(float):  base-velocity 'v', only considered if two_actions
+        Returns:
+            Path"""
+        assert (wp_idx + n_wps_loc) < self.n_wps, "You want to construct a local path that is longer than the global one!"
+
+        # select
+        lat   = self.lat[wp_idx:wp_idx+n_wps_loc]
+        lon   = self.lon[wp_idx:wp_idx+n_wps_loc]
+        north = self.north[wp_idx:wp_idx+n_wps_loc]
+        east  = self.east[wp_idx:wp_idx+n_wps_loc]
+
+        if two_actions:
+            vs = np.ones_like(lat) * desired_V * np.random.uniform(0.95, 1.05)
+        else:
+            vs = None
+
+        # compute heading
+        heads = np.zeros_like(north)
+        for i in range(n_wps_loc):
+            if i != (n_wps_loc-1):
+                heads[i] = bng_abs(N0=north[i], E0=east[i], N1=north[i+1], E1=east[i+1])
+            else:
+                heads[i] = heads[i-1]
+
+        # construct
+        return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, vs=vs)
