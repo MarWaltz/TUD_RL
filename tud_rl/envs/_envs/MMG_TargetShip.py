@@ -3,7 +3,7 @@ from typing import List, Union
 
 import numpy as np
 
-from tud_rl.envs._envs.HHOS_Fnc import VFG, to_latlon, to_utm
+from tud_rl.envs._envs.HHOS_Fnc import VFG, to_latlon, to_utm, prep_angles_for_average
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_abs, bng_rel,
                                          cpa, dtr, rtd, xy_from_polar)
@@ -233,3 +233,53 @@ class Path:
 
         # construct
         return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, vs=vs)
+
+    def interpolate(self, attribute:str, n_wps_between:int, angle:bool=False):
+        """Linearly interpolates a specific attribute to have additional waypoints. 
+        Careful: We DO NOT ALTER the attribute self.n_wps (!)
+        
+        Args:
+            attribute(str):     attribute of interest, e.g., north
+            n_wps_between(int): number of waypoints to add in each interval.
+            angle(bool):        whether the attribute of interest is an angle, e.g., the heading, 
+                                since the interpolation needs to consider this
+        Example: 
+            When before the function call we have self.north = [0, 1, 2], and call interpolate(attribute='north', n_wps_between=3),
+            we will have self.north = [0, 0.25, 0.50, 0.75, 1.0, 1.25, 1.50, 1.75, 2.0] afterward."""
+
+        assert attribute != "rev_dir", "Cannot interpolate attribute 'rev_dir'; it's binary."
+        
+        # preparation
+        att = getattr(self, attribute)
+        old_len = len(att)
+        new_len = old_len + (old_len-1)*n_wps_between
+
+        # take existing values
+        new_att = np.zeros(new_len)
+        mods = (np.arange(new_len) % (n_wps_between+1))  # modulos
+        ind = (mods == 0)     # indices of old values in new array
+        new_att[ind] = att
+
+        # interpolate others
+        old_i = -1
+        for i in range(len(new_att)):
+            if ind[i]:
+                old_i += 1
+            else:
+                # access
+                frac = mods[i] / (n_wps_between+1)
+                last_val = att[old_i]
+                next_val = att[old_i+1]
+
+                # consider boundary issues for angles
+                if angle:
+                    last_val, next_val = prep_angles_for_average(last_val, next_val)
+ 
+                # average
+                new_att[i] = frac * next_val + (1-frac) * last_val
+                
+                # [0,2pi) for angles
+                if angle:
+                    new_att[i] = angle_to_2pi(new_att[i])
+        # store
+        setattr(self, attribute, new_att)

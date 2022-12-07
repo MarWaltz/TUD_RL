@@ -121,6 +121,20 @@ def find_neighbor(array, value, idx):
         else:
             return array[idx], idx, right, idx+1
 
+def prep_angles_for_average(ang1, ang2):
+    """Prepares two angles before they get averaged. Necessary since otherwise there are boundary issues at 2pi."""
+    # make sure they are in [0,2pi]
+    ang1 = angle_to_2pi(ang1)
+    ang2 = angle_to_2pi(ang2)
+
+    # transform if necessary
+    if abs(ang1-ang2) >= math.pi:
+        if ang1 >= ang2:
+            ang1 = angle_to_pi(ang1)
+        else:
+            ang2 = angle_to_pi(ang2)
+    return ang1, ang2
+
 def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
     """Computes the linearly interpolated value (e.g. water depth, wind) at a (queried) longitude-latitude position.
     Args:
@@ -153,11 +167,7 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
         delta_lonQ7 = lon_upp - lon_q
 
         if angle:
-            if abs(Z_S6-Z_S7) >= math.pi:
-                if Z_S6 >= Z_S7:
-                    Z_S6 = angle_to_pi(Z_S6)
-                else:
-                    Z_S7 = angle_to_pi(Z_S7)
+            Z_S6, Z_S7 = prep_angles_for_average(Z_S6, Z_S7)
         out = (delta_lon6Q * Z_S7 + delta_lonQ7 * Z_S6) / (delta_lon6Q + delta_lonQ7)
         if angle:
             return angle_to_2pi(out)
@@ -172,12 +182,7 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
         delta_lat63 = lat_q - lat_low
 
         if angle:
-            if abs(Z_S1-Z_S3) >= math.pi:
-                if Z_S1 >= Z_S3:
-                    Z_S1 = angle_to_pi(Z_S1)
-                else:
-                    Z_S3 = angle_to_pi(Z_S3)
-
+            Z_S1, Z_S3 = prep_angles_for_average(Z_S1, Z_S3)
         out = (delta_lat16 * Z_S3 + delta_lat63 * Z_S1) / (delta_lat16 + delta_lat63)
         if angle:
             return angle_to_2pi(out)
@@ -195,17 +200,8 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
         delta_lat63 = lat_q - lat_low
 
         if angle:
-            if abs(Z_S1-Z_S3) >= math.pi:
-                if Z_S1 >= Z_S3:
-                    Z_S1 = angle_to_pi(Z_S1)
-                else:
-                    Z_S3 = angle_to_pi(Z_S3)
-
-            if abs(Z_S2-Z_S4) >= math.pi:
-                if Z_S2 >= Z_S4:
-                    Z_S2 = angle_to_pi(Z_S2)
-                else:
-                    Z_S4 = angle_to_pi(Z_S4)
+            Z_S1, Z_S3 = prep_angles_for_average(Z_S1, Z_S3)
+            Z_S2, Z_S4 = prep_angles_for_average(Z_S2, Z_S4)
 
         Z_S6 = (delta_lat16 * Z_S3 + delta_lat63 * Z_S1) / (delta_lat16 + delta_lat63)
         Z_S7 = (delta_lat16 * Z_S4 + delta_lat63 * Z_S2) / (delta_lat16 + delta_lat63)
@@ -218,11 +214,7 @@ def Z_at_latlon(Z, lat_array, lon_array, lat_q, lon_q, angle:bool=False):
         delta_lonQ7 = lon_upp - lon_q
 
         if angle:
-            if abs(Z_S6-Z_S7) >= math.pi:
-                if Z_S6 >= Z_S7:
-                    Z_S6 = angle_to_pi(Z_S6)
-                else:
-                    Z_S7 = angle_to_pi(Z_S7)
+            Z_S6, Z_S7 = prep_angles_for_average(Z_S6, Z_S7)
         out = (delta_lon6Q * Z_S7 + delta_lonQ7 * Z_S6) / (delta_lon6Q + delta_lonQ7)
         if angle:
             return angle_to_2pi(out)
@@ -279,11 +271,7 @@ def VFG(N1, E1, N2, E2, NA, EA, K, N3=None, E3=None):
         w23 = frac**1
 
         # adjustment to avoid boundary issues at 2pi
-        if abs(pi_path_12-pi_path_23) >= math.pi:
-            if pi_path_12 >= pi_path_23:
-                pi_path_12 = angle_to_pi(pi_path_12)
-            else:
-                pi_path_23 = angle_to_pi(pi_path_23)
+        pi_path_12, pi_path_23 = prep_angles_for_average(pi_path_12, pi_path_23)
 
         # construct new angle
         pi_path_up = angle_to_2pi(w23*pi_path_23 + (1-w23)*pi_path_12)

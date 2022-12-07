@@ -223,19 +223,31 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         Returns:
             bool, conflict (True) or no conflict (False)"""
         assert method in ["RL", "APF"], "Use either 'RL' or 'APF' for conflict checking."
-
+        
         # always check for collisions with land
-        for i in range(localPath.n_wps):
+        for i in range(len(localPath.lat)):
             if self._depth_at_latlon(lat_q=localPath.lat[i], lon_q=localPath.lon[i]) <= self.OS.critical_depth:
                 return True
+
+        # interpolate path of OS
+        atts_to_interpolate = ["north", "east", "heads", "vs"]
+        for att in atts_to_interpolate:
+            angle = True if att == "heads" else False
+            localPath.interpolate(attribute=att, n_wps_between=5, angle=angle)
 
         # create TSnavData if not existent
         if TSnavData is None:
             TSnavData = self._update_local_path_safe(method=None)
+        
+        # interpolate paths of TS to make sure to detect collisions
+        for path in TSnavData:
+            for att in atts_to_interpolate:
+                angle = True if att == "heads" else False
+                path.interpolate(attribute=att, n_wps_between=5, angle=angle)
 
         #----- check for target ship collisions in both methods -----
-        n_TS = len(TSnavData)
-        n_wps = TSnavData[0].n_wps
+        n_TS  = len(TSnavData)
+        n_wps = len(TSnavData[0].north)
 
         for t in range(n_wps):
             for i in range(n_TS):
@@ -264,7 +276,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                     v0 = localPath.vs[t]
                     N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
                     v1 = TSnavData[i].vs[t]
-                    rev_dir = TSnavData[i].rev_dir[t]
+                    rev_dir = TSnavData[i].rev_dir[0] # careful here, might be problematic at some point
 
                     # check
                     if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1, \
