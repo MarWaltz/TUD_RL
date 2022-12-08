@@ -5,6 +5,7 @@ from copy import copy, deepcopy
 from typing import List
 
 import gym
+import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
 import scipy.ndimage
@@ -17,10 +18,12 @@ from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
                                         mps_to_knots, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.MMG_TargetShip import Path, TargetShip
-from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
+from tud_rl.envs._envs.VesselFnc import (COLREG_COLORS, COLREG_NAMES, ED,
+                                         NM_to_meter, angle_to_2pi,
                                          angle_to_pi, bng_abs, bng_rel, cpa,
-                                         dtr, get_ship_domain, rtd, tcpa,
-                                         xy_from_polar)
+                                         dtr, get_ship_domain, head_inter,
+                                         polar_from_xy, project_vector, rtd,
+                                         tcpa, xy_from_polar)
 from tud_rl.envs._envs.VesselPlots import rotate_point
 
 
@@ -117,15 +120,12 @@ class HHOS_Env(gym.Env):
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
-        self.TCPA_respawn = 120                        # (negative) TCPA in seconds considered as respawning condition
-        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(0.75)]
+        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(0.75)]  # for river
+        self.TCPA_crit = 25 * 60 # spawning time for target ships on open sea
 
         # trajectory or path-planning and following
         assert nps_control_follower is None or thrust_control_planner is None, "Specify a planner or a follower, not both."
-        
-        self.nps_control_follower   = nps_control_follower
-        self.thrust_control_planner = thrust_control_planner
-        self.two_actions = self.nps_control_follower or self.thrust_control_planner
+        self.two_actions = nps_control_follower or thrust_control_planner
 
         self.loc_path_upd_freq = 25
         self.desired_V = 3.0
@@ -231,77 +231,82 @@ class HHOS_Env(gym.Env):
         self.DepthData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=500)
         self.DepthData["data"] = np.ones((len(self.DepthData["lat"]), len(self.DepthData["lon"])))
 
-        while True:
-            # sample distances to waypoints
-            d_left  = np.zeros(self.n_wps_glo)
-            d_right = np.zeros(self.n_wps_glo)
-            depth = np.zeros(self.n_wps_glo)
+        if self.episode_on_river:
 
-            for i in range(self.n_wps_glo):
-                if i == 0:
-                    d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
-                    d_right[i] = np.clip(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
-                    depth[i] = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
-                else:
-                    d_left[i]  = np.clip(
-                                    d_left[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
-                                self.river_min, 3*self.river_dist_left_loc)
-                    d_right[i] = np.clip(
-                                    d_right[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
-                                self.river_min, 3*self.river_dist_right_loc)
-                    depth[i] = np.clip(depth[i-1] + np.random.normal(loc=0.0, scale=10.0), 20, 100)
+            while True:
+                # sample distances to waypoints
+                d_left  = np.zeros(self.n_wps_glo)
+                d_right = np.zeros(self.n_wps_glo)
+                depth = np.zeros(self.n_wps_glo)
 
-            # fill close points at that distance away from the path
-            lat_path = self.GlobalPath.lat
-            lon_path = self.GlobalPath.lon
+                for i in range(self.n_wps_glo):
+                    if i == 0:
+                        d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                        d_right[i] = np.clip(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
+                        depth[i] = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
+                    else:
+                        d_left[i]  = np.clip(
+                                        d_left[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
+                                    self.river_min, 3*self.river_dist_left_loc)
+                        d_right[i] = np.clip(
+                                        d_right[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),
+                                    self.river_min, 3*self.river_dist_right_loc)
+                        depth[i] = np.clip(depth[i-1] + np.random.normal(loc=0.0, scale=10.0), 20, 100)
 
-            for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
-                
-                if i != self.n_wps_glo-1:
+                # fill close points at that distance away from the path
+                lat_path = self.GlobalPath.lat
+                lon_path = self.GlobalPath.lon
 
-                    # go to utm
-                    n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
-                    n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
+                for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
+                    
+                    if i != self.n_wps_glo-1:
 
-                    # angles
-                    bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
-                    angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
-                    angle_right = angle_to_2pi(bng_absolute + math.pi/2)
+                        # go to utm
+                        n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
+                        n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
 
-                    # compute resulting points
-                    e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
-                    lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
+                        # angles
+                        bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
+                        angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
+                        angle_right = angle_to_2pi(bng_absolute + math.pi/2)
 
-                    e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
-                    lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
+                        # compute resulting points
+                        e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
+                        lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
 
-                    # find closest point in the array
-                    _, lat_left_idx = find_nearest(array=self.DepthData["lat"], value=lat_left)
-                    _, lon_left_idx = find_nearest(array=self.DepthData["lon"], value=lon_left)
+                        e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
+                        lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
 
-                    _, lat_right_idx = find_nearest(array=self.DepthData["lat"], value=lat_right)
-                    _, lon_right_idx = find_nearest(array=self.DepthData["lon"], value=lon_right)
+                        # find closest point in the array
+                        _, lat_left_idx = find_nearest(array=self.DepthData["lat"], value=lat_left)
+                        _, lon_left_idx = find_nearest(array=self.DepthData["lon"], value=lon_left)
 
-                    if i != 0:
-                        lat_idx1 = np.min([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
-                        lat_idx2 = np.max([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
+                        _, lat_right_idx = find_nearest(array=self.DepthData["lat"], value=lat_right)
+                        _, lon_right_idx = find_nearest(array=self.DepthData["lon"], value=lon_right)
 
-                        lon_idx1 = np.min([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
-                        lon_idx2 = np.max([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+                        if i != 0:
+                            lat_idx1 = np.min([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
+                            lat_idx2 = np.max([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
 
-                        self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_idx1, lon_idx1=lon_idx1,
-                                                            lat_idx2=lat_idx2, lon_idx2=lon_idx2,
-                                                            value=depth[i])
-                    lat_left_idx_old = lat_left_idx
-                    lon_left_idx_old = lon_left_idx
-                    lat_right_idx_old = lat_right_idx
-                    lon_right_idx_old = lon_right_idx
+                            lon_idx1 = np.min([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+                            lon_idx2 = np.max([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
 
-            # smoothing things
-            self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[3, 3], mode="constant"), 1.0, np.infty)
+                            self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_idx1, lon_idx1=lon_idx1,
+                                                                lat_idx2=lat_idx2, lon_idx2=lon_idx2,
+                                                                value=depth[i])
+                        lat_left_idx_old = lat_left_idx
+                        lon_left_idx_old = lon_left_idx
+                        lat_right_idx_old = lat_right_idx
+                        lon_right_idx_old = lon_right_idx
 
-            if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
-                break
+                # smoothing things
+                self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[3, 3], mode="constant"), 1.0, np.infty)
+
+                if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
+                    break
+        else:
+            self.DepthData["data"] *= np.clip(np.random.exponential(scale=90, size=1), 20, 700)
+
         # log
         self.log_Depth = np.log(self.DepthData["data"])
 
@@ -503,20 +508,22 @@ class HHOS_Env(gym.Env):
         """Computes the closeness following Heiberg et al. (2022, Neural Networks) from given LiDAR distance measurements."""
         return np.clip(1 - np.log(dists+1)/np.log(self.lidar_range+1), 0, 1)
 
-    def _sense_LiDAR(self):
+    def _sense_LiDAR(self, N0:float, E0:float, head0:float):
         """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
         The first beam is defined in direction of the heading of the OS. Each beam consists of 'n_dots_per_beam' sub-points, which are sequentially considered. 
         Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
         Furthermore, it returns the endpoints in lat-lon of each (truncated) beam.
+        Args:
+            N0(float): north position
+            E0(float): east position
+            head0(float): heading
+        
         Returns (as tuple):
             np.array(lidar_n_beams,) of dists
-            endpoints in lat-lon as list of lat-lon-tuples
+            list : endpoints as lat-lon-tuples
             np.array(lidar_n_beams,) of n-positions
             np.array(lidar_n_beams,) of e-positions
         """
-        # UTM coordinates of OS
-        N0, E0, head0 = self.OS.eta
-
         # setup output
         out_dists = np.ones(self.lidar_n_beams) * self.lidar_range
         out_lat_lon = []
@@ -536,7 +543,7 @@ class HHOS_Env(gym.Env):
                 E_dot = E0 + delta_E_dot
 
                 # transform to LatLon
-                lat_dot, lon_dot = to_latlon(north=N_dot, east=E_dot, number=self.OS.utm_number)
+                lat_dot, lon_dot = to_latlon(north=N_dot, east=E_dot, number=32)
 
                 # check water depth at that point
                 depth_dot = self._depth_at_latlon(lat_q=lat_dot, lon_q=lon_dot)
@@ -559,19 +566,23 @@ class HHOS_Env(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
+        # Are we on river or on open sea?
+        self.episode_on_river = False #bool(random.getrandbits(1))
+
         # sample global path if no real data is used
         if self.data == "sampled":
             self._sample_global_path()
 
-        # add reversed global path for TS spawning
-        self.RevGlobalPath = deepcopy(self.GlobalPath)
-        self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
+        # on river: add reversed global path for TS spawning
+        if self.episode_on_river:
+            self.RevGlobalPath = deepcopy(self.GlobalPath)
+            self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
 
         # init OS
         wp_idx = OS_wp_idx
         lat_init = self.GlobalPath.lat[wp_idx]
         lon_init = self.GlobalPath.lon[wp_idx]
-        N_init, E_init, number = to_utm(lat=lat_init, lon=lon_init)
+        N_init, E_init, _ = to_utm(lat=lat_init, lon=lon_init)
 
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
@@ -603,9 +614,6 @@ class HHOS_Env(gym.Env):
             self.OS.eta[2] = angle_to_2pi(self.glo_pi_path + dtr(np.random.uniform(-25.0, 25.0)))
         else:
             self.OS.eta[2] = self.glo_pi_path
-
-        # Critical point: We do not update the UTM number (!) since our simulation primarily takes place in 32U and 32V.
-        self.OS.utm_number = number
 
         # generate random environmental data
         if self.data == "sampled":
@@ -690,49 +698,165 @@ class HHOS_Env(gym.Env):
                                                               n_wps_loc   = self.n_wps_loc,
                                                               two_actions = self.two_actions, 
                                                               desired_V   = self.desired_V)
-        self.planning_method = "Global"
+        self.planning_method = "global"
 
     def _update_local_path(self):
         self._init_local_path()
 
     def _init_TSs(self):
-        if self.scenario_based:
-            p_scene = [0.5, 0.125, 0.125, 0.125, 0.125]
+        if self.episode_on_river:
+
+            # sample a scenario on river
+            if self.scenario_based:
+                p_scene = [0.5, 0.125, 0.125, 0.125, 0.125]
+            else:
+                p_scene = [1.0, 0.0, 0.0, 0.0, 0.0]
+            self.scene = np.random.choice([0, 1, 2, 3, 4], p=p_scene)
+
+            # all random
+            if self.scene == 0.0:
+                if self.N_TSs_random:
+                    self.N_TSs = np.random.choice(self.N_TSs_max)
+                else:
+                    self.N_TSs = self.N_TSs_max
+
+            # vessel train
+            elif self.scene == 1:
+                self.N_TSs = self.N_TSs_max
+            
+            # overtake the overtaker
+            elif self.scene == 2:
+                self.N_TSs = 2
+
+            # overtaking under oncoming traffic
+            elif self.scene == 3:
+                self.N_TSs = 5
+            
+            # overtake the overtaker under oncoming traffic
+            elif self.scene == 4:
+                self.N_TSs = 3
         else:
-            p_scene = [1.0, 0.0, 0.0, 0.0, 0.0]
-
-        # sample scenario
-        self.scene = np.random.choice([0, 1, 2, 3, 4], p=p_scene)
-
-        # all random
-        if self.scene == 0.0:
             if self.N_TSs_random:
                 self.N_TSs = np.random.choice(self.N_TSs_max)
             else:
                 self.N_TSs = self.N_TSs_max
 
-        # vessel train
-        elif self.scene == 1:
-            self.N_TSs = self.N_TSs_max
-        
-        # overtake the overtaker
-        elif self.scene == 2:
-            self.N_TSs = 2
-
-        # overtaking under oncoming traffic
-        elif self.scene == 3:
-            self.N_TSs = 5
-        
-        # overtake the overtaker under oncoming traffic
-        elif self.scene == 4:
-            self.N_TSs = 3
-
-        # no list comprehension since we need access to previously spawned TS
+        # sample TSs
         self.TSs : List[TargetShip]= []
         for n in range(self.N_TSs):
-            self.TSs.append(self._get_TS(scene=self.scene, n=n))
+            if self.episode_on_river:
+                self.TSs.append(self._get_TS_river(scene=self.scene, n=n))
+            else:
+                self.TSs.append(self._get_TS_open_sea())
 
-    def _get_TS(self, scene, n=None):
+    def _get_TS_open_sea(self):
+        """Places a target ship by sampling a 
+            1) COLREG situation,
+            2) TCPA (in s, or setting to 60s),
+            3) relative bearing (in rad), 
+            4) intersection angle (in rad),
+            5) and a forward thrust (tau-u in N).
+        Returns: 
+            TargetShip"""
+        TS = TargetShip(N_init    = 0.0,
+                        E_init    = 0.0,
+                        psi_init  = 0.0,
+                        u_init    = 0.0,
+                        v_init    = 0.0,
+                        r_init    = 0.0,
+                        delta_t   = self.delta_t,
+                        N_max     = np.infty,
+                        E_max     = np.infty,
+                        nps       = np.random.uniform(0.8, 1.2) * self.OS.nps,
+                        full_ship = False)
+
+        # predict converged speed of sampled TS
+        # Note: if we don't do this, all further calculations are heavily biased
+        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+
+        # quick access for OS
+        N0, E0, _ = self.OS.eta
+        chiOS = self.OS._get_course()
+        VOS   = self.OS._get_V()
+
+        # sample COLREG situation 
+        # null = 0, head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4
+        COLREG_s = np.random.choice([0, 1, 2, 3, 4], p=[0.2, 0.2, 0.2, 0.2, 0.2])
+
+        # determine relative speed of OS towards goal, need absolute bearing first
+        try:
+            g_idx = self.OS.glo_wp3_idx + 3
+            g_n = self.GlobalPath.north[g_idx]
+            g_e = self.GlobalPath.east[g_idx]
+        except:
+            g_idx = self.OS.glo_wp3_idx
+            g_n = self.GlobalPath.north[g_idx]
+            g_e = self.GlobalPath.east[g_idx]
+        bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=g_n, E1=g_e)
+
+        # project VOS vector on relative velocity direction
+        VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
+        
+        # sample time
+        t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
+
+        # compute hit point
+        E_hit = E0 + VR_goal_x * t_hit
+        N_hit = N0 + VR_goal_y * t_hit
+
+        # Note: In the following, we only sample the intersection angle and not a relative bearing.
+        #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
+        #       and we need only one further information to uniquely determine the origin of its motion.
+
+        # null: TS comes from behind
+        if COLREG_s == 0:
+                C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
+        # head-on
+        elif COLREG_s == 1:
+            C_TS_s = dtr(np.random.uniform(175, 185))
+
+        # starboard crossing
+        elif COLREG_s == 2:
+            C_TS_s = dtr(np.random.uniform(185, 292.5))
+
+        # portside crossing
+        elif COLREG_s == 3:
+            C_TS_s = dtr(np.random.uniform(67.5, 175))
+
+        # overtaking
+        elif COLREG_s == 4:
+            C_TS_s = angle_to_2pi(dtr(np.random.uniform(-67.5, 67.5)))
+
+        # determine TS heading (treating absolute bearing towards goal as heading of OS)
+        head_TS_s = angle_to_2pi(C_TS_s + bng_abs_goal)   
+
+        # no speed constraints except in overtaking
+        if COLREG_s in [0, 1, 2, 3]:
+            VTS = TS.nu[0]
+
+        elif COLREG_s == 4:
+
+            # project VOS vector on TS direction
+            VR_TS_x, VR_TS_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=head_TS_s)
+            V_max_TS = polar_from_xy(x=VR_TS_x, y=VR_TS_y, with_r=True, with_angle=False)[0]
+
+            # sample TS speed
+            VTS = np.random.uniform(0.3, 0.7) * V_max_TS
+            TS.nu[0] = VTS
+
+            # set nps of TS so that it will keep this velocity
+            TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
+
+        # backtrace original position of TS
+        E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
+        N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
+
+        # set positional values
+        TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+        return TS
+
+    def _get_TS_river(self, scene, n=None):
         """Places a target ship by setting a 
             1) traveling direction,
             2) distance on the global path,
@@ -913,7 +1037,6 @@ class HHOS_Env(gym.Env):
                         E_max     = np.infty,
                         nps       = nps,
                         full_ship = False)
-        TS.utm_number = 32
 
         # store waypoint information
         TS.rev_dir = rev_dir
@@ -949,7 +1072,95 @@ class HHOS_Env(gym.Env):
         TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
         return TS
 
-    def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float, v1:float, rev_dir:bool, Lpp:float):
+    def _get_COLREG_situation(self, N0:float, E0:float, head0:float, v0:float, chi0:float,
+                                    N1:float, E1:float, head1:float, v1:float, chi1:float):
+        """Determines the COLREG situation from the perspective of the OS. 
+        Follows Xu et al. (2020, Ocean Engineering; 2022, Neurocomputing).
+
+        Args:
+            N0(float):     north of OS
+            E0(float):     east of OS
+            head0(float):  heading of OS
+            v0(float):     speed of OS
+            chi0(float):   course of OS
+            N1(float):     north of TS
+            E1(float):     east of TS
+            head1(float):  heading of TS
+            v1(float):     speed of TS
+            chi1(float):   course of TS
+
+        Returns:
+            1 - head-on 
+            2 - starboard crossing
+            3 - portside crossing
+            4 - overtaking
+            5 - no conflict situation
+        """
+        # check whether TS is out of sight
+        if ED(N0=N0, E0=E0, N1=N1, E1=E1) > self.lidar_range:
+            return 5
+
+        # relative bearing from OS to TS
+        bng_OS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0)
+
+        # relative bearing from TS to OS
+        bng_TS = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
+
+        # intersection angle
+        C_T = head_inter(head_OS=head0, head_TS=head1)
+
+        # velocity component of OS in direction of TS
+        V_rel_x, V_rel_y = project_vector(VA=v0, angleA=chi0, VB=v1, angleB=chi1)
+        V_rel = polar_from_xy(x=V_rel_x, y=V_rel_y, with_r=True, with_angle=False)[0]
+
+        # COLREG: Head-on
+        if -5 <= rtd(angle_to_pi(bng_OS)) <= 5 and 175 <= rtd(C_T) <= 185:
+            return 1
+        
+        # COLREG: Starboard crossing
+        if 5 <= rtd(bng_OS) <= 112.5 and 185 <= rtd(C_T) <= 292.5:
+            return 2
+
+        # COLREG: Portside crossing
+        if 247.5 <= rtd(bng_OS) <= 355 and 67.5 <= rtd(C_T) <= 175:
+            return 3
+
+        # COLREG: Overtaking
+        if 112.5 <= rtd(bng_TS) <= 247.5 and -67.5 <= rtd(angle_to_pi(C_T)) <= 67.5 and V_rel > v1:
+            return 4
+
+        # no encounter situation
+        return 5
+
+    def _violates_COLREG_rules(self, N0:float, E0:float, head0:float, chi0:float, v0:float, r0:float, N1:float, E1:float,\
+        head1:float, chi1:float, v1:float) -> bool:
+        """Checks whether a situation violates the COLREG rules of the open sea.
+        Args:
+            N0(float):     north of OS
+            E0(float):     east of OS
+            head0(float):  heading of OS
+            chi0(float):   course of OS
+            v0(float):     speed of OS
+            r0(float):     turning rate of OS
+            N1(float):     north of TS
+            E1(float):     east of TS
+            head1(float):  heading of TS
+            chi1(float):   course of TS
+            v1(float):     speed of TS
+        """
+        sit = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, chi0=chi0, v0=v0, 
+                                         N1=N1, E1=E1, head1=head1, chi1=chi1, v1=v1)
+
+        # steer to the right in Head-on and starboard crossing situations
+        if (sit in [1, 2]) and r0 < 0.0:
+
+            # evaluate only if TCPA with TS is positive
+            if tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0, chiTS=chi1, VOS=v0, VTS=v1) >= 0.0:
+                return True
+        return False
+
+    def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float,\
+        v1:float, rev_dir:bool, Lpp:float) -> bool:
         """Checks whether a situation violates the rules on the Elbe from Lighthouse Tinsdal to Cuxhaven.
         Args:
             N0(float):     north of OS
@@ -978,13 +1189,25 @@ class HHOS_Env(gym.Env):
                 return True
 
         # normal target ships should be overtaken on their portside
-        if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
-            l = (10 - 5/math.pi * bng_rel_TS_pers)*Lpp
-            if ED_OS_TS <= l:
-                return True
+        if v0 > v1:
+            if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
+                l = (10 - 5/math.pi * bng_rel_TS_pers)*Lpp
+                if ED_OS_TS <= l:
+                    return True
         return False
 
-    def _set_cte(self, path_level, smooth_dc=True):
+    #def _on_river(self, N0:float, E0:float, head0:float):
+    #    """Checks whether we are on river or on open sea, depending on surroundings.
+    #    
+    #    Returns:
+    #        bool, True if on river, False if on open sea"""
+    #    dists, _, _, _ = self._sense_LiDAR(N0=N0, E0=E0, head0=head0)
+    #    if all(dists == self.lidar_range):
+    #        return False
+    #    else:
+    #        return True
+
+    def _set_cte(self, path_level:str, smooth_dc:bool=True):
         """Sets the cross-track error based on VFG for both the local and global path."""
         assert path_level in ["global", "local"], "Choose between the global and local path for waypoint updating."
 
@@ -1028,23 +1251,29 @@ class HHOS_Env(gym.Env):
             self.loc_course_error = angle_to_pi(self.loc_desired_course - self.OS._get_course())
 
     def _handle_respawn(self, TS:TargetShip):
-        """Checks whether the respawning condition of the target ship is fulfilled."""
+        """Checks whether the respawning condition of the target ship is fulfilled.
+        Returns:
+            TargetShip"""
         N0, E0, _ = self.OS.eta
         N1, E1, _ = TS.eta
 
-        # respawn only oncoming traffic
-        if TS.rev_dir:
-            TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
-                VOS=self.OS._get_V(), VTS=TS._get_V())
+        TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(), chiTS=TS._get_course(),\
+             VOS=self.OS._get_V(), VTS=TS._get_V())
 
+        # on river
+        if self.episode_on_river:
             if TCPA < 0.0 and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= NM_to_meter(0.5):
-                return self._get_TS(scene=0, n=None)
+                return self._get_TS_river(scene=0, n=None)
+        # open sea
+        else:
+            if TCPA < 0.0 and ED(N0=N0, E0=E0, N1=N1, E1=E1) >= self.lidar_range:
+                return self._get_TS_open_sea()
         return TS
 
     def _update_disturbances(self, OS_lat=None, OS_lon=None):
         """Updates the environmental disturbances at the agent's current position."""
         if OS_lat is None and OS_lon is None:
-            OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=self.OS.utm_number)
+            OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=32)
 
         self.V_c, self.beta_c = self._current_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
         self.V_w, self.beta_w = self._wind_at_latlon(lat_q=OS_lat, lon_q=OS_lon)
@@ -1105,29 +1334,36 @@ class HHOS_Env(gym.Env):
             return out + "\n" + loc_path_info
         return out
 
-    def _render_ship(self, ax, vessel, color, plot_CR=False):
+    def _render_ship(self, ax:plt.Axes, vessel:KVLCC2, color:str, plot_CR:bool=False):
         """Draws the ship on the axis. Vessel should by of type KVLCC2. Returns the ax."""
         # quick access
         l = vessel.Lpp/2
         b = vessel.B/2
-        N, E, head = vessel.eta
         N0, E0, head0 = self.OS.eta
+        N1, E1, head1 = vessel.eta
+
+        # overwrite color for COLREG situation
+        if not self.episode_on_river and (vessel is not self.OS):
+            sit = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=vessel._get_V(),
+                                             N1=N1, E1=E1, head1=head1, chi1=vessel._get_course(), v1=vessel._get_V())
+            sit = 0 if sit == 5 else sit # different labeling in HHOS
+            color = COLREG_COLORS[sit]
 
         # get rectangle/polygon end points in UTM
-        A = (E - b, N + l)
-        B = (E + b, N + l)
-        C = (E - b, N - l)
-        D = (E + b, N - l)
+        A = (E1 - b, N1 + l)
+        B = (E1 + b, N1 + l)
+        C = (E1 - b, N1 - l)
+        D = (E1 + b, N1 - l)
 
         # rotate them according to heading
-        A = rotate_point(x=A[0], y=A[1], cx=E, cy=N, angle=-head)
-        B = rotate_point(x=B[0], y=B[1], cx=E, cy=N, angle=-head)
-        C = rotate_point(x=C[0], y=C[1], cx=E, cy=N, angle=-head)
-        D = rotate_point(x=D[0], y=D[1], cx=E, cy=N, angle=-head)
+        A = rotate_point(x=A[0], y=A[1], cx=E1, cy=N1, angle=-head1)
+        B = rotate_point(x=B[0], y=B[1], cx=E1, cy=N1, angle=-head1)
+        C = rotate_point(x=C[0], y=C[1], cx=E1, cy=N1, angle=-head1)
+        D = rotate_point(x=D[0], y=D[1], cx=E1, cy=N1, angle=-head1)
 
         # collision risk and metrics
         if plot_CR:
-            DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=self.OS._get_course(),\
+            DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(),\
                 chiTS=vessel._get_course(), VOS=self.OS._get_V(), VTS=vessel._get_V(), get_positions=True)
 
             # substract ship domain at TCPA = 0 from DCPA
@@ -1139,10 +1375,10 @@ class HHOS_Env(gym.Env):
         if self.plot_in_latlon:
 
             # convert them to lat/lon
-            A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=vessel.utm_number)
-            B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=vessel.utm_number)
-            C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=vessel.utm_number)
-            D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=vessel.utm_number)
+            A_lat, A_lon = to_latlon(north=A[1], east=A[0], number=32)
+            B_lat, B_lon = to_latlon(north=B[1], east=B[0], number=32)
+            C_lat, C_lon = to_latlon(north=C[1], east=C[0], number=32)
+            D_lat, D_lon = to_latlon(north=D[1], east=D[0], number=32)
 
             # draw the polygon (A is included twice to create a closed shape)
             lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
@@ -1171,11 +1407,11 @@ class HHOS_Env(gym.Env):
         assert path_level in ["global", "local"], "Choose between the global and local path for waypoint rendering."
 
         if path_level == "global":
-            wp1_lat, wp1_lon = to_latlon(north=vessel.glo_wp1_N, east=vessel.glo_wp1_E, number=vessel.utm_number)
-            wp2_lat, wp2_lon = to_latlon(north=vessel.glo_wp2_N, east=vessel.glo_wp2_E, number=vessel.utm_number)
+            wp1_lat, wp1_lon = to_latlon(north=vessel.glo_wp1_N, east=vessel.glo_wp1_E, number=32)
+            wp2_lat, wp2_lon = to_latlon(north=vessel.glo_wp2_N, east=vessel.glo_wp2_E, number=32)
         else:
-            wp1_lat, wp1_lon = to_latlon(north=vessel.loc_wp1_N, east=vessel.loc_wp1_E, number=vessel.utm_number)
-            wp2_lat, wp2_lon = to_latlon(north=vessel.loc_wp2_N, east=vessel.loc_wp2_E, number=vessel.utm_number)
+            wp1_lat, wp1_lon = to_latlon(north=vessel.loc_wp1_N, east=vessel.loc_wp1_E, number=32)
+            wp2_lat, wp2_lon = to_latlon(north=vessel.loc_wp2_N, east=vessel.loc_wp2_E, number=32)
 
         ax.plot([wp1_lon, wp2_lon], [wp1_lat, wp2_lat], color=color, linewidth=1.0, markersize=3)
         return ax
@@ -1200,7 +1436,7 @@ class HHOS_Env(gym.Env):
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
-            OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=self.OS.utm_number)
+            OS_lat, OS_lon = to_latlon(north=N0, east=E0, number=32)
 
             for ax in [self.ax1]:
                 ax.clear()
@@ -1259,7 +1495,6 @@ class HHOS_Env(gym.Env):
                             self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
                             self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
                             length=4, barbcolor="goldenrod")
-
                 #------------------ set ships ------------------------
                 # OS
                 ax = self._render_ship(ax=ax, vessel=self.OS, color="red", plot_CR=False)
@@ -1268,7 +1503,7 @@ class HHOS_Env(gym.Env):
                 xys = [rotate_point(E0 + x, N0 + y, cx=E0, cy=N0, angle=-head0) for x, y in zip(self.domain_xs, self.domain_ys)]
 
                 if self.plot_in_latlon:
-                    lat_lon_tups = [to_latlon(north=y, east=x, number=self.OS.utm_number)[:2] for x, y in xys]
+                    lat_lon_tups = [to_latlon(north=y, east=x, number=32)[:2] for x, y in xys]
                     lats = [e[0] for e in lat_lon_tups]
                     lons = [e[1] for e in lat_lon_tups]
                     ax.plot(lons, lats, color="red", alpha=0.7)
@@ -1279,8 +1514,17 @@ class HHOS_Env(gym.Env):
 
                 # TSs
                 for TS in self.TSs:
-                    col = "darkgoldenrod" if TS.rev_dir else "purple"
+                    if self.episode_on_river:
+                        col = "darkgoldenrod" if TS.rev_dir else "purple"
+                    else:
+                        col = None
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=False)
+
+                # set legend for COLREGS
+                if not self.episode_on_river:
+                    legend1 = ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], 
+                                        fontsize=8, loc='upper center', ncol=6)
+                    ax.add_artist(legend1)
 
                 #--------------------- Path ------------------------
                 if self.plot_path:
@@ -1289,7 +1533,7 @@ class HHOS_Env(gym.Env):
                     if self.plot_in_latlon:
                         # global
                         ax.plot(self.GlobalPath.lon, self.GlobalPath.lat, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
-                        if type(self).__name__ != "HHOS_PathFollowing_Validation":
+                        if type(self).__name__ != "HHOS_PathFollowing_Validation" and hasattr(self, "RevGlobalPath"):
                             ax.plot(self.RevGlobalPath.lon, self.RevGlobalPath.lat, marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
@@ -1309,13 +1553,13 @@ class HHOS_Env(gym.Env):
                             dE, dN = xy_from_polar(r=abs(self.glo_ye), angle=angle_to_2pi(self.glo_pi_path + dtr(90.0)))
                         else:
                             dE, dN = xy_from_polar(r=self.glo_ye, angle=angle_to_2pi(self.glo_pi_path - dtr(90.0)))
-                        yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=self.OS.utm_number)
+                        yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=32)
                         ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="purple")
 
                     else:
                         # global
                         ax.plot(self.GlobalPath.east, self.GlobalPath.north, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
-                        if type(self).__name__ != "HHOS_PathFollowing_Validation":
+                        if type(self).__name__ != "HHOS_PathFollowing_Validation" and hasattr(self, "RevGlobalPath"):
                             ax.plot(self.RevGlobalPath.east, self.RevGlobalPath.north, marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
 
                         # local
@@ -1367,7 +1611,7 @@ class HHOS_Env(gym.Env):
 
                 #--------------------- LiDAR sensing ------------------------
                 if self.plot_lidar and self.plot_in_latlon:
-                    lidar_lat_lon = self._sense_LiDAR()[1]
+                    lidar_lat_lon = self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[1]
 
                     for _, latlon in enumerate(lidar_lat_lon):
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))

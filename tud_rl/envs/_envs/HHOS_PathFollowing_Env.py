@@ -15,7 +15,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  planner_safety_net : bool, 
                  nps_control_follower : bool, 
                  thrust_control_planner : bool,
-                 thrust_control_planner_safety_net : bool,
                  scenario_based : bool, 
                  data : str, 
                  N_TSs_max : int, 
@@ -29,13 +28,15 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce,\
                  w_coll=w_coll, w_comf=w_comf, w_speed=w_speed)
 
+        # whether nps are controlled
+        self.nps_control_follower = nps_control_follower
+
         if planner_weights is not None:
-            self.thrust_control_planner = thrust_control_planner         # whether plan can control two actions
-            self.planner_safety_net = planner_safety_net                                 # whether to use a safety-net as backup to guarantee safe plans
-            self.thrust_control_planner_safety_net = thrust_control_planner_safety_net   # whether the safety-net can control two actions
+            self.thrust_control_planner = thrust_control_planner  # whether planner can control two actions
+            self.planner_safety_net = planner_safety_net  # whether to use a safety-net as backup to guarantee safe plans
 
             # construct planner network
-            plan_in_size = 3 + self.lidar_n_beams + 6 * self.N_TSs_max
+            plan_in_size = 4 + self.lidar_n_beams + 5 * self.N_TSs_max
             act_plan_size = 2 if self.thrust_control_planner else 1
             self.planner = MLP(in_size=plan_in_size, out_size=act_plan_size, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             self.planner.load_state_dict(torch.load(planner_weights))
@@ -102,11 +103,14 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         if initial:      
             # number of TS and scene
             env.N_TSs = self.N_TSs
-            env.scene = self.scene
+            env.episode_on_river = self.episode_on_river
+            if hasattr(self, "scene"):
+                env.scene = self.scene
 
             # global path
             env.GlobalPath = deepcopy(self.GlobalPath)
-            env.RevGlobalPath = deepcopy(self.RevGlobalPath)
+            if hasattr(self, "RevGlobalPath"):
+                env.RevGlobalPath = deepcopy(self.RevGlobalPath)
 
             # environmental disturbances (although not needed for dynamics, only for depth-checking)
             env.DepthData = deepcopy(self.DepthData)
@@ -132,7 +136,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             env.H = copy(self.H)
 
             # guarantee OS moves linearly
-            env.OS.nu[2] = 0.0
+            env.OS.nu[1:] = 0.0
             env.OS.rud_angle = 0.0
 
             # global path error
@@ -179,13 +183,15 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
 
-        # update waypoints for other vessels
-        self.TSs = [self._init_wps(TS, path_level="global") for TS in self.TSs]
+        # on river: update waypoints for other vessels
+        if self.episode_on_river:
+            self.TSs = [self._init_wps(TS, path_level="global") for TS in self.TSs]
 
-        # control of target ships
-        for TS in self.TSs:
-            other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-            TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
+        # on river: control of target ships
+        if self.episode_on_river:
+            for TS in self.TSs:
+                other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
 
         # increase step cnt and overall simulation time
         self.sim_t += self.delta_t
@@ -203,6 +209,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         a = a.flatten()
         self.a = a
 
+        # make sure array has correct size
+        if self.nps_control_follower:
+            assert len(a) == 2, "There need to be two actions for the follower with nps-control."
+        else:
+            assert len(a) == 1, "There needs to be one action for the follower without nps-control."
+
         # rudder control
         assert -1 <= float(a[0]) <= 1, "Unknown action."
         self.OS.rud_angle = np.clip(self.OS.rud_angle + float(a[0])*self.rud_angle_inc, -self.rud_angle_max, self.rud_angle_max)
@@ -212,17 +224,17 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             assert -1 <= float(a[1]) <= 1, "Unknown action."
             self.OS.nps = np.clip(self.OS.nps + float(a[1])*self.nps_inc, self.nps_min, self.nps_max)
 
-    def _hasConflict(self, localPath:Path, TSnavData : Union[List[Path], None], method:str):
+    def _hasConflict(self, localPath:Path, TSnavData : Union[List[Path], None], path_from:str):
         """Checks whether a given local path yields a conflict.
         
         Args:
             localPath(Path): path of the OS
-            TSnavData(list): list of Path-objects, one for each TS. If None, the planning_env is used to generate this data.
-            method(str):    'RL' or 'APF'. If 'RL', checks for conflicts in the sense of collisions AND traffic rules. 
-                             If 'APF', checks only for collisions.
+            TSnavData(list): contains Path-objects, one for each TS. If None, the planning_env is used to generate this data.
+            path_from(str):  either 'global' or 'RL'. If 'global', checks for conflicts in the sense of collisions AND traffic rules. 
+                             If 'RL', checks only for collisions.
         Returns:
             bool, conflict (True) or no conflict (False)"""
-        assert method in ["RL", "APF"], "Use either 'RL' or 'APF' for conflict checking."
+        assert path_from in ["global", "RL"], "Use either 'global' or 'RL' for conflict checking."
         
         # always check for collisions with land
         for i in range(len(localPath.lat)):
@@ -230,9 +242,10 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 return True
 
         # interpolate path of OS
-        atts_to_interpolate = ["north", "east", "heads", "vs"]
+        atts_to_interpolate = ["north", "east", "heads", "chis", "vs"]
+
         for att in atts_to_interpolate:
-            angle = True if att == "heads" else False
+            angle = True if att in ["heads", "chis"] else False
             localPath.interpolate(attribute=att, n_wps_between=5, angle=angle)
 
         # create TSnavData if not existent
@@ -242,7 +255,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # interpolate paths of TS to make sure to detect collisions
         for path in TSnavData:
             for att in atts_to_interpolate:
-                angle = True if att == "heads" else False
+                angle = True if att in ["heads", "chis"] else False
                 path.interpolate(attribute=att, n_wps_between=5, angle=angle)
 
         #----- check for target ship collisions in both methods -----
@@ -258,30 +271,38 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
                 # compute ship domain
                 ang = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0)
-                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
-                    ang=ang, OS=None, TS=None)
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
+                                    ang=ang, OS=None, TS=None)
             
                 # check if collision
                 ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
                 if ED_OS_TS <= D:
                     return True
 
-        #----- check for traffic rules only in RL method -----
-        if method == "RL":
+        #----- check for traffic rules only when the path comes from the global path -----
+        if path_from == "global":
             for t in range(n_wps):
                 for i in range(n_TS):
 
                     # quick access
                     N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
-                    v0 = localPath.vs[t]
+                    chi0, v0 = localPath.chis[t], localPath.vs[t]
+                    
                     N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
-                    v1 = TSnavData[i].vs[t]
-                    rev_dir = TSnavData[i].rev_dir[0] # careful here, might be problematic at some point
+                    chi1, v1 = TSnavData[i].chis[t], TSnavData[i].vs[t]
 
-                    # check
-                    if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1, \
-                        rev_dir=rev_dir, Lpp=self.OS.Lpp):
-                        return True
+                    # on river: check whether the global path violates some rules
+                    if self.episode_on_river:
+                        rev_dir = TSnavData[i].rev_dir[0] # careful here, might be problematic at some point
+                        if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1,
+                                                              rev_dir=rev_dir, Lpp=self.OS.Lpp):
+                            return True
+                    
+                    # on open sea: activate RL planner as soons as there is an encounter situation
+                    else:
+                        if self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, chi0=chi0, v0=v0, 
+                                                      N1=N1, E1=E1, head1=head1, chi1=chi1, v1=v1) != 5:
+                            return True
         return False
 
     def _update_local_path(self):
@@ -292,14 +313,14 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         if self.planner is not None:
 
             # check local plan for conflicts (collisions AND traffic rules)
-            conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=None, method="RL")
+            conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=None, path_from="global")
             if conflict:
                 TSnavData:List[Path] = self._update_local_path_safe(method="RL")
                 self.planning_method = "RL"
 
                 # if we use safety net, check only for collisions
                 if self.planner_safety_net:
-                    conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=TSnavData, method="APF")
+                    conflict = self._hasConflict(localPath=self.LocalPath, TSnavData=TSnavData, path_from="RL")
                     if conflict:
                         self._update_local_path_safe(method="APF")
                         self.planning_method = "APF"
@@ -320,15 +341,17 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # setup OS wps and speed in RL or APF case
         if method in ["RL", "APF"]:
             ns, es, heads = [self.planning_env.OS.eta[0]], [self.planning_env.OS.eta[1]], [self.planning_env.OS.eta[2]]
-            vs = [self.planning_env.OS._get_V()]
+            chis, vs = [self.planning_env.OS._get_course()], [self.planning_env.OS._get_V()]
 
         # TSNavData in RL or None mode
         if method in [None, "RL"]:
             TS_ns      = [[TS.eta[0]] for TS in self.planning_env.TSs]
             TS_es      = [[TS.eta[1]] for TS in self.planning_env.TSs]
             TS_heads   = [[TS.eta[2]] for TS in self.planning_env.TSs]
+            TS_chis    = [[TS._get_course()] for TS in self.planning_env.TSs]
             TS_vs      = [[TS._get_V()] for TS in self.planning_env.TSs]
-            TS_rev_dir = [[TS.rev_dir] for TS in self.planning_env.TSs]
+            if self.episode_on_river:
+                TS_rev_dir = [[TS.rev_dir] for TS in self.planning_env.TSs]
 
         # planning loop
         for _ in range(self.n_wps_loc-1):
@@ -342,26 +365,25 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             elif method == "APF":
                 du, dh = self._get_APF_move(self.planning_env)
 
-                # always apply heading change
+                # apply heading change
                 self.planning_env.OS.eta[2] = angle_to_2pi(self.planning_env.OS.eta[2] + dh)
 
-                if self.thrust_control_planner_safety_net:
+                # apply longitudinal speed change
+                self.planning_env.OS.nu[0] = np.clip(self.planning_env.OS.nu[0] + du, \
+                    self.planning_env.surge_min, self.planning_env.surge_max)
 
-                    # longitudinal speed change only when allowed
-                    self.planning_env.OS.nu[0] = np.clip(self.planning_env.OS.nu[0] + du, \
-                        self.planning_env.surge_min, self.planning_env.surge_max)
+                # set nps accordingly
+                self.planning_env.OS.nps = self.planning_env.OS._get_nps_from_u(self.planning_env.OS.nu[0])
 
-                    # set nps accordingly
-                    self.planning_env.OS.nps = self.planning_env.OS._get_nps_from_u(self.planning_env.OS.nu[0])
-
-                    # need to define dummy zero-actions since we control the OS outside the planning env
+                # need to define dummy zero-actions since we control the OS outside the planning env
+                if self.thrust_control_planner:
                     a = np.array([0.0, 0.0])
                 else:
                     a = np.array([0.0])
 
             # TSnavData generation - use dummy zero-actions (although it does not matter anyways, we only extract TS info)
             elif method is None:
-                if self.thrust_control_planner_safety_net:
+                if self.thrust_control_planner:
                     a = np.array([0.0, 0.0])
                 else:
                     a = np.array([0.0])
@@ -374,6 +396,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 ns.append(self.planning_env.OS.eta[0])
                 es.append(self.planning_env.OS.eta[1])
                 heads.append(self.planning_env.OS.eta[2])
+                chis.append(self.planning_env.OS._get_course())
                 vs.append(self.planning_env.OS._get_V())
 
             # TSNavData in RL or None mode
@@ -382,20 +405,27 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                     TS_ns[i].append(TS.eta[0])
                     TS_es[i].append(TS.eta[1])
                     TS_heads[i].append(TS.eta[2])
+                    TS_chis[i].append(TS._get_course())
                     TS_vs[i].append(TS._get_V())
-                    TS_rev_dir[i].append(TS.rev_dir)
+                    if self.episode_on_river:
+                        TS_rev_dir[i].append(TS.rev_dir)
             if d:
                 break
 
         # update the path in RL or APF mode
         if method in ["RL", "APF"]:
-            self.LocalPath = Path(level="local", north=ns, east=es, heads=heads, vs=vs)
+            self.LocalPath = Path(level="local", north=ns, east=es, heads=heads, vs=vs, chis=chis)
 
         # generate TSnavData object for conflict detection
         if method in ["RL", None]:
             TSnavData = []
             for i in range(len(TS_ns)):
-                TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i], rev_dir=TS_rev_dir[i]))
+                if self.episode_on_river:
+                    TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i],
+                                        chis=TS_chis[i], rev_dir=TS_rev_dir[i]))
+                else:
+                    TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i],
+                                        chis=TS_chis[i]))
             return TSnavData
 
     def _get_APF_move(self, env : HHOS_PathPlanning_Env):
@@ -411,14 +441,14 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             g_e = env.GlobalPath.east[g_idx]
 
         # consider river geometry
-        dists, _, river_n, river_e = env._sense_LiDAR()
+        N0, E0, head0 = env.OS.eta
+        dists, _, river_n, river_e = env._sense_LiDAR(N0=N0, E0=E0, head0=head0)
         i = np.where(dists != env.lidar_range)
 
         # computation
         du, dh = apf(OS=env.OS, TSs=env.TSs, G={"x" : g_e, "y" : g_n}, 
                      river_n=river_n[i], river_e=river_e[i],
-                     du_clip=env.surge_scale, dh_clip=env.d_head_scale,
-                     k_a=0.001, k_r_TS=250, k_r_river=100, r_min=250)
+                     du_clip=env.surge_scale, dh_clip=env.d_head_scale)
         return du, dh
 
     def _set_state(self):

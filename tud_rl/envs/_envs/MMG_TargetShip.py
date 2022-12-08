@@ -52,7 +52,7 @@ class TargetShip(KVLCC2):
         return False
 
     def rule_based_control(self, other_vessels : List[KVLCC2], VFG_K : float):
-        """Defines a deterministic rule-based target ship controller."""
+        """Defines a deterministic rule-based controller for target ships on rivers."""
         # easy access
         ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
                                            E1 = self.glo_wp1_E, 
@@ -231,8 +231,8 @@ class Path:
             else:
                 heads[i] = heads[i-1]
 
-        # construct
-        return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, vs=vs)
+        # construct while setting course to heading
+        return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, chis=heads, vs=vs)
 
     def interpolate(self, attribute:str, n_wps_between:int, angle:bool=False):
         """Linearly interpolates a specific attribute to have additional waypoints. 

@@ -405,7 +405,12 @@ value = 5
 print(fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value))
 """
 
-def r_safe_dyn(a, r_min=100):
+def r_safe_dyn(a:float, r_min:float):
+    """Computes safety radius in the APF method.
+    Args:
+        a(float): relative bearing in [-pi, pi)
+        r_min(float): minimum safety radius    
+    """
     assert -math.pi <= a < math.pi, "The angle for computing the safety distance should be in [-pi, pi)."
     if abs(a) <= math.pi/4:
         f = 2 + math.cos(4*a)
@@ -413,25 +418,42 @@ def r_safe_dyn(a, r_min=100):
         f = 1
     return r_min * f
 
-def k_r_TS_dyn(DCPA, TCPA, a1=math.log(0.1)/3704, a2=1.5):
+def k_r_TS_dyn(DCPA:float, TCPA:float, a1:float=math.log(0.1)/3704, a2:float=1.5):
+    """Computes factor for dynamic repulsive forces of moving obstacles.
+    Args:
+        DCPA(float): DCPA between OS and obstacle
+        TCPA(float): TCPA between OS and obstacle
+        a1(float): weighting constant
+        a2(float): weighting constant"""
     if TCPA < 0.0:
         return 0.0
     else:
         return math.exp(a1*(DCPA + a2*TCPA))
 
 def apf(OS : KVLCC2, 
-        TSs : list, 
+        TSs : list[KVLCC2], 
         G: dict, 
         dh_clip: float = None,
         du_clip: float = None,
-        river_n=None, 
-        river_e=None, 
+        river_n: np.ndarray=None, 
+        river_e: np.ndarray=None, 
         r_min=250, 
         k_a=0.001, 
         k_r_TS=250, 
         k_r_river=100):
     """Computes a local path based on the artificial potential field method, see Du, Zhang, and Nie (2019, IEEE).
-    Returns: Δu, Δheading."""
+    Args:
+        OS(KVLCC2):     own ship containing positional and speed information
+        TSs(list):      contains target ships
+        G(dict):        contains keys "x" and "y", marking the position of the goal
+        dh_clip(float): maximum heading change
+        du_clip(float): maximum surge velocity change
+        river_n(np.ndarray): north coordinates of river, considered static obstacles
+        river_e(np.ndarray): east coordinates of river, considered static obstacles
+        r_min(float):  safety distance for repulsive forces  
+    
+    Returns: 
+        tuple(float, float): Δu, Δheading."""
     
     # quick access
     x_OS = OS.eta[1]
@@ -452,8 +474,8 @@ def apf(OS : KVLCC2,
         d = ED(N0=y_OS, E0=x_OS, N1=y_TS, E1=x_TS)
 
         # bearing-dependent safety radius
-        r_safe = r_safe_dyn(a=bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2], to_2pi=False), r_min=r_min)
-
+        r_safe = r_safe_dyn(a = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2], to_2pi=False), 
+                            r_min = r_min)
         if d <= r_safe:
 
             # compute CPA-measure adjustment
@@ -476,7 +498,7 @@ def apf(OS : KVLCC2,
             # bearing-dependent safety radius
             r_safe = r_safe_dyn(a=bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=y_Riv, E1=x_Riv, head0=OS.eta[2], to_2pi=False), r_min=r_min)
 
-            if d <= r_min:
+            if d <= r_safe:
                 F_x += k_r_river * (1/r_safe - 1/d) * (x_Riv - x_OS) / d
                 F_y += k_r_river * (1/r_safe - 1/d) * (y_Riv - y_OS) / d
 
@@ -488,7 +510,6 @@ def apf(OS : KVLCC2,
         du = np.clip(du, -du_clip, du_clip)
     if dh_clip is not None:
         dh = np.clip(dh, -dh_clip, dh_clip)
-
     return du, dh
 
 class HHOSPlotter:

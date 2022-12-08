@@ -24,9 +24,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # forward run
         self.n_loops = int(60.0/self.delta_t)
 
+        # whether thrust or, more precisely, surge velocity is controlled
+        self.thrust_control_planner = thrust_control_planner
+
         # gym inherits
-        OS_path_info_size = 3
-        self.num_obs_TS = 6
+        OS_path_info_size = 4
+        self.num_obs_TS = 5
         obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
         act_size = 2 if self.thrust_control_planner else 1
 
@@ -41,7 +44,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.surge_max = 5.0
         self.desired_V = 3.0
 
-        self._max_episode_steps = 50
+        self._max_episode_steps = 200
 
     def reset(self):
         s = super().reset()
@@ -83,11 +86,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # check respawn
             self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
-            # update waypoints for other vessels
-            self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
+            # on river: update waypoints for other vessels
+            if self.episode_on_river:
+                self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
 
-            # simple heading control of target ships
-            if control_TS:
+            # on river: simple heading control of target ships
+            if control_TS and self.episode_on_river:
                 for TS in self.TSs:
                     other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
                     TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
@@ -103,9 +107,15 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         return self.state, self.r, d, {}
 
     def _manual_control(self, a:np.ndarray):
-        """'Manually' controls heading and surge of the own ship."""
+        """Manually controls heading and surge of the own ship."""
         a = a.flatten()
         self.a = a
+
+        # make sure array has correct size
+        if self.thrust_control_planner:
+            assert len(a) == 2, "There need to be two actions for the planner with thrust control."
+        else:
+            assert len(a) == 1, "There needs to be one action for the planner without thrust control."
 
         # heading control
         assert -1 <= float(a[0]) <= 1, "Unknown action."
@@ -120,53 +130,56 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _set_state(self):
         #--------------------------- OS information ----------------------------
         # speed, heading relative to global path
-        if self.thrust_control_planner:
-            state_OS = np.array([self.OS.nu[0]-self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
-        else:
-            state_OS = np.array([self.OS.nu[0]/self.desired_V, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
+        state_OS = np.array([self.OS.nu[0]/3.0, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
 
-        # ------------------------- path information ---------------------------
-        state_path = np.array([self.glo_ye/self.OS.Lpp])
+        # ------------------------- episode & path information ---------------------------
+        state_path = np.array([-1.0 if self.episode_on_river else 1.0, self.glo_ye/self.OS.Lpp])
 
         # ----------------------- LiDAR for depth -----------------------------
-        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR()[0])
+        N0, E0, head0 = self.OS.eta
+        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[0])
 
         # ----------------------- TS information ------------------------------
-        N0, E0, head0 = self.OS.eta
-        OS_V = self.OS._get_V()
+        v0 = self.OS._get_V()
         state_TSs = []
 
         for TS in self.TSs:
-            N, E, headTS = TS.eta
-            TS_V = TS._get_V()
+            N1, E1, head1 = TS.eta
+            v1 = TS._get_V()
 
             # closeness
-            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
-                 OS=self.OS, TS=TS)
-            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) - D) / (20*self.OS.Lpp)
+            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
+                                OS=self.OS, TS=TS)
+            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D) / (20*self.OS.Lpp)
             closeness = np.clip(1-ED_OS_TS, 0.0, 1.0)
 
             # relative bearing
-            bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0, to_2pi=False) / (math.pi)
+            bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0, to_2pi=False) / (math.pi)
 
             # heading intersection angle with path
-            C_TS_path = angle_to_pi(headTS - self.glo_pi_path) / math.pi
+            C_TS_path = angle_to_pi(head1 - self.glo_pi_path) / math.pi
 
             # speed
-            if self.thrust_control_planner:
-                V_TS = TS_V-self.desired_V
+            v_rel = v1-v0
+
+            # encounter situation: 
+            # open sea: 1 for head-on/starboard crossing on open sea, 2 for overtaking on open sea, 3 for portside/nothing
+            # river:   -1 for reverse direction, -2 else
+            if self.episode_on_river:
+                TS_encounter = -1.0 if TS.rev_dir else -2.0
             else:
-                V_TS = TS_V/self.desired_V
-
-            # direction
-            TS_dir = -1.0 if TS.rev_dir else 1.0
-
-            # speedy
-            TS_speedy = 1.0 if TS_V > OS_V else -1.0
+                sit = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
+                                                 N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
+                if sit in [1, 2]:
+                    TS_encounter = 1.0
+                elif sit == 4:
+                    TS_encounter = 2.0
+                else:
+                    TS_encounter = 3.0
 
             # store it
-            state_TSs.append([closeness, bng_rel_TS, C_TS_path, V_TS, TS_dir, TS_speedy])          
-        
+            state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter])
+
         if self.state_design == "recursive":
             raise NotImplementedError("Recursive state definition not implemented yet.")
 
@@ -182,11 +195,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
                 'constant', constant_values=np.nan).astype(np.float32)
-        
         else:
             # pad ghost ships
             while len(state_TSs) != self.N_TSs_max:
-                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0, -1.0])
+                enc_pad = -2.0 if self.episode_on_river else 3.0
+                state_TSs.append([0.0, -1.0, -1.0, 0.0, enc_pad])
 
             # sort according to closeness (ascending, larger closeness is more dangerous)
             state_TSs = np.hstack(sorted(state_TSs, key=lambda x: x[0])).astype(np.float32)
@@ -238,8 +251,13 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                 self.r_coll -= math.exp(-(ED_OS_TS-D)/200)
 
             # violating traffic rules is considered a collision
-            if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, head1=head1,\
-                 v1=TS._get_V(), rev_dir=TS.rev_dir, Lpp=self.OS.Lpp):
+            if self.episode_on_river:
+                if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, head1=head1,\
+                    v1=TS._get_V(), rev_dir=TS.rev_dir, Lpp=self.OS.Lpp):
+                    self.r_coll -= 10.0
+            else:
+                if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
+                    r0=self.OS.nu[2], N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
                     self.r_coll -= 10.0
 
         # ---------------------------- Aggregation --------------------------
