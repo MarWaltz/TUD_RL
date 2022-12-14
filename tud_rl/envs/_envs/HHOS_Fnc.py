@@ -441,9 +441,9 @@ def apf(OS : KVLCC2,
         river_n: np.ndarray=None, 
         river_e: np.ndarray=None, 
         r_min=250, 
-        k_a=0.001, 
-        k_r_TS=250, 
-        k_r_river=100):
+        k_a=100, 
+        k_r_TS=2.5e6, 
+        k_r_river=1e7):
     """Computes a local path based on the artificial potential field method, see Du, Zhang, and Nie (2019, IEEE).
     Args:
         OS(KVLCC2):     own ship containing positional and speed information

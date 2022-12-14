@@ -559,7 +559,7 @@ class HHOS_Env(gym.Env):
 
         return out_dists, out_lat_lon, np.array(out_n), np.array(out_e)
 
-    def reset(self, OS_wp_idx=20):
+    def reset(self, OS_wp_idx=500):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
@@ -858,6 +858,9 @@ class HHOS_Env(gym.Env):
 
         # set positional values
         TS.eta = np.array([N_TS, E_TS, head_TS_s], dtype=np.float32)
+
+        # set attribute rev_dir since we might move from open sea to river and need it
+        TS.rev_dir = bool(random.getrandbits(1))
         return TS
 
     def _get_TS_river(self, scene, n=None):

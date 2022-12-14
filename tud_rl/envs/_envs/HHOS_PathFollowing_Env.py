@@ -198,9 +198,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.OS:KVLCC2 = self._init_wps(self.OS, "global")
         self.OS:KVLCC2 = self._init_wps(self.OS, "local")
 
-        if self.OS.loc_wp1_idx > 7:
-            print("here")
-
         # compute new cross-track error and course error (for local and global path)
         self._set_cte(path_level="global")
         self._set_cte(path_level="local")
