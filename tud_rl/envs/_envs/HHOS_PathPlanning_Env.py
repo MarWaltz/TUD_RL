@@ -4,8 +4,8 @@ from tud_rl.envs._envs.HHOS_Env import *
 class HHOS_PathPlanning_Env(HHOS_Env):
     """Does not consider any environmental disturbances since this is considered by the local-path following unit."""
     def __init__(self, 
+                 plan_on_river : bool,
                  state_design : str, 
-                 thrust_control_planner : bool, 
                  data : str, 
                  scenario_based : bool, 
                  N_TSs_max : int, 
@@ -15,7 +15,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                  w_coll : float, 
                  w_comf : float, 
                  w_speed : float):
-        super().__init__(nps_control_follower=None, thrust_control_planner=thrust_control_planner, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
+        super().__init__(nps_control_follower=None, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
             w_coll=w_coll, w_comf=w_comf, w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
@@ -24,25 +24,24 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # forward run
         self.n_loops = int(60.0/self.delta_t)
 
-        # whether thrust or, more precisely, surge velocity is controlled
-        self.thrust_control_planner = thrust_control_planner
+        # type of planner
+        self.plan_on_river = plan_on_river
 
         # gym inherits
-        OS_path_info_size = 4
-        self.num_obs_TS = 5
-        obs_size = OS_path_info_size + self.lidar_n_beams + self.num_obs_TS * self.N_TSs_max
-        act_size = 2 if self.thrust_control_planner else 1
+        if plan_on_river is not None:
+            obs_size = 3 + 5 * self.N_TSs_max
+            if self.plan_on_river:
+                obs_size += self.lidar_n_beams
 
-        self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
-                                            high = np.full(obs_size,  np.inf, dtype=np.float32))
-        self.action_space = spaces.Box(low  = np.full(act_size, -1, dtype=np.float32), 
-                                       high = np.full(act_size,  1, dtype=np.float32))
+            self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
+                                                high = np.full(obs_size,  np.inf, dtype=np.float32))
+            self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
+                                        high = np.full(1,  1.0, dtype=np.float32))
         # control scales
-        self.d_head_scale = dtr(10.0)
         self.surge_scale = 0.5
         self.surge_min = 0.1
         self.surge_max = 5.0
-        self.desired_V = 3.0
+        self.d_head_scale = dtr(10.0)
 
         self._max_episode_steps = 200
 
@@ -69,6 +68,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # update agent dynamics (independent of environmental disturbances in this module)
         [self.OS._upd_dynamics() for _ in range(self.n_loops)]
 
+        # real data: check whether we are on river or open sea
+        if self.data == "real":
+            self.plan_on_river = self._on_river(N0=self.OS.eta[0], E0=self.OS.eta[1])
+
         # environmental effects
         self._update_disturbances()
 
@@ -87,14 +90,17 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
             # on river: update waypoints for other vessels
-            if self.episode_on_river:
+            if self.plan_on_river:
                 self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
 
             # on river: simple heading control of target ships
-            if control_TS and self.episode_on_river:
-                for TS in self.TSs:
-                    other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                    TS.rule_based_control(other_vessels, VFG_K=self.VFG_K)
+            if control_TS:
+                if self.plan_on_river:
+                    for TS in self.TSs:
+                        other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                        TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                else:
+                    [TS.opensea_control() for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -112,34 +118,22 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.a = a
 
         # make sure array has correct size
-        if self.thrust_control_planner:
-            assert len(a) == 2, "There need to be two actions for the planner with thrust control."
-        else:
-            assert len(a) == 1, "There needs to be one action for the planner without thrust control."
+        assert len(a) == 1, "There needs to be one action for the planner."
 
         # heading control
         assert -1 <= float(a[0]) <= 1, "Unknown action."
         self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] + float(a[0])*self.d_head_scale)
-
-         # surge control        
-        if self.thrust_control_planner:
-            assert -1 <= float(a[1]) <= 1, "Unknown action."
-            self.OS.nu[0] = np.clip(self.OS.nu[0] + float(a[1])*self.surge_scale, self.surge_min, self.surge_max)
-            self.OS.nps = self.OS._get_nps_from_u(self.OS.nu[0])
 
     def _set_state(self):
         #--------------------------- OS information ----------------------------
         # speed, heading relative to global path
         state_OS = np.array([self.OS.nu[0]/3.0, angle_to_pi(self.OS.eta[2] - self.glo_pi_path)/math.pi])
 
-        # ------------------------- episode & path information ---------------------------
-        state_path = np.array([-1.0 if self.episode_on_river else 1.0, self.glo_ye/self.OS.Lpp])
-
-        # ----------------------- LiDAR for depth -----------------------------
-        N0, E0, head0 = self.OS.eta
-        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[0])
+        # ------------------------- path information ---------------------------
+        state_path = np.array([self.glo_ye/self.OS.Lpp])
 
         # ----------------------- TS information ------------------------------
+        N0, E0, head0 = self.OS.eta
         v0 = self.OS._get_V()
         state_TSs = []
 
@@ -162,21 +156,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # speed
             v_rel = v1-v0
 
-            # encounter situation: 
-            # open sea: 1 for head-on/starboard crossing on open sea, 2 for overtaking on open sea, 3 for portside/nothing
-            # river:   -1 for reverse direction, -2 else
-            if self.episode_on_river:
-                TS_encounter = -1.0 if TS.rev_dir else -2.0
+            # encounter situation
+            if self.plan_on_river:
+                TS_encounter = -1.0 if (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= 90.0) else 1.0
             else:
-                sit = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
-                                                 N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
-                if sit in [1, 2]:
-                    TS_encounter = 1.0
-                elif sit == 4:
-                    TS_encounter = 2.0
-                else:
-                    TS_encounter = 3.0
-
+                TS_encounter = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
+                                                          N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
             # store it
             state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter])
 
@@ -198,14 +183,21 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         else:
             # pad ghost ships
             while len(state_TSs) != self.N_TSs_max:
-                enc_pad = -2.0 if self.episode_on_river else 3.0
+                enc_pad = -2.0 if self.plan_on_river else 3.0
                 state_TSs.append([0.0, -1.0, -1.0, 0.0, enc_pad])
 
             # sort according to closeness (ascending, larger closeness is more dangerous)
             state_TSs = np.hstack(sorted(state_TSs, key=lambda x: x[0])).astype(np.float32)
 
+        # ----------------------- LiDAR for depth -----------------------------
+        if self.plan_on_river:
+            N0, E0, head0 = self.OS.eta
+            state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[0])
+        else:
+            state_LiDAR = np.array([])
+
         # ------------------------- aggregate information ------------------------
-        self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
+        self.state = np.concatenate([state_OS, state_path, state_TSs, state_LiDAR], dtype=np.float32)
 
     def _calculate_reward(self, a):
         # ----------------------- GlobalPath-following reward --------------------
@@ -214,19 +206,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.r_ye = math.exp(-k_ye * abs(self.glo_ye))
 
         # course violation
-        #k_ce = 5.0
         if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
             self.r_ce = -10.0
         else:
             self.r_ce = 0.0
-
-        # --------------------------- Comfort reward ------------------------
-        if self.thrust_control_planner:
-            self.r_comf = -float(a[1])**2
-
-        # -------------------------- Speed reward ---------------------------
-        if self.thrust_control_planner:
-            self.r_speed = max([-(self.OS.nu[0]-self.desired_V)**2, -1.0])
 
         # ---------------------- Collision Avoidance reward -----------------
         # hit ground
@@ -251,9 +234,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                 self.r_coll -= math.exp(-(ED_OS_TS-D)/200)
 
             # violating traffic rules is considered a collision
-            if self.episode_on_river:
+            if self.plan_on_river:
                 if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, head1=head1,\
-                    v1=TS._get_V(), rev_dir=TS.rev_dir, Lpp=self.OS.Lpp):
+                    v1=TS._get_V(), Lpp=self.OS.Lpp):
                     self.r_coll -= 10.0
             else:
                 if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
@@ -263,11 +246,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
         rews = np.array([self.r_ye, self.r_ce, self.r_coll])
-
-        if self.thrust_control_planner:
-            weights = np.append(weights, [self.w_comf, self.w_speed])
-            rews = np.append(rews, [self.r_comf, self.r_speed])
-
         self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
 
     def _done(self):

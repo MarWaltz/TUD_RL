@@ -8,10 +8,10 @@ from tud_rl.envs._envs.VesselFnc import angle_to_2pi, bng_abs, dtr
 class KVLCC2:
     """This class provides a KVLCC2 tanker behaving according to the MMG standard model of Yasukawa, Yoshimura (2015)."""
 
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True, cont_acts=False) -> None:
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max,
+                 full_ship=True, ship_domain_size=1) -> None:
 
         #------------------------- Parameter/Settings -----------------------------------
-
         # store simulation settings and dummy action for rendering
         self.delta_t = delta_t
         self.N_max   = N_max
@@ -20,7 +20,6 @@ class KVLCC2:
 
         # KVLCC2 parameters
         if full_ship:
-
             self.kvlcc2 = {
                 "C_b":          0.810,          # Block Coefficient
                 "Lpp":          320.0,          # Length over perpendiculars (m)
@@ -81,7 +80,6 @@ class KVLCC2:
                 "J_z_dash":     0.011,          # Added moment of inertia coefficient
                 "a_H":          0.312           # Rudder force increase factor
             }
-
         else:
             # scale 1:5 replica of the original tanker
             self.kvlcc2 = {
@@ -155,16 +153,21 @@ class KVLCC2:
         self.hull = Hull(Lpp=self.Lpp, B=self.B)
 
         # in [m]
-        if cont_acts:
-            self.ship_domain_A = 1 * self.Lpp + 0.5 * self.Lpp
-            self.ship_domain_B = 1 * self.B + 0.5 * self.B   
-            self.ship_domain_C = 1 * self.B + 0.5 * self.Lpp
-            self.ship_domain_D = self.ship_domain_B
-        else:
+        assert ship_domain_size in [1, 2], "Unknown ship domain size specification."
+
+        # COLREG study spec
+        if ship_domain_size == 1:
             self.ship_domain_A = 3 * self.Lpp + 0.5 * self.Lpp
             self.ship_domain_B = 1 * self.Lpp + 0.5 * self.B   
             self.ship_domain_C = 1 * self.Lpp + 0.5 * self.Lpp
             self.ship_domain_D = 3 * self.Lpp + 0.5 * self.B
+
+        # HHOS spec
+        elif ship_domain_size == 2:
+            self.ship_domain_A = 2 * self.Lpp + 0.5 * self.Lpp
+            self.ship_domain_B = 2 * self.B + 0.5 * self.B   
+            self.ship_domain_C = 2 * self.B + 0.5 * self.Lpp
+            self.ship_domain_D = 4 * self.B + 0.5 * self.B
 
         #---------------------------- Dynamic inits ----------------------------------------
         self.m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
@@ -184,7 +187,6 @@ class KVLCC2:
         self.nps = nps
 
         # actions
-        self.cont_acts = cont_acts
         self.rud_angle_max = dtr(20.0)
         self.rud_angle_inc = dtr(5.0)
 
@@ -194,9 +196,7 @@ class KVLCC2:
         # eta, nu
         self.eta = np.array([N_init, E_init, psi_init], dtype=np.float32)  # N (in m),   E (in m),    psi (in rad)   in NE-system
         self.nu  = np.array([u_init, v_init, r_init], dtype=np.float32)    # u (in m/s), vm in (m/s), r (in rad/s)   in (midship-centered) BODY-system
-
         self.nu_dot  = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-
 
     def _T_of_psi(self, psi):
         """Computes rotation matrix for given heading (in rad)."""
@@ -554,27 +554,18 @@ class KVLCC2:
         0 - keep rudder angle as is
         1 - increase rudder angle
         2 - decrease rudder angle
-
-        In the continuous case, a is a float in [-1,1].
         """
         # store action for rendering
         self.action = a
+        assert isinstance(a, int) and a in range(3), "Unknown action."
 
-        # continuous
-        if self.cont_acts:
-            raise NotImplementedError("Continuous action updating inside the KVLCC2-object is deprecated.")
-
-        # discrete
-        else:
-            assert a in range(3), "Unknown action."
-
-            if a == 0:
-                pass
-            elif a == 1:
-                self.rud_angle += self.rud_angle_inc
-            elif a == 2:
-                self.rud_angle -= self.rud_angle_inc
-        
+        if a == 0:
+            pass
+        elif a == 1:
+            self.rud_angle += self.rud_angle_inc
+        elif a == 2:
+            self.rud_angle -= self.rud_angle_inc
+    
         # clip it
         self.rud_angle = np.clip(self.rud_angle, -self.rud_angle_max, self.rud_angle_max)
 

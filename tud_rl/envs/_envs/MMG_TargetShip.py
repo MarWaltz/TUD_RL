@@ -3,7 +3,8 @@ from typing import List, Union
 
 import numpy as np
 
-from tud_rl.envs._envs.HHOS_Fnc import VFG, to_latlon, to_utm, prep_angles_for_average
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, prep_angles_for_average,
+                                        to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_abs, bng_rel,
                                          cpa, dtr, rtd, xy_from_polar)
@@ -11,8 +12,8 @@ from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_abs, bng_rel,
 
 class TargetShip(KVLCC2):
     """This class provides a target ship based on the dynamics of the KVLCC2 tanker."""
-    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship=True, cont_acts=False) -> None:
-        super().__init__(N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, cont_acts)
+    def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size) -> None:
+        super().__init__(N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size)
 
     def _is_overtaking(self, other_vessel : KVLCC2, role : str):
         """Checks whether a vessel overtakes an other one.
@@ -51,8 +52,17 @@ class TargetShip(KVLCC2):
             return True
         return False
 
-    def rule_based_control(self, other_vessels : List[KVLCC2], VFG_K : float):
+    def opensea_control(self):
+        """Defines target ship behavior for vessels on open sea. Currently, no steering at all."""
+        pass
+
+    def river_control(self, other_vessels : List[KVLCC2], VFG_K : float):
         """Defines a deterministic rule-based controller for target ships on rivers."""
+
+        # rare case that we move from open sea back to river
+        if not hasattr(self, "rev_dir") or any([not hasattr(vess, "rev_dir") for vess in other_vessels]):
+            return
+
         # easy access
         ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
                                            E1 = self.glo_wp1_E, 

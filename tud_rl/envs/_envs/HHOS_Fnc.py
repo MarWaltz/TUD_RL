@@ -304,48 +304,51 @@ def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
     else:
         return False
 
-def get_init_two_wp(lat_array, lon_array, a_n, a_e):
+def get_init_two_wp(n_array, e_array, a_n, a_e):
     """Returns for a given set of waypoints and an agent position the coordinates of the first two waypoints.
 
     Args:
-        lon_array (np.array): array of lon-coordinates of waypoints
-        lat_array (np.array): array of lat-coordinates of waypoints
+        n_array (np.array): array of N-coordinates of waypoints
+        e_array (np.array): array of E-coordinates of waypoints
         a_n (float): agent N position
         a_e (float): agent E position
     Returns:
         wp1_idx, wp1_N, wp1_E, wp2_idx, wp2_N, wp2_E
     """
-    # transform everything in utm
-    n, e, _ = to_utm(lat=lat_array, lon=lon_array)
-
     # compute the smallest euclidean distance
-    EDs = ED(N0=a_n, E0=a_e, N1=n, E1=e, sqrt=False)
+    EDs = ED(N0=a_n, E0=a_e, N1=n_array, E1=e_array, sqrt=False)
     min_idx = np.argmin(EDs)
 
     # limit case one
-    if min_idx == len(lat_array)-1:
+    if min_idx == len(n_array)-1:
         raise ValueError("The agent spawned already at the goal!")
 
     # limit case two
     elif min_idx == 0:
         idx1 = min_idx
         idx2 = min_idx + 1
-        wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
-        wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+        wp1_N = n_array[idx1]
+        wp1_E = e_array[idx1]
+        wp2_N = n_array[idx2]
+        wp2_E = e_array[idx2]
 
     # arbitrarily select prior index as current set of wps
     else:
         idx1 = min_idx - 1
         idx2 = min_idx
-        wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
-        wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+        wp1_N = n_array[idx1]
+        wp1_E = e_array[idx1]
+        wp2_N = n_array[idx2]
+        wp2_E = e_array[idx2]
 
         # check whether waypoints should be switched
         if switch_wp(wp1_N=wp1_N, wp1_E=wp1_E, wp2_N=wp2_N, wp2_E=wp2_E, a_N=a_n, a_E=a_e):
             idx1 += 1
             idx2 += 1
-            wp1_N, wp1_E, _ = to_utm(lat_array[idx1], lon_array[idx1])
-            wp2_N, wp2_E, _ = to_utm(lat_array[idx2], lon_array[idx2])
+            wp1_N = n_array[idx1]
+            wp1_E = e_array[idx1]
+            wp2_N = n_array[idx2]
+            wp2_E = e_array[idx2]
 
     return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
 
