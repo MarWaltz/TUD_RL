@@ -6,10 +6,10 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    plan_on_river: true
+    plan_on_river: false
     data: sampled
     scenario_based: false
-    state_design: conventional
+    state_design: recursive
     N_TSs_max: 5
     N_TSs_random: true
     w_ye : 3.0
@@ -33,12 +33,20 @@ agent:
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-  LSTMRecTD3:
+  LSTMRecTD3_a:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
+    num_obs_OS: 13
+  LSTMRecTD3_b:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 2
+    use_past_actions: false
+    num_obs_OS: 3
   SAC:
     lr_temp: 0.0001
     temp_tuning: true

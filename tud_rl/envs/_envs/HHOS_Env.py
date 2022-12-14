@@ -559,7 +559,7 @@ class HHOS_Env(gym.Env):
 
         return out_dists, out_lat_lon, np.array(out_n), np.array(out_e)
 
-    def reset(self, OS_wp_idx=500):
+    def reset(self, OS_wp_idx=20):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
@@ -590,7 +590,6 @@ class HHOS_Env(gym.Env):
 
         # real data: determine where we are
         if self.data == "real":
-            assert self.plan_on_river is None, "'plan_on_river' should be None so far."
             self.plan_on_river = self._on_river(N0=self.OS.eta[0], E0=self.OS.eta[1])
 
         # on river: add reversed global path for TS spawning on rivers

@@ -8,8 +8,9 @@ env:
   env_kwargs:
     nps_control_follower: true
     plan_on_river: 
-    planner_river_weights: plan_river_actor.pth
-    planner_opensea_weights: plan_sea_actor.pth
+    planner_river_weights: river_plan_actor_LSTMRecTD3.pth
+    planner_opensea_weights: opensea_plan_actor_LSTMRecTD3.pth
+    planner_state_design: recursive
     planner_safety_net: true   
     data: real
     scenario_based: false

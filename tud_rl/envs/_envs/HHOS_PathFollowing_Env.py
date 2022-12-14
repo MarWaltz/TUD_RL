@@ -3,7 +3,7 @@ from typing import List, Union
 
 import torch
 
-from tud_rl.common.nets import MLP
+from tud_rl.common.nets import MLP, LSTMRecActor
 from tud_rl.envs._envs.HHOS_Env import *
 from tud_rl.envs._envs.HHOS_Fnc import apf
 from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
@@ -14,6 +14,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  plan_on_river : bool,
                  planner_river_weights : str,
                  planner_opensea_weights : str, 
+                 planner_state_design : str,
                  planner_safety_net : bool, 
                  nps_control_follower : bool, 
                  scenario_based : bool, 
@@ -40,6 +41,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             assert isinstance(plan_on_river, bool), "Specify whether we are on river or not in artificial scenarios."
             assert not(planner_river_weights is not None and planner_opensea_weights is not None), \
                 "Specify a river-planner or an opensea-planner, not both."
+        assert planner_state_design in ["conventional", "recursive"], "Unknown state design."
+        self.planner_state_design = planner_state_design
 
         # situation
         self.plan_on_river = plan_on_river
@@ -49,17 +52,31 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         if planner_river_weights is not None:
             plan_in_size = 3 + 5 * self.N_TSs_max + self.lidar_n_beams
-            self.planner["river"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+
+            # init
+            if planner_state_design == "recursive":
+                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams)
+            else:
+                self.planner["river"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+            
+            # weight loading
             self.planner["river"].load_state_dict(torch.load(planner_river_weights))
 
         if planner_opensea_weights is not None:
             plan_in_size = 3 + 5 * self.N_TSs_max
-            self.planner["opensea"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+
+            # init
+            if planner_state_design == "recursive":
+                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3)
+            else:
+                self.planner["opensea"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
+            
+            # weight loading
             self.planner["opensea"].load_state_dict(torch.load(planner_opensea_weights))
 
         # construct planning env
         if len(self.planner.keys()) > 0:
-            self.planning_env = HHOS_PathPlanning_Env(plan_on_river=plan_on_river, state_design="conventional", data=data,\
+            self.planning_env = HHOS_PathPlanning_Env(plan_on_river=plan_on_river, state_design=planner_state_design, data=data,\
                 scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0,\
                      w_comf=0.0, w_speed=0.0)
 
@@ -373,20 +390,43 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             TS_chis    = [[TS._get_course()] for TS in self.planning_env.TSs]
             TS_vs      = [[TS._get_V()] for TS in self.planning_env.TSs]
 
+        # river or open sea
+        assert isinstance(self.planning_env.plan_on_river, bool), "Check whether we are on river or open sea."
+
+        # setup history if needed
+        if self.planner_state_design == "recursive":
+            if self.planning_env.plan_on_river:
+                state_shape = 3 + 5 * self.N_TSs_max + self.lidar_n_beams
+            else:
+                state_shape = 3 + 5 * self.N_TSs_max
+
+            s_hist = np.zeros((2, state_shape))  # history length 2
+            hist_len = 0
+
         # planning loop
         for _ in range(self.n_wps_loc-1):
 
             # planner's move
             if method == "RL":
-                s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
+                
+                # recursive state design needs history
+                if self.planner_state_design == "recursive":
+                    s_tens = torch.tensor(s, dtype=torch.float32).view(1, state_shape)
+                    s_hist_tens = torch.tensor(s_hist, dtype=torch.float32).view(1, 2, state_shape) # batch size, history length, state shape
+                    hist_len_tens = torch.tensor(hist_len)
 
-                # river or open sea
-                assert isinstance(self.planning_env.plan_on_river, bool), "Check whether we are on river or open sea."
+                    if self.planning_env.plan_on_river:
+                        a = self.planner["river"](s=s_tens, s_hist=s_hist_tens, a_hist=None, hist_len=hist_len_tens)[0]
+                    else:
+                        a = self.planner["opensea"](s=s_tens, s_hist=s_hist_tens, a_hist=None, hist_len=hist_len_tens)[0]
 
-                if self.planning_env.plan_on_river:
-                    a = self.planner["river"](s)
+                # conventional state design based only on current observation
                 else:
-                    a = self.planner["opensea"](s)
+                    s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
+                    if self.planning_env.plan_on_river:
+                        a = self.planner["river"](s)
+                    else:
+                        a = self.planner["opensea"](s)
 
             # get APF move, always two components
             elif method == "APF":
@@ -410,7 +450,19 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 a = np.array([0.0])
 
             # planning env's reaction
-            s, _, d, _ = self.planning_env.step(a, control_TS=False)
+            s2, _, d, _ = self.planning_env.step(a, control_TS=False)
+
+            # update history
+            if self.planner_state_design == "recursive":
+                if hist_len == 2:
+                    s_hist = np.roll(s_hist, shift=-1, axis=0)
+                    s_hist[1, :] = s
+                else:
+                    s_hist[hist_len] = s
+                    hist_len += 1
+
+            # s becomes s2
+            s = s2
 
             # store wps and speed
             if method in ["RL", "APF"]:

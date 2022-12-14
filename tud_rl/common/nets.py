@@ -800,17 +800,14 @@ class LSTMRecDQN(RecDQN):
 
         # roll entries according to hist_len
         if batch_size == 1:
-            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+            x_tilde = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
         else:
-            if sum(hist_len != 2):
-                x_tilde_f = torch.zeros_like(x_tilde)
-                for b_idx in range(batch_size):
-                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
-            else:
-                x_tilde_f = x_tilde
+            if any(hist_len != 2):
+                for b_idx in torch.where(hist_len != 2)[0]:
+                    x_tilde[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
 
         # push through outer LSTM
-        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde)
 
         # Note: No-history cases are not possible since there is always at least the current time step.
 
@@ -820,7 +817,6 @@ class LSTMRecDQN(RecDQN):
         # final dense layers
         x = F.relu(self.PI_dense1(hidden_mem))
         x = self.PI_dense2(x)
-
         return x
  
     def _inner_rec(self, s, time):
@@ -890,13 +886,13 @@ class LSTMRecDQN(RecDQN):
         return torch.cat([x_OS, x_TS], dim=1)
 
 
-#------------------------------- LSTM-RecActor for HHOSEnv --------------------------------
+#------------------------------- LSTM-RecActor for HHOS-Env --------------------------------
 
 class LSTMRecActor(nn.Module):
-    """Defines a spatial-temporal recursive actor particularly designed for the MMGEnv. There are two recursive parts:
+    """Defines a spatial-temporal recursive actor particularly designed for the HHOS-Env. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
+    def __init__(self, action_dim, num_obs_OS, num_obs_TS=5, use_past_actions=False, device=None) -> None:
         super(LSTMRecActor, self).__init__()
 
         self.action_dim = action_dim
@@ -936,10 +932,8 @@ class LSTMRecActor(nn.Module):
             s:        torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])
             s_hist:   torch.Size([batch_size, history_length, num_obs_OS + num_obs_TS * N_TSs])
             hist_len: torch.Size(batch_size)
-            log_info: Bool, whether to return logging dict
-        
         Returns: 
-            torch.Size([batch_size, action_dim]), critic_net_info (dict) (if log_info)"""
+            torch.Size([batch_size, action_dim]), critic_net_info (dict)"""
 
         # setup x_tilde which comes into outer LSTM
         batch_size, history_length, _ = s_hist.shape
@@ -966,17 +960,14 @@ class LSTMRecActor(nn.Module):
 
         # roll entries according to hist_len
         if batch_size == 1:
-            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+            x_tilde = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
         else:
-            if sum(hist_len != 2):
-                x_tilde_f = torch.zeros_like(x_tilde)
-                for b_idx in range(batch_size):
-                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
-            else:
-                x_tilde_f = x_tilde
+            if any(hist_len != 2):
+                for b_idx in torch.where(hist_len != 2)[0]:
+                    x_tilde[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
 
         # push through outer LSTM
-        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde)
 
         # Note: No-history cases are not possible since there is always at least the current time step.
 
@@ -1004,8 +995,8 @@ class LSTMRecActor(nn.Module):
         assert time in [0, 1, 2], "Unknown time step."
 
         # extract OS and TS states
-        OS_slize = [i for i in range(self.num_obs_OS)]
-        TS_slize = [i for i in range(self.num_obs_OS, s.shape[1])]
+        OS_slize = list(range(self.num_obs_OS))
+        TS_slize = list(range(self.num_obs_OS, s.shape[1]))
 
         s_OS = s[:, OS_slize]              # torch.Size([batch_size, num_obs_OS])
         s_TS = s[:, TS_slize]
@@ -1079,7 +1070,7 @@ class LSTMRecCritic(nn.Module):
     """Defines a spatial-temporal recursive critic particularly designed for the MMGEnv. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, action_dim, use_past_actions=False, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
+    def __init__(self, action_dim, num_obs_OS, num_obs_TS=5, use_past_actions=False, device=None) -> None:
         super(LSTMRecCritic, self).__init__()
 
         self.action_dim = action_dim
@@ -1150,17 +1141,14 @@ class LSTMRecCritic(nn.Module):
 
         # roll entries according to hist_len
         if batch_size == 1:
-            x_tilde_f = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
+            x_tilde = torch.roll(x_tilde, shifts=hist_len.item()-2, dims=1)
         else:
-            if sum(hist_len != 2):
-                x_tilde_f = torch.zeros_like(x_tilde)
-                for b_idx in range(batch_size):
-                    x_tilde_f[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
-            else:
-                x_tilde_f = x_tilde
+            if any(hist_len != 2):
+                for b_idx in torch.where(hist_len != 2)[0]:
+                    x_tilde[b_idx, :, :] = torch.roll(x_tilde[b_idx, :, :], shifts=hist_len[b_idx].item()-2, dims=0)
 
         # push through outer LSTM
-        extracted_mem, (_, _) = self.LSTM_outer(x_tilde_f)
+        extracted_mem, (_, _) = self.LSTM_outer(x_tilde)
 
         # Note: No-history cases are not possible since there is always at least the current time step.
 
@@ -1190,8 +1178,8 @@ class LSTMRecCritic(nn.Module):
         assert time in [0, 1, 2], "Unknown time step."
 
         # extract OS and TS states
-        OS_slize = [i for i in range(self.num_obs_OS)]
-        TS_slize = [i for i in range(self.num_obs_OS, s.shape[1])]
+        OS_slize = list(range(self.num_obs_OS))
+        TS_slize = list(range(self.num_obs_OS, s.shape[1]))
 
         s_OS = s[:, OS_slize]              # torch.Size([batch_size, num_obs_OS])
         s_TS = s[:, TS_slize]
@@ -1260,7 +1248,7 @@ class LSTMRecCritic(nn.Module):
 
 
 class LSTMRec_Double_Critic(nn.Module):
-    def __init__(self, action_dim, use_past_actions, num_obs_OS=13, num_obs_TS=5, device=None) -> None:
+    def __init__(self, action_dim, num_obs_OS, num_obs_TS=5, use_past_actions=False, device=None) -> None:
         super(LSTMRec_Double_Critic, self).__init__()
 
         self.device = device

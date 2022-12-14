@@ -36,7 +36,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                                 high = np.full(obs_size,  np.inf, dtype=np.float32))
             self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
-                                        high = np.full(1,  1.0, dtype=np.float32))
+                                           high = np.full(1,  1.0, dtype=np.float32))
         # control scales
         self.surge_scale = 0.5
         self.surge_min = 0.1
@@ -166,25 +166,25 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter])
 
         if self.state_design == "recursive":
-            raise NotImplementedError("Recursive state definition not implemented yet.")
 
             # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
             if len(state_TSs) == 0:
-                state_TSs.append([0.0, -1.0, -1.0, 0.0, -1.0, -1.0])
+                enc_pad = 1.0 if self.plan_on_river else 5.0
+                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad])
 
             # sort according to closeness (ascending, larger closeness is more dangerous)
             state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0])).flatten()
 
             # at least one since there is always the ghost ship
-            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])  
+            desired_length = 5 * max([self.N_TSs_max, 1])   # 5 obs per target ship
 
             state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
                 'constant', constant_values=np.nan).astype(np.float32)
         else:
             # pad ghost ships
             while len(state_TSs) != self.N_TSs_max:
-                enc_pad = -2.0 if self.plan_on_river else 3.0
-                state_TSs.append([0.0, -1.0, -1.0, 0.0, enc_pad])
+                enc_pad = 1.0 if self.plan_on_river else 5.0
+                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad])
 
             # sort according to closeness (ascending, larger closeness is more dangerous)
             state_TSs = np.hstack(sorted(state_TSs, key=lambda x: x[0])).astype(np.float32)
@@ -197,7 +197,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             state_LiDAR = np.array([])
 
         # ------------------------- aggregate information ------------------------
-        self.state = np.concatenate([state_OS, state_path, state_TSs, state_LiDAR], dtype=np.float32)
+        self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
 
     def _calculate_reward(self, a):
         # ----------------------- GlobalPath-following reward --------------------
