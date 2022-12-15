@@ -336,8 +336,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                         if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1,
                                                               Lpp=self.OS.Lpp):
                             return True
-                    
-                    # on open sea: activate RL planner as soons as there is an encounter situation
+
+                    # on open sea: activate RL planner as soon as there is an encounter situation
                     else:
                         if self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, chi0=chi0, v0=v0, 
                                                       N1=N1, E1=E1, head1=head1, chi1=chi1, v1=v1) != 5:

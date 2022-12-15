@@ -104,7 +104,7 @@ class HHOS_Env(gym.Env):
         self.plot_current = False
         self.plot_waves = False
         self.plot_lidar = True
-        self.plot_reward = False
+        self.plot_reward = True
         self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
         self.first_init = True
 
@@ -1178,12 +1178,12 @@ class HHOS_Env(gym.Env):
             E1(float):     east of TS
             head1(float):  heading of TS
             v1(float):     speed of TS
-            Lpp(float):    lenght between perpendiculars of OS
+            Lpp(float):    length between perpendiculars of OS
             """
         # preparation
         ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
         bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
-        rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= 90.0)
+        rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= dtr(90.0))
 
         # OS should let speedys pass on OS's portside
         if v1 > v0:
@@ -1198,7 +1198,7 @@ class HHOS_Env(gym.Env):
         # normal target ships should be overtaken on their portside
         if v0 > v1:
             if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
-                l = (10 - 5/math.pi * bng_rel_TS_pers)*Lpp
+                l = (35 - 2/math.pi *15* bng_rel_TS_pers)*Lpp
                 if ED_OS_TS <= l:
                     return True
         return False
@@ -1456,7 +1456,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 10 == 0:
+        if self.step_cnt % 1 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta

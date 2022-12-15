@@ -43,7 +43,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.surge_max = 5.0
         self.d_head_scale = dtr(10.0)
 
-        self._max_episode_steps = 200
+        self._max_episode_steps = 100
 
     def reset(self):
         s = super().reset()
@@ -200,23 +200,39 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
 
     def _calculate_reward(self, a):
+        # parametrization depending on open sea or river
+        if self.plan_on_river:
+            k_ye              =  0.05
+            pen_ce            = -10.0
+            pen_coll_depth    = -10.0
+            pen_coll_TS       = -10.0
+            pen_traffic_rules = -10.0
+            dist_norm         =  200
+        else:
+            k_ye              =  0.05
+            pen_ce            = -10.0
+            pen_coll_depth    = -10.0
+            pen_coll_TS       = -10.0
+            pen_traffic_rules = -10.0
+            dist_norm         = NM_to_meter(0.5)
+
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
-        k_ye = 0.05
         self.r_ye = math.exp(-k_ye * abs(self.glo_ye))
 
         # course violation
         if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
-            self.r_ce = -10.0
+            self.r_ce = pen_ce
         else:
             self.r_ce = 0.0
 
         # ---------------------- Collision Avoidance reward -----------------
+        self.r_coll = 0
+
         # hit ground
-        if self.H <= self.OS.critical_depth:
-            self.r_coll = -10.0
-        else:
-            self.r_coll = 0
+        if self.plan_on_river:
+            if self.H <= self.OS.critical_depth:
+                self.r_coll += pen_coll_depth
 
         # other vessels
         for TS in self.TSs:
@@ -229,19 +245,20 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # check if collision
             ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
             if ED_OS_TS <= D:
-                self.r_coll -= 10.0
+                self.r_coll += pen_coll_TS
             else:
-                self.r_coll -= math.exp(-(ED_OS_TS-D)/200)
+                self.r_coll += -math.exp(-(ED_OS_TS-D)/dist_norm)
 
             # violating traffic rules is considered a collision
             if self.plan_on_river:
-                if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, head1=head1,\
-                    v1=TS._get_V(), Lpp=self.OS.Lpp):
-                    self.r_coll -= 10.0
+                if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, \
+                    head1=head1, v1=TS._get_V(), Lpp=self.OS.Lpp):
+                    self.r_coll += pen_traffic_rules
             else:
+                # Note: On open sea, we consider the current action for evaluating COLREG-compliance.
                 if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
-                    r0=self.OS.nu[2], N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
-                    self.r_coll -= 10.0
+                    r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
+                    self.r_coll += pen_traffic_rules
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll])
