@@ -1,7 +1,7 @@
 ---
 env:
-  name: HHOS-PathPlanning-v0
-  max_episode_steps: 100
+  name: HHOS-PathPlanning-Validation-v0
+  max_episode_steps: -1
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -9,14 +9,8 @@ env:
     plan_on_river: false
     data: sampled
     state_design: recursive
-    N_TSs_max: 5
-    N_TSs_random: true
-    w_ye : 3.0
-    w_ce : 1.0
-    w_coll : 1.25
-    w_comf : 0.1
-    w_speed: None
-  info: MDP
+    scenario: 1
+  info: 
 agent:
   DDPG: {}
   TD3:
@@ -66,23 +60,13 @@ agent:
 seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
-eval_episodes: 3
-actor_weights:
-critic_weights:
+eval_episodes: 1
+actor_weights: LSTMRecTD3_b_actor_open.pth
+critic_weights: LSTMRecTD3_b_critic_open.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
-- - 128
-  - relu
-- - 128
-  - relu
-- tanh
 net_struc_critic:
-- - 128
-  - relu
-- - 128
-  - relu
-- identity
 optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001

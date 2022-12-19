@@ -1,4 +1,5 @@
 import math
+import pickle
 from typing import List
 
 import numpy as np
@@ -517,39 +518,23 @@ def apf(OS : KVLCC2,
     return du, dh
 
 class HHOSPlotter:
-    """Provides plotting functionality for the HHOS project."""
-    def __init__(self) -> None:
-        self.sim_t = []
-
-        # OS status
-        self.OS_N = []
-        self.OS_E = []
-        self.OS_head = []
-        self.OS_u = []
-        self.OS_v = []
-        self.OS_r = []
-        self.loc_ye = []
-        self.glo_ye = []
-        self.loc_course_error = []
-        self.glo_course_error = []
-        self.rud_angle = []
-        self.nps = []
-
-        # env disturbances
-        self.V_c = []
-        self.beta_c = []
-        self.V_w = []
-        self.beta_w = []
-        self.T_0_wave = []
-        self.eta_wave = []
-        self.beta_wave = []
-        self.lambda_wave = []
+    """Implements trajectory storing to enable validation plotting for the HHOS project."""
+    def __init__(self, **kwargs) -> None:
+        for key, value in kwargs.items():
+            setattr(self, key, [value])
 
     def store(self, **kwargs):
         for key, value in kwargs.items():
             eval(f"self.{key}.append({value})")
 
-    def dump(self, val_disturbance):
+    def dump(self, name):
+        # special handling of DepthData
+        if hasattr(self, "DepthData"):
+            with open(f"HHOS_Validate_{name}_DepthData.pkl", "wb") as f:
+                pickle.dump(self.DepthData, f)
+            del self.DepthData
+           
+        # df creation and storage
         df = pd.DataFrame(vars(self))
         df.replace(to_replace=[None], value=0.0, inplace=True) # clear None
-        df.to_pickle(f"HHOS_Follow_Validate_{val_disturbance}.pkl")
+        df.to_pickle(f"HHOS_Validate_{name}.pkl")

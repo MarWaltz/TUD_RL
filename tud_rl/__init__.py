@@ -55,6 +55,10 @@ gym.register(
     entry_point=loc + "HHOS_PathPlanning_Env"
 )
 gym.register(
+    id="HHOS-PathPlanning-Validation-v0",
+    entry_point=loc + "HHOS_PathPlan_Validation"
+)
+gym.register(
     id="PredatorPrey-v0",
     entry_point=loc + "PredatorPrey"
 )

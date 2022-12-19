@@ -16,8 +16,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  planner_opensea_weights : str, 
                  planner_state_design : str,
                  planner_safety_net : bool, 
-                 nps_control_follower : bool, 
-                 scenario_based : bool, 
+                 nps_control_follower : bool,
                  data : str, 
                  N_TSs_max : int, 
                  N_TSs_random : bool, 
@@ -26,8 +25,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  w_coll : float, 
                  w_comf : float,
                  w_speed : float):
-        super().__init__(nps_control_follower=nps_control_follower, data=data, scenario_based=scenario_based,\
-             N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf, w_speed=w_speed)
+        super().__init__(nps_control_follower=nps_control_follower, data=data, N_TSs_max=N_TSs_max,\
+            N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf, w_speed=w_speed)
 
         # whether nps are controlled
         self.nps_control_follower = nps_control_follower
@@ -77,8 +76,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # construct planning env
         if len(self.planner.keys()) > 0:
             self.planning_env = HHOS_PathPlanning_Env(plan_on_river=plan_on_river, state_design=planner_state_design, data=data,\
-                scenario_based=scenario_based, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0,\
-                     w_comf=0.0, w_speed=0.0)
+                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_comf=0.0, w_speed=0.0)
 
             # whether to use a safety-net as backup to guarantee safe plans
             self.planner_safety_net = planner_safety_net  
@@ -135,11 +133,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         returns env, state."""
 
         if initial:      
-            # number of TS and scene
+            # number of TS and scenario
             env.N_TSs = self.N_TSs
             env.plan_on_river = self.plan_on_river
-            if hasattr(self, "scene"):
-                env.scene = self.scene
+            if hasattr(self, "scenario"):
+                env.scenario = self.scenario
 
             # global path
             env.GlobalPath = deepcopy(self.GlobalPath)

@@ -32,7 +32,6 @@ class HHOS_Env(gym.Env):
     def __init__(self,
                  nps_control_follower : bool,
                  data : str, 
-                 scenario_based : bool, 
                  N_TSs_max : int, 
                  N_TSs_random : bool, 
                  w_ye : float, 
@@ -55,6 +54,9 @@ class HHOS_Env(gym.Env):
         self.n_dots_per_beam = 10          # number of subpoints per beam
         self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, 
                                            num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
+
+        # COLREG encounter range
+        self.COLREG_range = NM_to_meter(5.0)
 
         # vector field guidance
         self.VFG_K = 0.001
@@ -114,8 +116,6 @@ class HHOS_Env(gym.Env):
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # other ships
-        assert not (scenario_based is True and N_TSs_max < 4), "You need at least four TSs in scenario-based spawning."
-        self.scenario_based = scenario_based           # whether to spawn agent in specific scenarios (arg True), or all random (arg False)
         self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
         self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
                                                        # if false, always have N_TSs_max
@@ -574,6 +574,12 @@ class HHOS_Env(gym.Env):
         N_init = self.GlobalPath.north[OS_wp_idx]
         E_init = self.GlobalPath.east[OS_wp_idx]
 
+        # consider different speeds in training
+        if "Validation" in type(self).__name__:
+            nps = 3.0
+        else:
+            nps = np.random.uniform(0.8, 1.2) * 3.0
+
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
                          psi_init  = None,
@@ -583,7 +589,7 @@ class HHOS_Env(gym.Env):
                          delta_t   = self.delta_t,
                          N_max     = np.infty,
                          E_max     = np.infty,
-                         nps       = np.random.uniform(0.8, 1.2) * 3.0,
+                         nps       = nps,
                          full_ship = False,
                          ship_domain_size = 2)
         self.OS.rev_dir = False
@@ -609,11 +615,11 @@ class HHOS_Env(gym.Env):
         self.OS = self._init_wps(self.OS, "local")
         self._set_cte(path_level="local")
 
-        # set heading with noise
-        if type(self).__name__ != "HHOS_PathFollowing_Validation":
-            self.OS.eta[2] = angle_to_2pi(self.glo_pi_path + dtr(np.random.uniform(-25.0, 25.0)))
-        else:
+        # set heading with noise in training
+        if "Validation" in type(self).__name__:
             self.OS.eta[2] = self.glo_pi_path
+        else:
+            self.OS.eta[2] = angle_to_2pi(self.glo_pi_path + dtr(np.random.uniform(-25.0, 25.0)))
 
         # generate random environmental data
         if self.data == "sampled":
@@ -706,48 +712,18 @@ class HHOS_Env(gym.Env):
         self._init_local_path()
 
     def _init_TSs(self):
-        if self.plan_on_river:
-
-            # sample a scenario on river
-            if self.scenario_based:
-                p_scene = [0.5, 0.125, 0.125, 0.125, 0.125]
-            else:
-                p_scene = [1.0, 0.0, 0.0, 0.0, 0.0]
-            self.scene = np.random.choice([0, 1, 2, 3, 4], p=p_scene)
-
-            # all random
-            if self.scene == 0.0:
-                if self.N_TSs_random:
-                    self.N_TSs = np.random.choice(self.N_TSs_max)
-                else:
-                    self.N_TSs = self.N_TSs_max
-
-            # vessel train
-            elif self.scene == 1:
-                self.N_TSs = self.N_TSs_max
-            
-            # overtake the overtaker
-            elif self.scene == 2:
-                self.N_TSs = 2
-
-            # overtaking under oncoming traffic
-            elif self.scene == 3:
-                self.N_TSs = 5
-            
-            # overtake the overtaker under oncoming traffic
-            elif self.scene == 4:
-                self.N_TSs = 3
+        # scenario 0 means all TS random, no manual configuration
+        self.scenario = 0
+        if self.N_TSs_random:
+            self.N_TSs = np.random.choice(self.N_TSs_max)
         else:
-            if self.N_TSs_random:
-                self.N_TSs = np.random.choice(self.N_TSs_max)
-            else:
-                self.N_TSs = self.N_TSs_max
-
+            self.N_TSs = self.N_TSs_max
+   
         # sample TSs
         self.TSs : List[TargetShip]= []
         for n in range(self.N_TSs):
             if self.plan_on_river:
-                self.TSs.append(self._get_TS_river(scene=self.scene, n=n))
+                self.TSs.append(self._get_TS_river(scenario=self.scenario, n=n))
             else:
                 self.TSs.append(self._get_TS_open_sea())
 
@@ -862,24 +838,24 @@ class HHOS_Env(gym.Env):
         TS.rev_dir = bool(random.getrandbits(1))
         return TS
 
-    def _get_TS_river(self, scene, n=None):
+    def _get_TS_river(self, scenario, n=None):
         """Places a target ship by setting a 
             1) traveling direction,
             2) distance on the global path,
-        depending on the scene. All ships spawn in front of the agent.
+        depending on the scenario. All ships spawn in front of the agent.
         Args:
-            scene (int):  considered scenario
+            scenario (int):  considered scenario
             n (int):      index of the spawned vessel
         Returns: 
             KVLCC2."""
-        assert not (scene != 0 and n is None), "Need to provide index in non-random scenario-based spawning."
+        assert not (scenario != 0 and n is None), "Need to provide index in non-random scenario-based spawning."
 
         #------------------ set distances, directions, offsets from path, and nps ----------------------
         # Note: An offset is some float. If it is negative (positive), the vessel is placed on the 
         #       right (left) side of the global path.
 
         # random
-        if scene == 0:
+        if scenario == 0:
             speedy = bool(np.random.choice([0, 1], p=[0.8, 0.2]))
             if speedy: 
                 d = np.random.uniform(self.TS_spawn_dists[0]/2, self.TS_spawn_dists[0])
@@ -892,7 +868,7 @@ class HHOS_Env(gym.Env):
             offset = np.random.uniform(-20.0, 50.0)
 
         # vessel train
-        if scene == 1:
+        if scenario == 1:
             if n == 0:
                 d = NM_to_meter(0.5)
             else:
@@ -903,7 +879,7 @@ class HHOS_Env(gym.Env):
             speedy = False
 
         # overtake the overtaker
-        elif scene == 2:
+        elif scenario == 2:
             d = NM_to_meter(0.5)
             rev_dir = False
             offset = 0.0 if n == 0 else 100.0
@@ -914,7 +890,7 @@ class HHOS_Env(gym.Env):
             speedy = False
 
         # overtaking under oncoming traffic
-        elif scene == 3:
+        elif scenario == 3:
             if n == 0:
                 d = NM_to_meter(0.5)
                 rev_dir = False
@@ -947,7 +923,7 @@ class HHOS_Env(gym.Env):
             speedy = False
 
         # overtake the overtaker under oncoming traffic
-        elif scene == 4:
+        elif scenario == 4:
             if n == 0:
                 d = NM_to_meter(0.5)
                 rev_dir = False
@@ -1104,7 +1080,7 @@ class HHOS_Env(gym.Env):
             5 - no conflict situation
         """
         # check whether TS is out of sight
-        if ED(N0=N0, E0=E0, N1=N1, E1=E1) > self.lidar_range:
+        if ED(N0=N0, E0=E0, N1=N1, E1=E1) > self.COLREG_range:
             return 5
 
         # relative bearing from OS to TS
@@ -1269,7 +1245,7 @@ class HHOS_Env(gym.Env):
         # on river
         if self.plan_on_river:
             if (TCPA < 0.0) and (dist >= NM_to_meter(0.5)):
-                return self._get_TS_river(scene=0, n=None)
+                return self._get_TS_river(scenario=0, n=None)
         # open sea
         else:
             if (TCPA < 0.0) and (dist >= self.lidar_range):
@@ -1456,7 +1432,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 1 == 0:
+        if self.step_cnt % 10 == 0:
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta

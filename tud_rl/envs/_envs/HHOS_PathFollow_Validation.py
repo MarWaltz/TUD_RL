@@ -4,8 +4,10 @@ from tud_rl.envs._envs.HHOS_Fnc import HHOSPlotter
 
 class HHOS_PathFollowing_Validation(HHOS_Env):
     def __init__(self, nps_control_follower:bool, data:str, val_disturbance:str):
-        super().__init__(nps_control_follower=nps_control_follower, thrust_control_planner=None, data=data, \
-            scenario_based=None, N_TSs_max=0, N_TSs_random=False,w_ye=None, w_ce=None, w_coll=None, w_comf=None, w_speed=None)
+        super().__init__(nps_control_follower=nps_control_follower, data=data, N_TSs_max=0, N_TSs_random=False,\
+            w_ye=None, w_ce=None, w_coll=None, w_comf=None, w_speed=None)
+        self.nps_control_follower = nps_control_follower
+        self.plan_on_river = True
 
         assert val_disturbance in [None, "currents", "winds", "waves"],\
             "Unknown environmental disturbance to validate. Should be 'currents', 'winds', or 'waves'."
@@ -19,11 +21,11 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             self.plot_waves = True
 
         # gym inherits
-        OS_infos = 7 if self.nps_control_follower else 5
+        OS_infos = 7 if nps_control_follower else 5
         path_infos = 2
         env_infos = 9
         obs_size = OS_infos + path_infos + env_infos
-        act_size = 2 if self.nps_control_follower else 1
+        act_size = 2 if nps_control_follower else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -42,11 +44,16 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         self.nps_min = 0.5
         self.nps_max = 5.0
 
-        # viz
-        self.plotter = HHOSPlotter()
-
     def reset(self):
-        return super().reset(OS_wp_idx=0)
+        s = super().reset(OS_wp_idx=0)
+
+        # viz
+        self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
+            OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
+                glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
+                    T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
+                        rud_angle=self.OS.rud_angle, nps=self.OS.nps)
+        return s
 
     def _sample_depth_data(self, OS_lat, OS_lon):
         """Generates random depth data."""
@@ -62,8 +69,8 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             depth = np.ones(self.n_wps_glo) * 50
 
             # fill close points at that distance away from the path
-            lat_path = self.GlobalPath["lat"]
-            lon_path = self.GlobalPath["lon"]
+            lat_path = self.GlobalPath.lat
+            lon_path = self.GlobalPath.lon
 
             for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
                 
@@ -232,52 +239,26 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
     def _sample_global_path(self):
         """Constructs a straight path with n_wps way points, each being of length l apart from its neighbor in the lat-lon-system.
         The agent should follows the path always in direction of increasing indices."""
-        self.GlobalPath = {"n_wps" : self.n_wps_glo}
+        # set starting point
+        path_n = np.zeros(self.n_wps_glo)
+        path_e = np.zeros(self.n_wps_glo)
+        path_n[0], path_e[0], _ = to_utm(lat=56.04, lon=9.0)
 
-        # do it until we have a path whichs stays in our simulation domain
-        while True:
+        # sample other points
+        for i in range(1, self.n_wps_glo):
+            # next point
+            e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=0)
+            path_n[i] = path_n[i-1] + n_add
+            path_e[i] = path_e[i-1] + e_add
 
-            # sample starting point
-            lat = np.zeros(self.n_wps_glo)
-            lon = np.zeros(self.n_wps_glo)
-            lat[0] = 56.0
-            lon[0] = 9.0
+        # to latlon
+        lat, lon = to_latlon(north=path_n, east=path_e, number=32)
 
-            # sample other points
-            ang = 0 # np.random.uniform(0, 2*math.pi)
-            #ang_diff = dtr(np.random.uniform(-20., 20.))
-            #ang_diff2 = 0.0
-            for n in range(1, self.n_wps_glo):
-                
-                # next angle
-                #ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
-                #ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2 + 0.0 * dtr(np.random.uniform(-5.0, 5.0))
-                #ang = angle_to_2pi(ang + ang_diff)
-
-                # next point
-                lon_diff, lat_diff = xy_from_polar(r=self.l_seg_path, angle=ang)
-                lat[n] = lat[n-1] + lat_diff
-                lon[n] = lon[n-1] + lon_diff
-
-            if all(self.lat_lims[0] <= lat) and all(self.lat_lims[1] >= lat) and \
-                all(6.1 <= lon) and all(11.9 >= lon):
-                break
-
-        self.GlobalPath["lat"] = lat
-        self.GlobalPath["lon"] = lon
-
-        # add utm coordinates
-        path_n = np.zeros_like(self.GlobalPath["lat"])
-        path_e = np.zeros_like(self.GlobalPath["lon"])
-
-        for idx in range(len(path_n)):
-            path_n[idx], path_e[idx], _ = to_utm(lat=self.GlobalPath["lat"][idx], lon=self.GlobalPath["lon"][idx])
-        
-        self.GlobalPath["north"] = path_n
-        self.GlobalPath["east"] = path_e
+        # store
+        self.GlobalPath = Path(level="global", lat=lat, lon=lon, north=path_n, east=path_e)
 
         # overwrite data range
-        self.off = 15*self.l_seg_path
+        self.off = 0.075
         self.lat_lims = [np.min(lat)-self.off, np.max(lat)+self.off]
         self.lon_lims = [np.min(lon)-self.off, np.max(lon)+self.off]
 
@@ -448,5 +429,5 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
         
         # viz
         if d:
-            self.plotter.dump(val_disturbance=self.val_disturbance)
+            self.plotter.dump(name="Follow " + self.val_disturbance)
         return d

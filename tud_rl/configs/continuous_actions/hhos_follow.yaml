@@ -7,13 +7,12 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     nps_control_follower: true
-    plan_on_river: 
-    planner_river_weights: river_plan_actor_LSTMRecTD3.pth
-    planner_opensea_weights: opensea_plan_actor_LSTMRecTD3.pth
+    plan_on_river: true
+    planner_river_weights: plan_river_LSTMRecTD3_a.pth
+    planner_opensea_weights: 
     planner_state_design: recursive
     planner_safety_net: true   
-    data: real
-    scenario_based: false
+    data: sampled
     N_TSs_max : 5
     N_TSs_random : false
     w_ye : 0.25

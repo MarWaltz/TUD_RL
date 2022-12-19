@@ -7,7 +7,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                  plan_on_river : bool,
                  state_design : str, 
                  data : str, 
-                 scenario_based : bool, 
                  N_TSs_max : int, 
                  N_TSs_random : bool, 
                  w_ye : float, 
@@ -15,8 +14,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                  w_coll : float, 
                  w_comf : float, 
                  w_speed : float):
-        super().__init__(nps_control_follower=None, data=data, scenario_based=scenario_based, w_ye=w_ye, w_ce=w_ce, \
-            w_coll=w_coll, w_comf=w_comf, w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
+        super().__init__(nps_control_follower=None, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf,\
+            w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
         self.state_design = state_design
@@ -206,14 +205,14 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             pen_ce            = -10.0
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
-            pen_traffic_rules = -10.0
+            pen_traffic_rules = -5.0
             dist_norm         =  200
         else:
             k_ye              =  0.05
             pen_ce            = -10.0
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
-            pen_traffic_rules = -10.0
+            pen_traffic_rules = -5.0
             dist_norm         = NM_to_meter(0.5)
 
         # ----------------------- GlobalPath-following reward --------------------
@@ -249,7 +248,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             else:
                 self.r_coll += -math.exp(-(ED_OS_TS-D)/dist_norm)
 
-            # violating traffic rules is considered a collision
+            # violating traffic rules
             if self.plan_on_river:
                 if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, \
                     head1=head1, v1=TS._get_V(), Lpp=self.OS.Lpp):
@@ -267,12 +266,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        # OS is too far away from path
-        if abs(self.glo_ye) > 1000:
-            return True
-
         # OS approaches end of global path
-        elif any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal

@@ -7,8 +7,8 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     nps_control_follower: true
-    data: real
-    val_disturbance: 
+    data: sampled
+    val_disturbance: waves 
   info: MDP
 agent:
   DDPG: {}
