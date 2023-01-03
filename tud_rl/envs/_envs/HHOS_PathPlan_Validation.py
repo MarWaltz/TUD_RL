@@ -298,7 +298,7 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 headTS2 = angle_to_2pi(dtr(-45))
                 headTS3 = angle_to_2pi(dtr(-90))
 
-            # backtrace to motion
+            # backtrace to motion origin
             TS1.eta[2] = headTS1
             TS1.eta[0] = CPA_N - TS1._get_V() * np.cos(TS1.eta[2]) * TCPA
             TS1.eta[1] = CPA_E - TS1._get_V() * np.sin(TS1.eta[2]) * TCPA

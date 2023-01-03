@@ -1,4 +1,5 @@
 from tud_rl.envs._envs.HHOS_Env import *
+from tud_rl.envs._envs.VesselFnc import cpa
 
 
 class HHOS_PathPlanning_Env(HHOS_Env):
@@ -27,8 +28,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.plan_on_river = plan_on_river
 
         # gym inherits
+        self.num_obs_TS = 7
+
         if plan_on_river is not None:
-            obs_size = 3 + 5 * self.N_TSs_max
+            obs_size = 3 + self.num_obs_TS * self.N_TSs_max
             if self.plan_on_river:
                 obs_size += self.lidar_n_beams
 
@@ -132,18 +135,30 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         state_path = np.array([self.glo_ye/self.OS.Lpp])
 
         # ----------------------- TS information ------------------------------
+        # parametrization depending on river or open sea
+        if self.plan_on_river:
+            tcpa_norm = 2 * 60         # [s]
+            dcpa_norm = 3*self.OS.Lpp  # [m]
+            ED_norm   = 20*self.OS.Lpp # [m]
+        else:
+            tcpa_norm = 10 * 60       # [s]
+            dcpa_norm = 3*self.OS.Lpp # [m]
+            ED_norm   = 20*self.OS.Lpp # [m]
+
         N0, E0, head0 = self.OS.eta
         v0 = self.OS._get_V()
+        chi0 = self.OS._get_course()
         state_TSs = []
 
         for TS in self.TSs:
             N1, E1, head1 = TS.eta
             v1 = TS._get_V()
+            chi1 = TS._get_course()
 
             # closeness
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
                                 OS=self.OS, TS=TS)
-            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D) / (20*self.OS.Lpp)
+            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D)/ED_norm
             closeness = np.clip(1-ED_OS_TS, 0.0, 1.0)
 
             # relative bearing
@@ -161,25 +176,40 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             else:
                 TS_encounter = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
                                                           N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
+  
+            # collision risk metrics
+            d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
+                                                                       chiTS=chi1, VOS=v0, VTS=v1, get_positions=True)
+            ang = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+            domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,
+                                          D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
+            d_cpa = max([0.0, d_cpa-domain_tcpa])
+
+            t_cpa = 1-np.tanh(t_cpa/tcpa_norm)
+            print(t_cpa)
+            d_cpa = 1-np.tanh(d_cpa/dcpa_norm)
+            
             # store it
-            state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter])
+            state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
 
         if self.state_design == "recursive":
 
             # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
             if len(state_TSs) == 0:
                 enc_pad = 1.0 if self.plan_on_river else 5.0
-                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad])
+                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad, 2.0, 0.0])
 
-            # sort according to closeness (ascending, larger closeness is more dangerous)
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[0])).flatten()
+            # sort according to d_cpa (ascending due to tanh transform, smaller d_cpa is more dangerous)
+            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=False)).flatten()
 
             # at least one since there is always the ghost ship
-            desired_length = 5 * max([self.N_TSs_max, 1])   # 5 obs per target ship
+            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])   # 7 obs per target ship
 
             state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
                 'constant', constant_values=np.nan).astype(np.float32)
         else:
+            raise NotImplementedError()
+
             # pad ghost ships
             while len(state_TSs) != self.N_TSs_max:
                 enc_pad = 1.0 if self.plan_on_river else 5.0
