@@ -6,7 +6,8 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents: 5
+    N_agents: 3
+    plain_reward: true
   info: ''
 agent:
   MADDPG: {}

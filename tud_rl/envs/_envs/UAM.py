@@ -87,10 +87,14 @@ class Destination:
     def t_close(self):
         return self._t_close
 
+    @property
+    def is_open(self):
+        return self._is_open
+
 
 class UAM(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra."""
-    def __init__(self, N_agents):
+    def __init__(self, N_agents, plain_reward):
         super(UAM, self).__init__()
 
         # flight params
@@ -111,6 +115,7 @@ class UAM(gym.Env):
         self.perf = OpenAP(self.actype, self.actas, self.acalt)
 
         # config
+        self.plain_reward = plain_reward
         self.N_agents   = N_agents
         self.obs_per_TS = 4
         self.obs_size   = 3 + self.obs_per_TS*(self.N_agents-1)
@@ -123,7 +128,7 @@ class UAM(gym.Env):
         self._max_episode_steps = 250
 
         # viz
-        self.plot_reward = False
+        self.plot_reward = True
         self.plot_state = False
         self.r = np.zeros((self.N_agents, 1))
         self.state = np.zeros((self.N_agents, self.obs_size))
@@ -252,6 +257,10 @@ class UAM(gym.Env):
         Returns:
             None, but sets self.r to np.array([N_agents, 1]) with the complete reward
         """
+        # clear destination reaching reward if reward structure is plain
+        if self.plain_reward:
+            r *= 0.0
+
         # individual reward components: collision and off-map
         for i, pi in enumerate(self.planes):
 
@@ -269,14 +278,20 @@ class UAM(gym.Env):
                 r[i] -= 5.0
 
         # collective reward component: goal approaching when it is open
-        if collective_r:
-            deltas = [p.D_dest_old - p.D_dest for p in self.planes] + [0.0]
-            if self.dest.t_nxt_open == 0:
-                r += max(deltas)/15.0
+        if self.plain_reward:
+            if self.dest.is_open:
+                r += -1.0
+            else:
+                r += 1.0
         else:
-            for i, p in enumerate(self.planes):
-                if (not p.just_spawned) and (self.dest.t_nxt_open == 0):
-                    r[i] += (p.D_dest_old - p.D_dest) / (15.0)       
+            if collective_r:
+                deltas = [p.D_dest_old - p.D_dest for p in self.planes] + [0.0]
+                if self.dest.is_open:
+                    r += max(deltas)/15.0
+            else:
+                for i, p in enumerate(self.planes):
+                    if (not p.just_spawned) and (self.dest.is_open):
+                        r[i] += (p.D_dest_old - p.D_dest) / (15.0)       
         self.r = r
 
     def _done(self):
