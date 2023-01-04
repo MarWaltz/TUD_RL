@@ -8,6 +8,7 @@ from gym import spaces
 from matplotlib import pyplot as plt
 from mycolorpy import colorlist as mcp
 
+from tud_rl.envs._envs.HHOS_Fnc import to_utm
 from tud_rl.envs._envs.Plane import *
 from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi,
                                          angle_to_pi, dtr, meter_to_NM)
@@ -17,20 +18,26 @@ COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)
 
 class Destination:
     def __init__(self, dt) -> None:
+        # size
         self.radius = 100          # [m]
         self.spawn_radius   = 1100 # [m]
         self.respawn_radius = 1300 # [m]
-        self.lat = 10              # [deg]
-        self.lon = 10              # [deg]
-        self.dt = dt               # [s], simulation time step
-        self._t_close = 60         # [s], time the destination is closed after an aircraft has entered 
-        self._t_nxt_open = 0       # [s], current time until the destination opens again
+        
+        # position
+        self.lat = 10  # [deg]
+        self.lon = 10  # [deg]
+        self.N, self.E, _ = to_utm(self.lat, self.lon) # [m], [m]
+
+        # timing
+        self.dt = dt          # [s], simulation time step
+        self._t_close = 60    # [s], time the destination is closed after an aircraft has entered 
+        self._t_nxt_open = 0  # [s], current time until the destination opens again
         self.open()
 
     def reset(self):
         self.open()
 
-    def step(self, planes: List[Plane]):
+    def step(self, planes: List[Plane], collective_r=True):
         """Updates status of the destination and computes destination reward component.
         Returns:
             np.array([len(planes),1]) with rewards
@@ -46,16 +53,20 @@ class Destination:
         respawn_flags = np.zeros(len(planes), dtype=bool)
 
         for i, p in enumerate(planes):
-            if latlondist(latd1=self.lat, lond1=self.lon, latd2=p.lat, lond2=p.lon) <= self.radius:
+            if p.D_dest <= self.radius:
                 
                 # respawn only if airplane entered open destination
                 if self._is_open:
-                    r[i] += 5.0
+                    if collective_r:
+                        r += 5.0
+                    else:
+                        r[i] += 5.0
                     respawn_flags[i] = True
                     self.close()
-                else:
-                    r[i] -= 5.0               
 
+                # a violation is considered a collision and is thus individual reward
+                else:
+                    r[i] -= 5.0
         return r, respawn_flags
 
     def open(self):
@@ -100,8 +111,10 @@ class UAM(gym.Env):
         self.perf = OpenAP(self.actype, self.actas, self.acalt)
 
         # config
-        self.N_agents = N_agents
-        self.obs_size = 3 + 4*(self.N_agents-1)
+        self.N_agents   = N_agents
+        self.obs_per_TS = 4
+        self.obs_size   = 3 + self.obs_per_TS*(self.N_agents-1)
+
         self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(self.obs_size,  np.inf, dtype=np.float32))
         act_size = 1
@@ -110,7 +123,7 @@ class UAM(gym.Env):
         self._max_episode_steps = 250
 
         # viz
-        self.plot_reward = True
+        self.plot_reward = False
         self.plot_state = False
         self.r = np.zeros((self.N_agents, 1))
         self.state = np.zeros((self.N_agents, self.obs_size))
@@ -127,7 +140,9 @@ class UAM(gym.Env):
         self.sim_t    = 0           # overall passed simulation time (in s)
 
         # create some aircrafts
-        self.planes = [self._spawn_plane() for _ in range(self.N_agents)]
+        self.planes = []
+        for n in range(self.N_agents):
+            self.planes.append(self._spawn_plane(n))
 
         # reset dest
         self.dest.reset()
@@ -137,8 +152,9 @@ class UAM(gym.Env):
         self.state_init = self.state
         return self.state
   
-    def _spawn_plane(self):
-        # sample heading and speed        
+    def _spawn_plane(self, n:int=None):
+        """Spawns the n-th plane. Currently, the argument is not in use but might be relevant for some validation scenarios."""
+        # sample heading and speed
         hdg = float(np.random.uniform(0.0, 360.0, size=1))
         tas = float(np.random.uniform(self.actas-3.0, self.actas+3.0, size=1))
         
@@ -147,7 +163,8 @@ class UAM(gym.Env):
         p = Plane(dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)
 
         # compute initial distance to destination
-        p.D_dest_old = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
+        p.D_dest       = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
+        p.D_dest_old   = copy(p.D_dest)
         p.just_spawned = True
         return p
 
@@ -181,8 +198,9 @@ class UAM(gym.Env):
 
                         # heading intersection
                         C_T = angle_to_pi(np.radians(other.hdg - p.hdg))/np.pi
+
                         TS_info.append([d, bng, v_r, C_T])
-                
+
                 # sort array
                 TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0])).astype(np.float32)
                 s_i = np.concatenate((s_i, TS_info))
@@ -198,6 +216,11 @@ class UAM(gym.Env):
  
         # fly planes
         [p.upd_dynamics(a[i], perf=self.perf, dest=None) for i, p in enumerate(self.planes)]
+
+        # update distances to destination
+        for p in self.planes:
+            p.D_dest_old = copy(p.D_dest)
+            p.D_dest = latlondist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
 
         # check destination entries
         r, respawn_flags = self.dest.step(self.planes)
@@ -220,14 +243,16 @@ class UAM(gym.Env):
             else:
                 p.just_spawned = False
 
-    def _calculate_reward(self, r, a):
+    def _calculate_reward(self, r, a, collective_r=True):
         """Computes reward.
         Args:
             r: np.array([N_agents, 1]), destination reward component
             a: np.array([N_agents, action_dim]), selected actions
+            collective_r: bool, whether to include collective reward component
         Returns:
             None, but sets self.r to np.array([N_agents, 1]) with the complete reward
         """
+        # individual reward components: collision and off-map
         for i, pi in enumerate(self.planes):
 
             # collision reward
@@ -240,15 +265,18 @@ class UAM(gym.Env):
                         r[i] -= np.exp(-D/self.LoS_dist)
             
             # off-map reward
-            D_dest = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=self.dest.lat, lond2=self.dest.lon)
-            if D_dest > (self.dest.spawn_radius+5): # against numerical issues
+            if pi.D_dest > (self.dest.spawn_radius+5): # against numerical issues
                 r[i] -= 5.0
 
-            # positive reward for approaching goal when it is open
-            if (not pi.just_spawned) and (self.dest.t_nxt_open == 0):
-                r[i] += (pi.D_dest_old - D_dest) / (15.0)
-            pi.D_dest_old = D_dest
-
+        # collective reward component: goal approaching when it is open
+        if collective_r:
+            deltas = [p.D_dest_old - p.D_dest for p in self.planes] + [0.0]
+            if self.dest.t_nxt_open == 0:
+                r += max(deltas)/15.0
+        else:
+            for i, p in enumerate(self.planes):
+                if (not p.just_spawned) and (self.dest.t_nxt_open == 0):
+                    r[i] += (p.D_dest_old - p.D_dest) / (15.0)       
         self.r = r
 
     def _done(self):
