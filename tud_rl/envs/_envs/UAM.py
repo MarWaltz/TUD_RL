@@ -32,42 +32,40 @@ class Destination:
         self.dt = dt          # [s], simulation time step
         self._t_close = 60    # [s], time the destination is closed after an aircraft has entered 
         self._t_nxt_open = 0  # [s], current time until the destination opens again
+        self._was_open = True
         self.open()
 
     def reset(self):
         self.open()
 
-    def step(self, planes: List[Plane], collective_r=True):
-        """Updates status of the destination and computes destination reward component.
+    def step(self, planes: List[Plane]):
+        """Updates status of the destination.
         Returns:
-            np.array([len(planes),1]) with rewards
-            np.array(len(planes),) with respawn flags from entering the destination area"""
+            np.ndarray([number_of_planes,]): who entered a closed destination
+            np.ndarray([number_of_planes,]): who entered an open destination"""
         # count time until next opening
         if self._is_open is False:
             self._t_nxt_open -= self.dt
             if self._t_nxt_open <= 0:
                 self.open()
 
-        # close if someone enters
-        r = np.zeros((len(planes), 1), dtype=np.float32)
-        respawn_flags = np.zeros(len(planes), dtype=bool)
+        # store opening status
+        self._was_open = copy(self._is_open)
+
+        # check who entered a closed or open destination
+        entered_close = np.zeros(len(planes), dtype=bool)
+        entered_open  = np.zeros(len(planes), dtype=bool)
 
         for i, p in enumerate(planes):
-            if p.D_dest <= self.radius:
-                
-                # respawn only if airplane entered open destination
-                if self._is_open:
-                    if collective_r:
-                        r += 5.0
-                    else:
-                        r[i] += 5.0
-                    respawn_flags[i] = True
-                    self.close()
+            if p.D_dest <= self.radius: 
 
-                # a violation is considered a collision and is thus individual reward
+                # close if someone enters             
+                if self._is_open:
+                    entered_open[i] = True
+                    self.close()
                 else:
-                    r[i] -= 5.0
-        return r, respawn_flags
+                    entered_close[i] = True
+        return entered_close, entered_open
 
     def open(self):
         self._t_nxt_open = 0
@@ -90,6 +88,10 @@ class Destination:
     @property
     def is_open(self):
         return self._is_open
+
+    @property
+    def was_open(self):
+        return self._was_open
 
 
 class UAM(gym.Env):
@@ -228,43 +230,36 @@ class UAM(gym.Env):
             p.D_dest = latlondist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
 
         # check destination entries
-        r, respawn_flags = self.dest.step(self.planes)
+        entered_close, entered_open = self.dest.step(self.planes)
 
         # respawning
-        self._handle_respawn(respawn_flags)
+        self._handle_respawn(entered_open)
 
         # compute state, reward, done        
         self._set_state()
-        self._calculate_reward(r, a)
+        self._calculate_reward(entered_close, entered_open)
         d = self._done()
         return self.state, self.r, d, {}
  
     def _handle_respawn(self, respawn_flags):
         """Respawns planes when they entered the open destination area or are at the outer simulation radius."""
         for i, p in enumerate(self.planes):
-            if (latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon) >= self.dest.respawn_radius)\
-                 or respawn_flags[i]:
+            if (p.D_dest >= self.dest.respawn_radius) or respawn_flags[i]:
                 self.planes[i] = self._spawn_plane()
             else:
                 p.just_spawned = False
 
-    def _calculate_reward(self, r, a, collective_r=True):
-        """Computes reward.
-        Args:
-            r: np.array([N_agents, 1]), destination reward component
-            a: np.array([N_agents, action_dim]), selected actions
-            collective_r: bool, whether to include collective reward component
-        Returns:
-            None, but sets self.r to np.array([N_agents, 1]) with the complete reward
-        """
-        # clear destination reaching reward if reward structure is plain
-        if self.plain_reward:
-            r *= 0.0
+    def _calculate_reward(self, entered_close:np.ndarray, entered_open:np.ndarray):
+        """Args:
+            entered_close: np.ndarray([number_of_planes,]): who entered a closed destination
+            entered_open:  np.ndarray([number_of_planes,]): who entered an open destination"""
+        # empty array
+        r = np.zeros((self.N_agents, 1), dtype=np.float32)
 
-        # individual reward components: collision and off-map
+        # ---------------- individual reward -------------------
         for i, pi in enumerate(self.planes):
 
-            # collision reward
+            # collision
             for j, pj in enumerate(self.planes):
                 if i != j:
                     D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)-self.LoS_dist
@@ -273,25 +268,32 @@ class UAM(gym.Env):
                     else:
                         r[i] -= np.exp(-D/self.LoS_dist)
             
-            # off-map reward
-            if pi.D_dest > (self.dest.spawn_radius+5): # against numerical issues
+            # off-map (+5 agains numerical issues)
+            if pi.D_dest > (self.dest.spawn_radius + 5.0): 
+                r[i] -= 5.0
+            
+            # closed goal entering
+            if entered_close[i]:
                 r[i] -= 5.0
 
-        # collective reward component: goal approaching when it is open
+        # ---------------- collective reward -------------------
         if self.plain_reward:
             if self.dest.is_open:
                 r += -1.0
             else:
                 r += 1.0
-        else:
-            if collective_r:
-                deltas = [p.D_dest_old - p.D_dest for p in self.planes] + [0.0]
-                if self.dest.is_open:
-                    r += max(deltas)/15.0
-            else:
+        else:            
+            # collective reward: open goal entering
+            if any(entered_open):
+                r += 10.0
+
+            # collective reward: progress to open goal
+            if self.dest.was_open:
+                deltas = [0.0]
                 for i, p in enumerate(self.planes):
-                    if (not p.just_spawned) and (self.dest.is_open):
-                        r[i] += (p.D_dest_old - p.D_dest) / (15.0)       
+                    if (not entered_close[i]) and (not entered_open[i]):
+                        deltas.append(p.D_dest_old - p.D_dest)
+                r += max(deltas)/100.0
         self.r = r
 
     def _done(self):
