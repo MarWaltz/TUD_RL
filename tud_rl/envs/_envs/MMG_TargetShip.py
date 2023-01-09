@@ -1,4 +1,5 @@
 import math
+import random
 from typing import List, Union
 
 import numpy as np
@@ -14,6 +15,7 @@ class TargetShip(KVLCC2):
     """This class provides a target ship based on the dynamics of the KVLCC2 tanker."""
     def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size) -> None:
         super().__init__(N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size)
+        self.random_moves = np.random.choice([True, False], p=[0.25, 0.75])
 
     def _is_overtaking(self, other_vessel : KVLCC2, role : str):
         """Checks whether a vessel overtakes an other one.
@@ -53,53 +55,57 @@ class TargetShip(KVLCC2):
         return False
 
     def opensea_control(self):
-        """Defines target ship behavior for vessels on open sea. Currently, no steering at all."""
-        pass
+        """Defines target ship behavior for vessels on open sea."""
+        if self.random_moves:
+            self.eta[2] = angle_to_2pi(self.eta[2] + dtr(float(np.random.uniform(-5.0, 5.0, size=1))))
 
     def river_control(self, other_vessels : List[KVLCC2], VFG_K : float):
         """Defines a deterministic rule-based controller for target ships on rivers."""
 
-        # rare case that we move from open sea back to river
-        if not hasattr(self, "rev_dir") or any([not hasattr(vess, "rev_dir") for vess in other_vessels]):
-            return
+        if self.random_moves:
+            self.eta[2] = angle_to_2pi(self.eta[2] + dtr(float(np.random.uniform(-1.0, 1.0, size=1))))
+        else:
+            # rare case that we move from open sea back to river
+            if not hasattr(self, "rev_dir") or any([not hasattr(vess, "rev_dir") for vess in other_vessels]):
+                return
 
-        # easy access
-        ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
-                                           E1 = self.glo_wp1_E, 
-                                           N2 = self.glo_wp2_N, 
-                                           E2 = self.glo_wp2_E,
-                                           NA = self.eta[0], 
-                                           EA = self.eta[1], 
-                                           K  = VFG_K, 
-                                           N3 = self.glo_wp3_N, 
-                                           E3 = self.glo_wp3_E)
+            # easy access
+            ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
+                                            E1 = self.glo_wp1_E, 
+                                            N2 = self.glo_wp2_N, 
+                                            E2 = self.glo_wp2_E,
+                                            NA = self.eta[0], 
+                                            EA = self.eta[1], 
+                                            K  = VFG_K, 
+                                            N3 = self.glo_wp3_N, 
+                                            E3 = self.glo_wp3_E)
 
-        # consider vessel with smallest euclidean distance
-        EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]
-        i = EDs.index(min(EDs))
-        other_vessel = other_vessels[i]
+            # consider vessel with smallest euclidean distance
+            EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]
+            i = EDs.index(min(EDs))
+            other_vessel = other_vessels[i]
 
-        # opposing traffic is a threat
-        opposing_traffic = self._is_opposing(other_vessel)
-        if opposing_traffic:
-            self.eta[2] = angle_to_2pi(dc + dtr(5.0))
+            # opposing traffic is a threat
+            opposing_traffic = self._is_opposing(other_vessel)
+            if opposing_traffic:
+                self.eta[2] = angle_to_2pi(dc + dtr(5.0))
 
-        # vessel gets overtaken by other ship
-        gets_overtaken = self._is_overtaking(other_vessel=other_vessel, role="gets_overtaken")
-        if gets_overtaken:
-            ang = smoothed_path_ang if ye > 0.0 else dc
-            delta = self._control_hlp(ye=ye, x1=5*self.B, role="gets_overtaken")
-            self.eta[2] = angle_to_2pi(ang + dtr(delta))
-        
-        # vessel is overtaking someone else
-        is_overtaking = self._is_overtaking(other_vessel=other_vessel, role="is_overtaking")
-        if is_overtaking:
-            ang = dc if ye > 0.0 else smoothed_path_ang
-            delta = self._control_hlp(ye=ye, x1=5*self.B, role="is_overtaking")
-            self.eta[2] = angle_to_2pi(ang - dtr(delta))
+            # vessel gets overtaken by other ship
+            gets_overtaken = self._is_overtaking(other_vessel=other_vessel, role="gets_overtaken")
+            if gets_overtaken:
+                ang = smoothed_path_ang if ye > 0.0 else dc
+                delta = self._control_hlp(ye=ye, x1=5*self.B, role="gets_overtaken")
+                self.eta[2] = angle_to_2pi(ang + dtr(delta))
+            
+            # vessel is overtaking someone else
+            is_overtaking = self._is_overtaking(other_vessel=other_vessel, role="is_overtaking")
+            if is_overtaking:
+                ang = dc if ye > 0.0 else smoothed_path_ang
+                delta = self._control_hlp(ye=ye, x1=5*self.B, role="is_overtaking")
+                self.eta[2] = angle_to_2pi(ang - dtr(delta))
 
-        # otherwise we just use basic VFG control
-        self.eta[2] = dc
+            # otherwise we just use basic VFG control
+            self.eta[2] = dc
 
     def _control_hlp(self, role, ye, x1):
         """Rule-based control helper fnc to determine the heading adjustment."""
@@ -229,7 +235,7 @@ class Path:
         east  = self.east[wp_idx:wp_idx+n_wps_loc]
 
         if two_actions:
-            vs = np.ones_like(lat) * desired_V * np.random.uniform(0.95, 1.05)
+            vs = np.ones_like(lat) * desired_V * np.random.uniform(0.75, 1.25)
         else:
             vs = None
 

@@ -14,7 +14,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                  w_ce : float, 
                  w_coll : float, 
                  w_comf : float, 
-                 w_speed : float):
+                 w_speed : float=0.0):
         super().__init__(nps_control_follower=None, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf,\
             w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
@@ -186,7 +186,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             d_cpa = max([0.0, d_cpa-domain_tcpa])
 
             t_cpa = 1-np.tanh(t_cpa/tcpa_norm)
-            print(t_cpa)
             d_cpa = 1-np.tanh(d_cpa/dcpa_norm)
             
             # store it
@@ -226,7 +225,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             state_LiDAR = np.array([])
 
         # ------------------------- aggregate information ------------------------
-        self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs], dtype=np.float32)
+        self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs]).astype(np.float32)
 
     def _calculate_reward(self, a):
         # parametrization depending on open sea or river
@@ -289,10 +288,13 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                     r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
                     self.r_coll += pen_traffic_rules
 
+        # ---------------------- Comfort reward -----------------
+        self.r_comf = -float(a)**2
+
         # ---------------------------- Aggregation --------------------------
-        weights = np.array([self.w_ye, self.w_ce, self.w_coll])
-        rews = np.array([self.r_ye, self.r_ce, self.r_coll])
-        self.r = np.sum(weights * rews) / np.sum(weights) if np.sum(weights) != 0.0 else 0.0
+        weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_comf])
+        rews    = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_comf])
+        self.r  = float(np.sum(weights * rews) / np.sum(weights)) if np.sum(weights) != 0.0 else 0.0
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
@@ -302,5 +304,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # artificial done signal
         elif self.step_cnt >= self._max_episode_steps:
+            return True
+
+        # on river: don't go too far away from path
+        elif self.plan_on_river and abs(self.glo_ye) >= 2000.0:
             return True
         return False

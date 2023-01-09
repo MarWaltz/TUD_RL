@@ -133,13 +133,13 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         TS1 = TargetShip(N_init   = 0.0, 
                          E_init   = 0.0, 
                          psi_init = 0.0,
-                         u_init   = 0.0,
+                         u_init   = 3.0,
                          v_init   = 0.0,
                          r_init   = 0.0,
                          delta_t  = self.delta_t,
                          N_max    = np.infty,
                          E_max    = np.infty,
-                         nps      = 3.0,
+                         nps      = None,
                          full_ship = False,
                          ship_domain_size = 2)
 
@@ -147,10 +147,10 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
             # lower speed for overtaking situations
             if self.scenario == 3:
-                TS1.nps = 0.7
+                TS1.nu[0] = 1.5
 
             # predict converged speed of TS
-            TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
+            TS1.nps = TS1._get_nps_from_u(TS1.nu[0])
 
             # heading according to situation
             if self.scenario == 1:
@@ -180,11 +180,11 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
             # lower speed for overtaking situations
             if self.scenario == 7:
-                TS1.nps = 0.7
+                TS1.nu[0] = 1.5
 
             # predict converged speed of TS
-            TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
-            TS2.nu[0] = TS2._get_u_from_nps(TS2.nps)
+            TS1.nps = TS1._get_nps_from_u(TS1.nu[0])
+            TS2.nps = TS2._get_nps_from_u(TS2.nu[0])
 
             # heading according to situation
             if self.scenario == 5:
@@ -235,12 +235,12 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
             # lower speed for overtaking situations
             if self.scenario in [15, 17, 20, 22]:
-                TS1.nps = 0.7
+                TS1.nu[0] = 1.5
 
             # predict converged speed of TS
-            TS1.nu[0] = TS1._get_u_from_nps(TS1.nps)
-            TS2.nu[0] = TS2._get_u_from_nps(TS2.nps)
-            TS3.nu[0] = TS3._get_u_from_nps(TS3.nps)
+            TS1.nps = TS1._get_nps_from_u(TS1.nu[0])
+            TS2.nps = TS2._get_nps_from_u(TS2.nu[0])
+            TS3.nps = TS3._get_nps_from_u(TS3.nu[0])
 
             # heading according to situation
             if self.scenario == 12:

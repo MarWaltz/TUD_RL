@@ -100,15 +100,15 @@ class HHOS_Env(gym.Env):
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
-        self.plot_depth = True
-        self.plot_path = True
-        self.plot_wind = False
-        self.plot_current = False
-        self.plot_waves = False
-        self.plot_lidar = True
-        self.plot_reward = True
-        self.default_cols = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
-        self.first_init = True
+        self.plot_depth     = True
+        self.plot_path      = True
+        self.plot_wind      = False
+        self.plot_current   = False
+        self.plot_waves     = False
+        self.plot_lidar     = True
+        self.plot_reward    = True
+        self.default_cols   = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
+        self.first_init     = True
 
         if not self.plot_in_latlon:
             self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
@@ -123,28 +123,19 @@ class HHOS_Env(gym.Env):
         self.TCPA_crit = 25 * 60 # spawning time for target ships on open sea
 
         # trajectory or path-planning and following
-        self.two_actions = nps_control_follower
+        self.two_actions = nps_control_follower is True
 
         self.loc_path_upd_freq = 25
         self.desired_V = 3.0
 
-        # action/reward setup
-        self.a = [0, 0] if self.two_actions else [0]
-        
+        # reward weights
         self.w_ye = w_ye
         self.w_ce = w_ce
         self.w_coll = w_coll
         self.w_comf = w_comf
        
-        self.r = 0
-        self.r_ye = 0
-        self.r_ce = 0
-        self.r_coll = 0
-        self.r_comf = 0
-
         if self.two_actions:
             self.w_speed = w_speed
-            self.r_speed = 0.0
 
     def _load_global_path(self, path_to_global_path):
         with open(f"{path_to_global_path}/Path_latlon.pickle", "rb") as f:
@@ -739,19 +730,19 @@ class HHOS_Env(gym.Env):
         TS = TargetShip(N_init    = 0.0,
                         E_init    = 0.0,
                         psi_init  = 0.0,
-                        u_init    = 0.0,
+                        u_init    = float(np.random.uniform(0.8, 1.2)) * self.desired_V,
                         v_init    = 0.0,
                         r_init    = 0.0,
                         delta_t   = self.delta_t,
                         N_max     = np.infty,
                         E_max     = np.infty,
-                        nps       = np.random.uniform(0.8, 1.2) * self.OS.nps,
+                        nps       = None,
                         full_ship = False,
                         ship_domain_size = 2)
 
         # predict converged speed of sampled TS
         # Note: if we don't do this, all further calculations are heavily biased
-        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+        TS.nps = TS._get_nps_from_u(TS.nu[0], psi=TS.eta[2])
 
         # quick access for OS
         N0, E0, _ = self.OS.eta
@@ -860,11 +851,11 @@ class HHOS_Env(gym.Env):
             if speedy: 
                 d = np.random.uniform(self.TS_spawn_dists[0]/2, self.TS_spawn_dists[0])
                 rev_dir = False
-                nps = np.random.uniform(1.3, 1.5) * self.OS.nps
+                spd = np.random.uniform(1.3, 1.5) * self.desired_V
             else:
                 d = np.random.uniform(*self.TS_spawn_dists)
                 rev_dir = bool(random.getrandbits(1))
-                nps = np.random.uniform(0.3, 0.6) * self.OS.nps
+                spd = np.random.uniform(0.3, 0.6) * self.desired_V
             offset = np.random.uniform(-20.0, 50.0)
 
         # vessel train
@@ -875,7 +866,7 @@ class HHOS_Env(gym.Env):
                 d = NM_to_meter(0.5) + n*NM_to_meter(0.1)
             rev_dir = False
             offset = 0.0
-            nps = np.random.uniform(0.4, 0.5) * self.OS.nps
+            spd    = 0.5 * self.desired_V
             speedy = False
 
         # overtake the overtaker
@@ -884,9 +875,9 @@ class HHOS_Env(gym.Env):
             rev_dir = False
             offset = 0.0 if n == 0 else 100.0
             if n == 0:
-                nps = np.random.uniform(0.4, 0.45) * self.OS.nps
+                spd = 0.4 * self.desired_V
             else:
-                nps = np.random.uniform(0.45, 0.5) * self.OS.nps
+                spd = 0.5 * self.desired_V
             speedy = False
 
         # overtaking under oncoming traffic
@@ -895,31 +886,31 @@ class HHOS_Env(gym.Env):
                 d = NM_to_meter(0.5)
                 rev_dir = False
                 offset = 0.0
-                nps = np.random.uniform(0.4, 0.5) * self.OS.nps
+                spd = 0.4 * self.desired_V
 
             elif n == 1:
                 d = NM_to_meter(1.5)
                 rev_dir = True
                 offset = 50.0
-                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+                spd = 0.7 * self.desired_V
 
             elif n == 2:
                 d = NM_to_meter(1.5)
                 rev_dir = True
                 offset = 0.0
-                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+                spd = 0.7 * self.desired_V
 
             elif n == 3:
                 d = NM_to_meter(1.7)
                 rev_dir = True
                 offset = 0.0
-                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+                spd = 0.7 * self.desired_V
 
             elif n == 4:
                 d = NM_to_meter(1.7)
                 rev_dir = True
                 offset = 50.0
-                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+                spd = 0.7 * self.desired_V
             speedy = False
 
         # overtake the overtaker under oncoming traffic
@@ -928,19 +919,19 @@ class HHOS_Env(gym.Env):
                 d = NM_to_meter(0.5)
                 rev_dir = False
                 offset = 0.0
-                nps = np.random.uniform(0.4, 0.45) * self.OS.nps
+                spd = 0.4 * self.desired_V
 
             elif n == 1:
                 d = NM_to_meter(0.5)
                 rev_dir = False
                 offset = 50.0
-                nps = np.random.uniform(0.45, 0.5) * self.OS.nps
+                spd = 0.5 * self.desired_V
 
             elif n == 2:
                 d = NM_to_meter(1.5)
                 rev_dir = True
                 offset = 0.0
-                nps = np.random.uniform(0.6, 0.7) * self.OS.nps
+                spd = 0.7 * self.desired_V
             speedy = False
 
         # add some noise to distance
@@ -1011,13 +1002,13 @@ class HHOS_Env(gym.Env):
         TS = TargetShip(N_init    = N_TS,
                         E_init    = E_TS,
                         psi_init  = TS_head,
-                        u_init    = 0.0,
+                        u_init    = spd,
                         v_init    = 0.0,
                         r_init    = 0.0,
                         delta_t   = self.delta_t,
                         N_max     = np.infty,
                         E_max     = np.infty,
-                        nps       = nps,
+                        nps       = None,
                         full_ship = False,
                         ship_domain_size = 2)
 
@@ -1052,7 +1043,7 @@ class HHOS_Env(gym.Env):
             TS.glo_wp3_N, TS.glo_wp3_E = path.north[TS.glo_wp3_idx], path.east[TS.glo_wp3_idx]
 
         # predict converged speed of sampled TS
-        TS.nu[0] = TS._get_u_from_nps(TS.nps, psi=TS.eta[2])
+        TS.nps = TS._get_nps_from_u(TS.nu[0], psi=TS.eta[2])
         return TS
 
     def _get_COLREG_situation(self, N0:float, E0:float, head0:float, v0:float, chi0:float,
@@ -1432,7 +1423,139 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 10 == 0:
+        if self.step_cnt % 1 == 0:
+
+            # ------------------------------ reward and action plot --------------------------------
+            if self.plot_reward:
+                
+                # storage
+                if self.step_cnt == 0:
+
+                    # reward - array init
+                    self.ax2.r      = np.zeros(self._max_episode_steps)
+                    self.ax2.r_ye   = np.zeros(self._max_episode_steps)
+                    self.ax2.r_ce   = np.zeros(self._max_episode_steps)
+                    self.ax2.r_comf = np.zeros(self._max_episode_steps)
+
+                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                        self.ax2.r_coll = np.zeros(self._max_episode_steps)
+
+                    if self.two_actions:
+                        self.ax2.r_speed = np.zeros(self._max_episode_steps)
+
+                    # reward - naming
+                    self.ax2.r_names = ["agg", "ye", "ce", "comf"]
+                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                        self.ax2.r_names += ["coll"]
+
+                    if self.two_actions:
+                        self.ax2.r_names += ["speed"]
+
+                    # action - array init
+                    self.ax3.a0 = np.zeros(self._max_episode_steps)
+                    if self.two_actions:
+                        self.ax3.a1 = np.zeros(self._max_episode_steps)
+
+                    # action - naming
+                    self.ax3.a_names = ["steering"]
+                    if self.two_actions:
+                        self.ax3.a_names += ["speed"]
+                else:
+                    # reward
+                    self.ax2.r[self.step_cnt]      = self.r
+                    self.ax2.r_ye[self.step_cnt]   = self.r_ye
+                    self.ax2.r_ce[self.step_cnt]   = self.r_ce
+                    self.ax2.r_comf[self.step_cnt] = self.r_comf
+
+                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                        self.ax2.r_coll[self.step_cnt] = self.r_coll
+
+                    if self.two_actions:
+                        self.ax2.r_speed[self.step_cnt] = self.r_speed
+
+                    # action
+                    self.ax3.a0[self.step_cnt] = float(self.a[0])
+                    if self.two_actions:
+                        self.ax3.a1[self.step_cnt] = float(self.a[1])
+
+                # periodically clear and init
+                if self.step_cnt % 50 == 0:
+
+                    self.ax2.clear()
+                    self.ax3.clear()
+
+                    # appearance
+                    self.ax2.set_title(type(self).__name__.replace("_", "-"))
+                    self.ax2.set_xlabel("Timestep in episode")
+                    self.ax2.set_ylabel("Reward")
+                    self.ax2.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
+                    self.ax2.set_ylim(-11.0, 3.0)
+
+                    self.ax3.set_xlabel("Timestep in episode")
+                    self.ax3.set_ylabel("Action")
+                    self.ax3.set_ylim(-1.05, 1.05)
+                    self.ax3.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
+
+                    # ---------- animated artists: initial drawing ---------
+                    # rewards
+                    self.ax2.lns = []
+                    for i, lab in enumerate(self.ax2.r_names):
+                        self.ax2.lns.append(self.ax2.plot([], [], color=COLREG_COLORS[i], label=lab, animated=True)[0])
+                    self.ax2.legend()
+
+                    # actions                       
+                    self.ax3.lns = []
+                    for i, lab in enumerate(self.ax3.a_names):
+                        self.ax3.lns.append(self.ax3.plot([], [], color="red" if i == 0 else "blue", label=self.ax3.a_names[i], animated=True)[0])
+                    self.ax3.legend()
+
+                    # ----------------- store background -------------------
+                    self.f.canvas.draw()
+                    self.ax2.bg = self.f.canvas.copy_from_bbox(self.ax2.bbox)
+                    self.ax3.bg = self.f.canvas.copy_from_bbox(self.ax3.bbox)
+                
+                else:
+                    # ------------- restore the background ---------------
+                    self.f.canvas.restore_region(self.ax2.bg)
+                    self.f.canvas.restore_region(self.ax3.bg)
+
+                    # ----------- animated artists: update ---------------
+                    # reward
+                    for i, lab in enumerate(self.ax2.r_names):
+                        if lab == "agg":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r[:self.step_cnt+1])
+                        
+                        elif lab == "ye":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_ye[:self.step_cnt+1])
+                        
+                        elif lab == "ce":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_ce[:self.step_cnt+1])
+                        
+                        elif lab == "comf":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_comf[:self.step_cnt+1])
+
+                        elif lab == "coll":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_coll[:self.step_cnt+1])
+
+                        elif lab == "speed":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_speed[:self.step_cnt+1])
+
+                        self.ax2.draw_artist(self.ax2.lns[i])
+                    
+                    # action
+                    for i, lab in enumerate(self.ax3.a_names):
+                        if lab == "steering":
+                            self.ax3.lns[i].set_data(np.arange(self.step_cnt+1), self.ax3.a0[:self.step_cnt+1])
+                        
+                        elif lab == "speed":
+                            self.ax3.lns[i].set_data(np.arange(self.step_cnt+1), self.ax3.a1[:self.step_cnt+1])
+                        
+                        self.ax3.draw_artist(self.ax3.lns[i])
+
+                    # show it on screen
+                    self.f.canvas.blit(self.ax2.bbox)
+                    self.f.canvas.blit(self.ax3.bbox)
+
             # ------------------------------ ship movement --------------------------------
             # get position of OS in lat/lon
             N0, E0, head0 = self.OS.eta
@@ -1602,72 +1725,6 @@ class HHOS_Env(gym.Env):
 
                     for _, latlon in enumerate(lidar_lat_lon):
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))
-
-            # ------------------------------ reward and action plot --------------------------------
-            if self.plot_reward:
-                if self.step_cnt == 0:
-                    # reward
-                    self.ax2.clear()
-                    self.ax2.old_time = 0
-                    self.ax2.old_r_ye = 0
-                    self.ax2.old_r_ce = 0
-                    self.ax2.old_r_coll = 0
-                    self.ax2.old_r_comf = 0
-                    if self.two_actions:
-                        self.ax2.old_r_speed = 0
-                    self.ax2.r = 0
-                    self.ax2.set_title(type(self).__name__.replace("_", "-"))
-
-                    # action
-                    self.ax3.clear()
-                    self.ax3.old_time = 0
-                    self.ax3.old_a0 = 0
-                    if self.two_actions:
-                        self.ax3.old_a1 = 0
-
-                # reward
-                self.ax2.set_xlabel("Timestep in episode")
-                self.ax2.set_ylabel("Reward")
-
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ye, self.r_ye], color = "black", label="Cross-track error")
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_ce, self.r_ce], color = "red", label="Course error")
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_comf, self.r_comf], color = "blue", label="Comfort")
-
-                if type(self).__name__ == "HHOS_PathPlanning_Env":
-                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_coll, self.r_coll], color = "green", label="Collision")
-                if self.two_actions:
-                    self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_r_speed, self.r_speed], color = "salmon", label="Speed")
-
-                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.r, self.r], color = "darkgoldenrod", label="Aggregated")
-                
-                if self.step_cnt == 0:
-                    self.ax2.legend()
-
-                self.ax2.old_time = self.step_cnt
-                self.ax2.old_r_ye = self.r_ye
-                self.ax2.old_r_ce = self.r_ce
-                self.ax2.old_r_coll = self.r_coll
-                self.ax2.old_r_comf = self.r_comf
-                if self.two_actions:
-                    self.ax2.old_r_speed = self.r_speed
-                self.ax2.r = self.r
-
-                # action
-                self.ax3.set_xlabel("Timestep in episode")
-                self.ax3.set_ylabel("Action")
-                self.ax3.set_ylim(-1.05, 1.05)
-
-                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a0, float(self.a[0])], color="blue", label="Steering")
-                if self.two_actions:
-                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_a1, float(self.a[1])], color="red", label="Speed")
-
-                if self.step_cnt == 0:
-                    self.ax3.legend()
-
-                self.ax3.old_time = self.step_cnt
-                self.ax3.old_a0 = float(self.a[0])
-                if self.two_actions:
-                    self.ax3.old_a1 = float(self.a[1])
 
             #plt.gca().set_aspect('equal')
             plt.pause(0.001)

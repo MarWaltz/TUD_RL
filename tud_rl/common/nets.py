@@ -892,7 +892,7 @@ class LSTMRecActor(nn.Module):
     """Defines a spatial-temporal recursive actor particularly designed for the HHOS-Env. There are two recursive parts:
     one for different vessels inside one observation, one for sequential observations."""
     
-    def __init__(self, action_dim, num_obs_OS, num_obs_TS=5, use_past_actions=False, device=None) -> None:
+    def __init__(self, action_dim, num_obs_OS, num_obs_TS, use_past_actions=False, device=None) -> None:
         super(LSTMRecActor, self).__init__()
 
         self.action_dim = action_dim
@@ -1248,7 +1248,7 @@ class LSTMRecCritic(nn.Module):
 
 
 class LSTMRec_Double_Critic(nn.Module):
-    def __init__(self, action_dim, num_obs_OS, num_obs_TS=5, use_past_actions=False, device=None) -> None:
+    def __init__(self, action_dim, num_obs_OS, num_obs_TS, use_past_actions=False, device=None) -> None:
         super(LSTMRec_Double_Critic, self).__init__()
 
         self.device = device

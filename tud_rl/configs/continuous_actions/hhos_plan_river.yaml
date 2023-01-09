@@ -11,11 +11,10 @@ env:
     state_design: recursive
     N_TSs_max: 5
     N_TSs_random: true
-    w_ye : 3.0
+    w_ye : 1.0
     w_ce : 1.0
-    w_coll : 1.0
-    w_comf : 0.1
-    w_speed: None
+    w_coll : 2.0
+    w_comf : 0.25
   info: MDP
 agent:
   DDPG: {}
@@ -39,6 +38,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 13
+    num_obs_TS: 7
   LSTMRecTD3_b:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
@@ -46,6 +46,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 3
+    num_obs_TS: 7
   SAC:
     lr_temp: 0.0001
     temp_tuning: true

@@ -21,11 +21,11 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             self.plot_waves = True
 
         # gym inherits
-        OS_infos = 7 if nps_control_follower else 5
+        OS_infos   = 7 if nps_control_follower else 5
         path_infos = 2
-        env_infos = 9
-        obs_size = OS_infos + path_infos + env_infos
-        act_size = 2 if nps_control_follower else 1
+        env_infos  = 9
+        obs_size   = OS_infos + path_infos + env_infos
+        act_size   = 2 if nps_control_follower else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -37,7 +37,6 @@ class HHOS_PathFollowing_Validation(HHOS_Env):
             self._max_episode_steps = 600
 
         # vessel config
-        self.desired_V = 3.0
         self.rud_angle_max = dtr(20.0)
         self.rud_angle_inc = dtr(5.0)
         self.nps_inc = 0.25

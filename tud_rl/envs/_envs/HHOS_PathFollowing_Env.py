@@ -48,13 +48,14 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # construct planner network(s)
         self.planner = dict()
+        self.num_obs_TS = 7
 
         if planner_river_weights is not None:
-            plan_in_size = 3 + 5 * self.N_TSs_max + self.lidar_n_beams
+            plan_in_size = 3 + self.num_obs_TS * self.N_TSs_max + self.lidar_n_beams
 
             # init
             if planner_state_design == "recursive":
-                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams)
+                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams, num_obs_TS=self.num_obs_TS)
             else:
                 self.planner["river"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             
@@ -62,11 +63,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planner["river"].load_state_dict(torch.load(planner_river_weights))
 
         if planner_opensea_weights is not None:
-            plan_in_size = 3 + 5 * self.N_TSs_max
+            plan_in_size = 3 + self.num_obs_TS * self.N_TSs_max
 
             # init
             if planner_state_design == "recursive":
-                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3)
+                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3, num_obs_TS=self.num_obs_TS)
             else:
                 self.planner["opensea"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             
@@ -82,18 +83,17 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planner_safety_net = planner_safety_net  
 
         # gym inherits
-        OS_infos = 7 if self.nps_control_follower else 5
+        OS_infos   = 7 if self.nps_control_follower else 5
         path_infos = 2
-        env_infos = 9
-        obs_size = OS_infos + path_infos + env_infos
-        act_size = 2 if self.nps_control_follower else 1
+        env_infos  = 9
+        obs_size   = OS_infos + path_infos + env_infos
+        act_size   = 2 if self.nps_control_follower else 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low  = np.full(act_size, -1.0, dtype=np.float32), 
                                        high = np.full(act_size,  1.0, dtype=np.float32))
         # vessel config
-        self.desired_V = 3.0
         self.rud_angle_max = dtr(20.0)
         self.rud_angle_inc = dtr(5.0)
         self.nps_inc = 0.25
@@ -110,7 +110,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             return s
         
         # prepare planning env
-        self.planning_env = self.setup_planning_env(env=self.planning_env, initial=True)
+        self.planning_env    = self.setup_planning_env(env=self.planning_env, initial=True)
         self.planning_env, _ = self.setup_planning_env(env=self.planning_env, initial=False)
         self.planning_env.step_cnt = 0
         self.planning_env.sim_t = 0.0
@@ -168,7 +168,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             env.H = copy(self.H)
 
             # guarantee OS moves linearly
+            env.OS.nu[0]  = self.OS._get_V()
             env.OS.nu[1:] = 0.0
+            env.OS.eta[2] = self.OS._get_course()
             env.OS.rud_angle = 0.0
 
             # global path error
@@ -394,9 +396,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # setup history if needed
         if self.planner_state_design == "recursive":
             if self.planning_env.plan_on_river:
-                state_shape = 3 + 5 * self.N_TSs_max + self.lidar_n_beams
+                state_shape = 3 + self.num_obs_TS * self.N_TSs_max + self.lidar_n_beams
             else:
-                state_shape = 3 + 5 * self.N_TSs_max
+                state_shape = 3 + self.num_obs_TS * self.N_TSs_max
 
             s_hist = np.zeros((2, state_shape))  # history length 2
             hist_len = 0
@@ -547,7 +549,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                               self.H/100.0])    # depth
 
         # ------------------------- aggregate information ------------------------
-        self.state = np.concatenate([state_OS, state_path, state_env], dtype=np.float32)
+        self.state = np.concatenate([state_OS, state_path, state_env]).astype(np.float32)
 
     def _get_v_desired(self):
         """Computes the desired velocity time at the position of the agent."""
@@ -602,7 +604,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             weights = np.append(weights, [self.w_speed])
             rews = np.append(rews, [self.r_speed])
 
-        self.r = np.sum(weights * rews) / np.sum(weights)
+        self.r = float(np.sum(weights * rews) / np.sum(weights))
 
     def _done(self):
         """Returns boolean flag whether episode is over."""

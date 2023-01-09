@@ -25,14 +25,17 @@ class LSTMRecTD3Agent(LSTMTD3Agent):
 
         # overwrite nets (Note: 'num_obs_OS' is specific for the HHOS envs.)
         self.num_obs_OS = getattr(c.Agent, agent_name)["num_obs_OS"]
+        self.num_obs_TS = getattr(c.Agent, agent_name)["num_obs_TS"]
 
         if self.state_type == "feature":
             self.actor  = nets.LSTMRecActor(action_dim       = self.num_actions, 
                                             num_obs_OS       = self.num_obs_OS,
+                                            num_obs_TS       = self.num_obs_TS,
                                             use_past_actions = self.use_past_actions,
                                             device           = self.device).to(self.device)
             self.critic = nets.LSTMRec_Double_Critic(action_dim       = self.num_actions,
                                                      num_obs_OS       = self.num_obs_OS,
+                                                     num_obs_TS       = self.num_obs_TS,
                                                      use_past_actions = self.use_past_actions,
                                                      device           = self.device).to(self.device)
 

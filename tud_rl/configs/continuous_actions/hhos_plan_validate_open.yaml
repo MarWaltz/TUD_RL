@@ -33,6 +33,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 13
+    num_obs_TS: 7
   LSTMRecTD3_b:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
@@ -40,6 +41,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 3
+    num_obs_TS: 7
   SAC:
     lr_temp: 0.0001
     temp_tuning: true
