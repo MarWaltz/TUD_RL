@@ -282,8 +282,6 @@ class UAM(gym.Env):
         """a is np.array([N_planes, action_dim]), where action_dim is 2 or 1, in multi-agent scenarios.
         In single-agent, it is a list:
             [np.array([action_dim,]), _agent]."""
-        self.render()
-
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.dt
