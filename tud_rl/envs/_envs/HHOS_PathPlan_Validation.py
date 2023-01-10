@@ -55,6 +55,9 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
     def reset(self):
         s = super().reset()
+
+        # overwrite OS nps since its computation considered environmental disturbances
+        self.OS.nps = self.OS._get_nps_from_u(u=self.desired_V)
         
         # viz
         TS_info = {}
@@ -142,6 +145,9 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                          nps      = None,
                          full_ship = False,
                          ship_domain_size = 2)
+
+        # deterministic behavior in evaluation
+        TS1.random_moves = False
 
         if self.scenario in range(1, 5):
 

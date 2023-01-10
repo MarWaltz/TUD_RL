@@ -9,7 +9,7 @@ env:
     plan_on_river: false
     data: sampled
     state_design: recursive
-    scenario: 1
+    scenario: 3
   info: 
 agent:
   DDPG: {}
@@ -63,8 +63,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: LSTMRecTD3_b_actor_open.pth
-critic_weights: LSTMRecTD3_b_critic_open.pth
+actor_weights: open_actor.pth
+critic_weights: open_critic.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

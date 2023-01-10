@@ -137,13 +137,15 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ----------------------- TS information ------------------------------
         # parametrization depending on river or open sea
         if self.plan_on_river:
-            tcpa_norm = 2 * 60         # [s]
-            dcpa_norm = 3*self.OS.Lpp  # [m]
-            ED_norm   = 20*self.OS.Lpp # [m]
+            tcpa_norm = 5 * 60             # [s]
+            dcpa_norm = self.COLREG_range  # [m]
+            ED_norm   = self.COLREG_range  # [m]
+            v_norm    = 3                  # [m/s]
         else:
-            tcpa_norm = 10 * 60       # [s]
-            dcpa_norm = 3*self.OS.Lpp # [m]
-            ED_norm   = 20*self.OS.Lpp # [m]
+            tcpa_norm = 15 * 60          # [s]
+            dcpa_norm = self.lidar_range # [m]
+            ED_norm   = self.lidar_range # [m]
+            v_norm    = 3                # [m/s]
 
         N0, E0, head0 = self.OS.eta
         v0 = self.OS._get_V()
@@ -155,11 +157,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             v1 = TS._get_V()
             chi1 = TS._get_course()
 
-            # closeness
+            # distance
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
                                 OS=self.OS, TS=TS)
-            ED_OS_TS = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D)/ED_norm
-            closeness = np.clip(1-ED_OS_TS, 0.0, 1.0)
+            dist = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D)/ED_norm
+            dist = np.clip(dist, 0.0, 1.0)
 
             # relative bearing
             bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0, to_2pi=False) / (math.pi)
@@ -168,7 +170,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             C_TS_path = angle_to_pi(head1 - self.glo_pi_path) / math.pi
 
             # speed
-            v_rel = v1-v0
+            v_rel = np.clip((v1-v0)/v_norm, -1.0, 1.0)
 
             # encounter situation
             if self.plan_on_river:
@@ -185,37 +187,29 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                                           D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
             d_cpa = max([0.0, d_cpa-domain_tcpa])
 
-            t_cpa = 1-np.tanh(t_cpa/tcpa_norm)
-            d_cpa = 1-np.tanh(d_cpa/dcpa_norm)
+            t_cpa = np.clip(t_cpa/tcpa_norm, -1.0, 1.0)
+            d_cpa = np.clip(d_cpa/dcpa_norm,  0.0, 1.0)
             
             # store it
-            state_TSs.append([closeness, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
+            state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
 
         if self.state_design == "recursive":
 
             # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
             if len(state_TSs) == 0:
                 enc_pad = 1.0 if self.plan_on_river else 5.0
-                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad, 2.0, 0.0])
+                state_TSs.append([1.0, -1.0, 1.0, -1.0, enc_pad, -1.0, 1.0])
 
-            # sort according to d_cpa (ascending due to tanh transform, smaller d_cpa is more dangerous)
+            # sort according to d_cpa (descending, smaller d_cpa is more dangerous)
             state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=False)).flatten()
 
             # at least one since there is always the ghost ship
-            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])   # 7 obs per target ship
+            desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])
 
             state_TSs = np.pad(state_TSs, (0, desired_length - len(state_TSs)), \
                 'constant', constant_values=np.nan).astype(np.float32)
         else:
             raise NotImplementedError()
-
-            # pad ghost ships
-            while len(state_TSs) != self.N_TSs_max:
-                enc_pad = 1.0 if self.plan_on_river else 5.0
-                state_TSs.append([0.0, -1.0, 1.0, -v0, enc_pad])
-
-            # sort according to closeness (ascending, larger closeness is more dangerous)
-            state_TSs = np.hstack(sorted(state_TSs, key=lambda x: x[0])).astype(np.float32)
 
         # ----------------------- LiDAR for depth -----------------------------
         if self.plan_on_river:
@@ -242,7 +236,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -5.0
-            dist_norm         = NM_to_meter(0.5)
+            dist_norm         = self.lidar_range
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -271,11 +265,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
         
             # check if collision
-            ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-            if ED_OS_TS <= D:
+            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+            if dist <= D:
                 self.r_coll += pen_coll_TS
             else:
-                self.r_coll += -math.exp(-(ED_OS_TS-D)/dist_norm)
+                self.r_coll += -math.exp(-(dist-D)/dist_norm)
 
             # violating traffic rules
             if self.plan_on_river:
@@ -289,7 +283,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                     self.r_coll += pen_traffic_rules
 
         # ---------------------- Comfort reward -----------------
-        self.r_comf = -float(a)**2
+        self.r_comf = -(float(a)**2)
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_comf])

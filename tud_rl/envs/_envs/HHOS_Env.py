@@ -96,7 +96,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 200
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.10
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -495,7 +495,7 @@ class HHOS_Env(gym.Env):
 
     def _get_closeness_from_lidar(self, dists):
         """Computes the closeness following Heiberg et al. (2022, Neural Networks) from given LiDAR distance measurements."""
-        return np.clip(1 - np.log(dists+1)/np.log(self.lidar_range+1), 0, 1)
+        return np.clip(1 - np.log(dists+1)/np.log(self.lidar_range+1), 0.0, 1.0)
 
     def _sense_LiDAR(self, N0:float, E0:float, head0:float):
         """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
@@ -567,20 +567,20 @@ class HHOS_Env(gym.Env):
 
         # consider different speeds in training
         if "Validation" in type(self).__name__:
-            nps = 3.0
+            spd = self.desired_V
         else:
-            nps = np.random.uniform(0.8, 1.2) * 3.0
+            spd = float(np.random.uniform(0.8, 1.2)) * self.desired_V
 
         self.OS = KVLCC2(N_init    = N_init, 
                          E_init    = E_init, 
                          psi_init  = None,
-                         u_init    = 0.0,
+                         u_init    = spd,
                          v_init    = 0.0,
                          r_init    = 0.0,
                          delta_t   = self.delta_t,
                          N_max     = np.infty,
                          E_max     = np.infty,
-                         nps       = nps,
+                         nps       = None,
                          full_ship = False,
                          ship_domain_size = 2)
         self.OS.rev_dir = False
@@ -622,18 +622,18 @@ class HHOS_Env(gym.Env):
         # environmental effects
         self._update_disturbances(lat_init, lon_init)
 
-        # set u-speed to near-convergence
-        self.OS.nu[0] = self.OS._get_u_from_nps(nps         = self.OS.nps, 
-                                                psi         = self.OS.eta[2], 
-                                                V_c         = self.V_c, 
-                                                beta_c      = self.beta_c, 
-                                                V_w         = self.V_w, 
-                                                beta_w      = self.beta_w, 
-                                                H           = self.H,
-                                                beta_wave   = self.beta_wave, 
-                                                eta_wave    = self.eta_wave, 
-                                                T_0_wave    = self.T_0_wave, 
-                                                lambda_wave = self.lambda_wave)
+        # set nps to near-convergence
+        self.OS.nps = self.OS._get_nps_from_u(u           = self.OS.nu[0], 
+                                              psi         = self.OS.eta[2], 
+                                              V_c         = self.V_c, 
+                                              beta_c      = self.beta_c, 
+                                              V_w         = self.V_w, 
+                                              beta_w      = self.beta_w, 
+                                              H           = self.H,
+                                              beta_wave   = self.beta_wave, 
+                                              eta_wave    = self.eta_wave, 
+                                              T_0_wave    = self.T_0_wave, 
+                                              lambda_wave = self.lambda_wave)
         # set course error
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
@@ -1437,7 +1437,7 @@ class HHOS_Env(gym.Env):
                     self.ax2.r_ce   = np.zeros(self._max_episode_steps)
                     self.ax2.r_comf = np.zeros(self._max_episode_steps)
 
-                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                    if "Plan" in type(self).__name__:
                         self.ax2.r_coll = np.zeros(self._max_episode_steps)
 
                     if self.two_actions:
@@ -1445,7 +1445,7 @@ class HHOS_Env(gym.Env):
 
                     # reward - naming
                     self.ax2.r_names = ["agg", "ye", "ce", "comf"]
-                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                    if "Plan" in type(self).__name__:
                         self.ax2.r_names += ["coll"]
 
                     if self.two_actions:
@@ -1467,7 +1467,7 @@ class HHOS_Env(gym.Env):
                     self.ax2.r_ce[self.step_cnt]   = self.r_ce
                     self.ax2.r_comf[self.step_cnt] = self.r_comf
 
-                    if type(self).__name__ == "HHOS_PathPlanning_Env":
+                    if "Plan" in type(self).__name__:
                         self.ax2.r_coll[self.step_cnt] = self.r_coll
 
                     if self.two_actions:

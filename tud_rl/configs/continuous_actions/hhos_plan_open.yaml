@@ -11,9 +11,9 @@ env:
     state_design: recursive
     N_TSs_max: 5
     N_TSs_random: true
-    w_ye : 3.0
+    w_ye : 1.0
     w_ce : 1.0
-    w_coll : 1.25
+    w_coll : 1.5
     w_comf : 0.1
   info: MDP
 agent:
