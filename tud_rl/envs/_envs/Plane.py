@@ -6,7 +6,11 @@ import bluesky.tools.aero as aero
 import bluesky.traffic.performance.openap.thrust as thrust
 import numpy as np
 import pandas as pd
-from bluesky.tools.geo import latlondist
+from bluesky.tools.geo import latlondist, qdrpos
+
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, get_init_two_wp, rtd, to_latlon,
+                                        to_utm)
+from tud_rl.envs._envs.VesselFnc import meter_to_NM
 
 bs.settings.set_variable_defaults(perf_path_openap="performance/OpenAP")
 
@@ -616,7 +620,7 @@ class OpenAP:
 class Plane:
     """This class provides a plane model based on the dynamics of the BlueSky simulator and the OpenAP performance model."""
 
-    def __init__(self, dt: float, actype: str, lat: float, lon: float, alt: float, hdg: float, tas: float) -> None:
+    def __init__(self, role:str, dt: float, actype: str, lat: float, lon: float, alt: float, hdg: float, tas: float) -> None:
 
         # setting
         self.dt = dt
@@ -649,12 +653,39 @@ class Plane:
         # miscallaneous
         self.coslat = np.cos(np.radians(lat))
 
-    def upd_dynamics(self, a, perf:OpenAP, dest=None):
+        # behavior type
+        assert role in ["RL", "VFG"], "Unknown behavior type of the plane."
+        self.role = role
+        if role == "VFG":
+            self._VFG_help(init=True)
+
+    def _VFG_help(self, init=True):
+        """Samples path around destination in 'VFG' planes."""
+        if init:
+            # sample distance
+            self.desired_d_dist = np.random.uniform(low=300, high=800, size=1)
+            
+            # construct path
+            self.path = {}
+            self.path["lat"], self.path["lon"] = map(list, zip(*[qdrpos(latd1=10.0, lond1=10.0, qdr=deg, dist=meter_to_NM(self.desired_d_dist))\
+                for deg in np.linspace(start=0.0, stop=360.0, num=100, endpoint=False)]))
+            self.path["n"], self.path["e"], _ = to_utm(lat=np.array(self.path["lat"]), lon=np.array(self.path["lon"]))
+
+        # set waypoints for VFG control
+        self.n, self.e, _ = to_utm(lat=self.lat, lon=self.lon)
+        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E =\
+            get_init_two_wp(n_array=self.path["n"], e_array=self.path["e"], a_n=self.n, a_e=self.e, stop_goal=False)
+        #self.wp1_lat, self.wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=32)
+
+    def upd_dynamics(self, perf:OpenAP, a=None, dest=None):
         #---------- Atmosphere --------------------------------
         self.p, self.rho, self.Temp = aero.vatmos(self.alt)
 
         #---------- Fly the Aircraft --------------------------
-        self.cnt_hdg, self.cnt_tas = self._control(a)
+        if self.role == "RL":
+            self.cnt_hdg, self.cnt_tas = self._RL_control(a)
+        elif self.role == "VFG":
+            self.cnt_hdg, self.cnt_tas = self._VFG_control()
 
         #---------- Performance Update ------------------------
         perf.update(self.tas, self.vs, self.alt, self.ax)
@@ -668,7 +699,7 @@ class Plane:
         self._update_groundspeed()
         self._update_pos(dest)
 
-    def _control(self, a):
+    def _RL_control(self, a):
         """a is np.array(2,) containing delta tas and delta heading, or np.array(1,) containing only delta heading."""
         # store action for rendering
         self.action = a
@@ -681,6 +712,14 @@ class Plane:
             return [self.hdg + self.delta_hdg * a[0], self.tas + self.delta_tas * a[1]]
         else:
             return [self.hdg + self.delta_hdg * a[0], self.tas]
+
+    def _VFG_control(self):
+        # waypoint updating
+        self._VFG_help(init=False)
+
+        # control
+        _, dc, _, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.n, EA=self.e, K=0.001)
+        return rtd(dc), self.tas
 
     def _update_airspeed(self):
         """Note: We perform no update of vertical speed since we stay at a specific altitude."""
