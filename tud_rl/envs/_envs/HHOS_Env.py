@@ -80,7 +80,7 @@ class HHOS_Env(gym.Env):
             self._load_current_data(path_to_HHOS + "/currents")
             self._load_wave_data(path_to_HHOS + "/waves")
         else:
-            self.n_wps_glo = 100         # number of wps of the global path
+            self.n_wps_glo = 300         # number of wps of the global path
             self.l_seg_path = 200        # wp distance of the global path in m
 
             # depth data sampling parameters
@@ -93,10 +93,10 @@ class HHOS_Env(gym.Env):
 
         # path characteristics
         self.n_wps_loc = 7
-        self.dist_des_rev_path = 200
+        self.dist_des_rev_path = 300
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.10
+        self.show_lon_lat = 0.05
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -230,9 +230,9 @@ class HHOS_Env(gym.Env):
 
                 for i in range(self.n_wps_glo):
                     if i == 0:
-                        d_left[i]  = np.clip(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
-                        d_right[i] = np.clip(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min, np.infty)
-                        depth[i] = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
+                        d_left[i]  = max(np.random.normal(loc=self.river_dist_left_loc, scale=self.river_dist_sca, size=1), self.river_min)
+                        d_right[i] = max(np.random.normal(loc=self.river_dist_right_loc, scale=self.river_dist_sca, size=1), self.river_min)
+                        depth[i]   = np.clip(np.random.exponential(scale=15, size=1), 20, 100)
                     else:
                         d_left[i]  = np.clip(
                                         d_left[i-1] + np.random.normal(loc=self.river_dist_noise_loc, scale=self.river_dist_noise_sca, size=1),

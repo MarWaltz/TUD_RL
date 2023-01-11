@@ -127,6 +127,10 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
             # create the TSs
             self._spawn_TS(CPA_N=self.CPA_N, CPA_E=self.CPA_E, TCPA=self.TCPA_gap)
+        
+        # deterministic behavior in evaluation
+        for TS in self.TSs:
+            TS.random_moves = False
 
     def _spawn_TS(self, CPA_N, CPA_E, TCPA):
         """TS should be after 'TCPA' at point (CPA_N, CPA_E).
@@ -145,10 +149,6 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                          nps      = None,
                          full_ship = False,
                          ship_domain_size = 2)
-
-        # deterministic behavior in evaluation
-        TS1.random_moves = False
-
         if self.scenario in range(1, 5):
 
             # lower speed for overtaking situations

@@ -9,12 +9,12 @@ env:
     plan_on_river: false
     data: sampled
     state_design: recursive
-    N_TSs_max: 5
+    N_TSs_max: 4
     N_TSs_random: true
     w_ye : 1.0
     w_ce : 1.0
-    w_coll : 1.5
-    w_comf : 0.1
+    w_coll : 2.0
+    w_comf : 0.2
   info: MDP
 agent:
   DDPG: {}

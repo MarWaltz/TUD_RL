@@ -224,23 +224,27 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _calculate_reward(self, a):
         # parametrization depending on open sea or river
         if self.plan_on_river:
-            k_ye              =  0.05
+            k_ye              =  2.0
+            ye_norm           =  2*self.OS.Lpp
             pen_ce            = -10.0
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
-            pen_traffic_rules = -5.0
-            dist_norm         =  200
+            pen_traffic_rules = -2.0
+            dx_norm           =  2*self.OS.Lpp
+            dy_norm           =  5*self.OS.Lpp
+            coll_f            =  3.0
         else:
-            k_ye              =  0.05
+            k_ye              =  10.0
+            ye_norm           =  NM_to_meter(0.5)
             pen_ce            = -10.0
-            pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
-            pen_traffic_rules = -5.0
-            dist_norm         = self.lidar_range
+            pen_traffic_rules = -2.0
+            dist_norm         =  1.5*self.lidar_range
+            coll_f            =  2.0
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
-        self.r_ye = math.exp(-k_ye * abs(self.glo_ye))
+        self.r_ye = math.exp(-k_ye * abs(self.glo_ye)/ye_norm)
 
         # course violation
         if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
@@ -265,11 +269,20 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
         
             # check if collision
-            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-            if dist <= D:
+            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)-D
+            if dist <= 0.0:
                 self.r_coll += pen_coll_TS
             else:
-                self.r_coll += -math.exp(-(dist-D)/dist_norm)
+                # on river, we have asymetric longitudinal and lateral reward
+                if self.plan_on_river:
+
+                    # relative bng from TS perspective
+                    bng_rel_TS = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
+                    dx, dy = xy_from_polar(r=dist, angle=bng_rel_TS)
+
+                    self.r_coll += -coll_f * math.exp(-abs(dx)/dx_norm) * math.exp(-abs(dy)/dy_norm)
+                else:
+                    self.r_coll += -coll_f*math.exp(-dist/dist_norm)
 
             # violating traffic rules
             if self.plan_on_river:
@@ -300,7 +313,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         elif self.step_cnt >= self._max_episode_steps:
             return True
 
-        # on river: don't go too far away from path
-        elif self.plan_on_river and abs(self.glo_ye) >= 2000.0:
-            return True
+        # don't go too far away from path
+        if self.plan_on_river:
+            if abs(self.glo_ye) >= NM_to_meter(1.0):
+                return True
+        else:
+            if abs(self.glo_ye) >= NM_to_meter(3.0):
+                return True
         return False
