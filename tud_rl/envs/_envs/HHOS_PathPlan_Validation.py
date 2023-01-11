@@ -51,7 +51,7 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
         super().__init__(plan_on_river=plan_on_river, state_design=state_design, data=data, N_TSs_max=self.N_TSs,\
             N_TSs_random=False, w_ye=.0, w_ce=.0, w_coll=.0, w_comf=.0, w_speed=.0)
-        self._max_episode_steps = 50
+        self._max_episode_steps = 1000
 
     def reset(self):
         s = super().reset()
@@ -335,5 +335,5 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 self.plotter.dump(name="Plan_Imazu_" + str(self.scenario))
         return d
 
-    def render(self, data=None):
-        pass
+    #def render(self, data=None):
+    #    pass

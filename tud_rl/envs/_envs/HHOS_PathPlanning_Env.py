@@ -21,9 +21,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
         self.state_design = state_design
 
-        # forward run
-        self.n_loops = int(60.0/self.delta_t)
-
         # type of planner
         self.plan_on_river = plan_on_river
 
@@ -45,7 +42,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.surge_max = 5.0
         self.d_head_scale = dtr(10.0)
 
-        self._max_episode_steps = 100
+        self._max_episode_steps = 1000
 
     def reset(self):
         s = super().reset()
@@ -68,7 +65,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._manual_control(a)
 
         # update agent dynamics (independent of environmental disturbances in this module)
-        [self.OS._upd_dynamics() for _ in range(self.n_loops)]
+        self.OS._upd_dynamics()
 
         # real data: check whether we are on river or open sea
         if self.data == "real":
@@ -84,29 +81,28 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._set_cte(path_level="global")
         self._set_ce(path_level="global")
 
-        for _ in range(self.n_loops):
-            # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
-            [TS._upd_dynamics() for TS in self.TSs]
+        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
+        [TS._upd_dynamics() for TS in self.TSs]
 
-            # check respawn
-            self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
+        # check respawn
+        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
-            # on river: update waypoints for other vessels
+        # on river: update waypoints for other vessels
+        if self.plan_on_river:
+            self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
+
+        # on river: simple heading control of target ships
+        if control_TS:
             if self.plan_on_river:
-                self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
-
-            # on river: simple heading control of target ships
-            if control_TS:
-                if self.plan_on_river:
-                    for TS in self.TSs:
-                        other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                        TS.river_control(other_vessels, VFG_K=self.VFG_K)
-                else:
-                    [TS.opensea_control() for TS in self.TSs]
+                for TS in self.TSs:
+                    other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                    TS.river_control(other_vessels, VFG_K=self.VFG_K)
+            else:
+                [TS.opensea_control() for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
-        self.sim_t += self.n_loops * self.delta_t
+        self.sim_t += self.delta_t
 
         # compute state, reward, done        
         self._set_state()

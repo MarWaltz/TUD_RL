@@ -93,7 +93,7 @@ class HHOS_Env(gym.Env):
 
         # path characteristics
         self.n_wps_loc = 7
-        self.dist_des_rev_path = 300
+        self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
         self.show_lon_lat = 0.05
@@ -1700,10 +1700,10 @@ class HHOS_Env(gym.Env):
                     upper_lat_idx = min([find_nearest(array=self.CurrentData["lat"], value=ylims[1])[1] + 1, len(self.CurrentData["lat"])-1])
                     
                     ax.quiver(self.CurrentData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                            self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
-                            self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
-                            self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            headwidth=2.0, color="orange", scale=10)
+                              self.CurrentData["lat"][lower_lat_idx:(upper_lat_idx+1)],
+                              self.CurrentData["eastward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)], 
+                              self.CurrentData["northward_mps"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                              headwidth=2.0, color="orange", scale=10)
 
                 #--------------------- Wave data ------------------------
                 if self.plot_waves and self.plot_in_latlon:

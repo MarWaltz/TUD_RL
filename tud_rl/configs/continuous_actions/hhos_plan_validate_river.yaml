@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-PathPlanning-Validation-v0
-  max_episode_steps: -1
+  max_episode_steps: 1000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -63,8 +63,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: LSTMRecTD3_a_actor_river.pth
-critic_weights: LSTMRecTD3_a_critic_river.pth
+actor_weights: river_actor.pth
+critic_weights: river_critic.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
