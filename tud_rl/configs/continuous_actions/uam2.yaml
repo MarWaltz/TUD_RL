@@ -6,8 +6,12 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents: 5
+    N_agents: 7
     multi_agent: false
+    full_RL: false
+    plain_reward: true
+    w_goal: 0.5
+    w_coll: 0.5
   info: ''
 agent:
   LSTMRecTD3:

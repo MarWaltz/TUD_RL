@@ -98,7 +98,7 @@ class Destination:
 class UAM(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra.
     Note: If multi_agent is True, each plane is considered an agent. Otherwise, the first plane operates as a single agent."""
-    def __init__(self, N_agents=None, multi_agent=None):
+    def __init__(self, N_agents:float, multi_agent:bool, full_RL:bool, plain_reward:bool, w_coll:float, w_goal:float):
         super(UAM, self).__init__()
 
         # setup
@@ -113,8 +113,16 @@ class UAM(gym.Env):
         if not multi_agent:
             self.history_length = 2
 
+        self.full_RL = full_RL
+        self.plain_reward = plain_reward
+        self.w_coll  = w_coll
+        self.w_goal  = w_goal
+        self.w = self.w_coll + self.w_goal
+
         # domain params
-        self.LoS_dist = 100 # [m]
+        self.incident_dist = 100 # [m]
+        self.accident_dist = 10  # [m]
+
         self.clock_degs = np.linspace(0.0, 360.0, num=100, endpoint=True)
 
         # destination
@@ -139,9 +147,6 @@ class UAM(gym.Env):
         self.plot_reward = True
         self.plot_state  = False
 
-        #self.r = np.zeros((self.N_planes_max, 1))
-        #self.state = np.zeros((self.N_planes_max, self.obs_size))
-
         atts = ["D_TS", "bng_TS", "V_R", "C_T"]
         other_names = []
         for i in range(self.N_agents-1):
@@ -157,7 +162,7 @@ class UAM(gym.Env):
         # create some aircrafts
         self.planes:List[Plane] = []
 
-        if self.multi_agent:
+        if self.multi_agent or self.full_RL:
             self.N_planes = self.N_agents
         else:
             self.N_planes = np.random.choice(np.arange(2, self.N_agents+1))
@@ -183,13 +188,13 @@ class UAM(gym.Env):
         lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=hdg, dist=meter_to_NM(self.dest.spawn_radius))
 
         # consider behavior type
-        if self.multi_agent:
+        if self.multi_agent or self.full_RL:
             role = "RL"
         else:
             if n == 0:
                 role = "RL"
             else:
-                role = np.random.choice(["RL", "VFG"], size=1)[0]
+                role = np.random.choice(["RL", "VFG", "RND"], p=[0.45, 0.45, 0.1], size=1)[0]
         p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)   
 
         # compute initial distance to destination
@@ -306,7 +311,7 @@ class UAM(gym.Env):
                 if i == 0:
                     p.upd_dynamics(a=a[0], perf=self.perf, dest=None)
 
-                # fly remaining planes, depending on whether they are RL- or VFG-controlled
+                # fly remaining planes, depending on whether they are RL-, VFG-, or RND-controlled
                 else:
                     if p.role == "RL":
                         p.upd_dynamics(a=cnt_agent.select_action(s        = states_multi[i], 
@@ -314,7 +319,7 @@ class UAM(gym.Env):
                                                                  a_hist   = self.a_multi_hist[:, i, :], 
                                                                  hist_len = self.hist_len),
                                        perf=self.perf, dest=None)
-                    elif p.role == "VFG":
+                    else:
                         p.upd_dynamics(a=None, perf=self.perf, dest=None)
             
             # back to prior mode
@@ -349,10 +354,9 @@ class UAM(gym.Env):
         """Args:
             entered_close: np.ndarray([number_of_planes,]): who entered a closed destination
             entered_open:  np.ndarray([number_of_planes,]): who entered an open destination"""
-        # empty array
-        r = np.zeros((self.N_planes, 1), dtype=np.float32)
+        r_coll = np.zeros((self.N_planes, 1), dtype=np.float32)
+        r_goal = np.zeros((self.N_planes, 1), dtype=np.float32)
 
-        # ---------------- individual reward -------------------
         for i, pi in enumerate(self.planes):
 
             # consider only first reward in single-agent situation
@@ -362,54 +366,53 @@ class UAM(gym.Env):
             # collision
             for j, pj in enumerate(self.planes):
                 if i != j:
-                    D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)-self.LoS_dist
-                    if D <= 0:
-                        r[i] -= 5.0
+                    D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)
+
+                    if D <= self.accident_dist:
+                        r_coll[i] -= 10.0
+
+                    elif D <= self.incident_dist:
+                        r_coll[i] -= 5.0
+
                     else:
-                        r[i] -= np.exp(-D/self.LoS_dist)
-            
+                        r_coll[i] -= 2*np.exp(-D/(2*self.incident_dist))
+
             # off-map (+5 agains numerical issues)
             if pi.D_dest > (self.dest.spawn_radius + 5.0): 
-                r[i] -= 5.0
-            
+                r_coll[i] -= 5.0
+
             # closed goal entering
             if entered_close[i]:
-                r[i] -= 5.0
+                r_goal[i] -= 5.0
 
             # open goal entering
             if entered_open[i]:
-                r[i] += 5.0
+                r_goal[i] += 5.0
 
-            # open goal approaching
-            if self.dest.was_open:
-                if (not entered_close[i]) and (not entered_open[i]):
-                    r[i] += (pi.D_dest_old - pi.D_dest)/15.0
-
-        # ---------------- collective reward -------------------
-        if False:
+            # incentive structure
             if self.plain_reward:
                 if self.dest.is_open:
-                    r += -1.0
+                    r_goal[i] -= 0.2
                 else:
-                    r += 1.0
-            else:            
-                # collective reward: open goal entering
-                if any(entered_open):
-                    r += 10.0
-
-                # collective reward: progress to open goal
+                    r_goal[i] += 0.2
+            else:
+                # open goal approaching
                 if self.dest.was_open:
-                    deltas = [0.0]
-                    for i, p in enumerate(self.planes):
-                        if (not entered_close[i]) and (not entered_open[i]):
-                            deltas.append(p.D_dest_old - p.D_dest)
-                    r += max(deltas)/100.0
+                    if (not entered_close[i]) and (not entered_open[i]):
+                        r_goal[i] += (pi.D_dest_old - pi.D_dest)/100.0
+
+        # aggregate reward components
+        r = (self.w_coll*r_coll + self.w_goal*r_goal)/self.w
 
         # consider only first reward in single-agent situation
         if self.multi_agent:
             self.r = r
+            self.r_coll = r_coll
+            self.r_goal = r_goal
         else:
             self.r = float(r[0])
+            self.r_coll = float(r_coll[0])
+            self.r_goal = float(r_goal[0])
 
     def _done(self):
         # artificial done signal
@@ -456,14 +459,22 @@ class UAM(gym.Env):
             if self.plot_reward:
                 if self.step_cnt == 0:
                     if self.multi_agent:
-                        self.ax2.r = np.zeros((self.N_planes, self._max_episode_steps))
+                        self.ax2.r      = np.zeros((self.N_planes, self._max_episode_steps))
+                        self.ax2.r_coll = np.zeros((self.N_planes, self._max_episode_steps))
+                        self.ax2.r_goal = np.zeros((self.N_planes, self._max_episode_steps))
                     else:
-                        self.ax2.r = np.zeros(self._max_episode_steps)
+                        self.ax2.r      = np.zeros(self._max_episode_steps)
+                        self.ax2.r_coll = np.zeros(self._max_episode_steps)
+                        self.ax2.r_goal = np.zeros(self._max_episode_steps)
                 else:
                     if self.multi_agent:
                         self.ax2.r[:, self.step_cnt] = self.r.flatten()
+                        self.ax2.r_coll[:, self.step_cnt] = self.r_coll.flatten()
+                        self.ax2.r_goal[:, self.step_cnt] = self.r_goal.flatten()
                     else:
                         self.ax2.r[self.step_cnt] = self.r
+                        self.ax2.r_coll[self.step_cnt] = self.r_coll
+                        self.ax2.r_goal[self.step_cnt] = self.r_goal
 
             if self.plot_state:
                 if self.step_cnt == 0:
@@ -495,7 +506,7 @@ class UAM(gym.Env):
                     self.ax2.set_xlabel("Timestep in episode")
                     self.ax2.set_ylabel("Reward")
                     self.ax2.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
-                    self.ax2.set_ylim(-10, 10)
+                    self.ax2.set_ylim(-7, 7)
 
                 if self.plot_state:
                     self.ax3.set_xlabel("Timestep in episode")
@@ -533,19 +544,27 @@ class UAM(gym.Env):
                     # show aircraft
                     self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -p.hdg), color=COLORS[i], animated=True))
 
-                    # LoS area
+                    # incident area
                     self.ax1.lns.append(self.ax1.plot([], [], color=COLORS[i], animated=True)[0])
 
                     # information
                     self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=COLORS[i], fontdict={"size" : 8}, animated=True))
 
                 if self.plot_reward:
-                    self.ax2.lns = []
+                    self.ax2.lns_agg  = []
+                    self.ax2.lns_coll = []
+                    self.ax2.lns_goal = []
+
                     if self.multi_agent:
                         for i in range(self.N_planes):
-                            self.ax2.lns.append(self.ax2.plot([], [], color=COLORS[i], label=f"r {i}", animated=True)[0])
+                            self.ax2.lns_agg.append(self.ax2.plot([], [], color=COLORS[i], label=f"Agg {i}", animated=True)[0])
+                            self.ax2.lns_coll.append(self.ax2.plot([], [], color=COLORS[i], label=f"Collision {i}", linestyle="dotted", animated=True)[0])
+                            self.ax2.lns_goal.append(self.ax2.plot([], [], color=COLORS[i], label=f"Goal {i}", linestyle="dashed", animated=True)[0])
                     else:
-                        self.ax2.lns.append(self.ax2.plot([], [], color=COLORS[0], label="reward", animated=True)[0])
+                        self.ax2.lns_agg.append(self.ax2.plot([], [], color=COLORS[0], label=f"Agg", animated=True)[0])
+                        self.ax2.lns_coll.append(self.ax2.plot([], [], color=COLORS[1], label=f"Collision", animated=True)[0])
+                        self.ax2.lns_goal.append(self.ax2.plot([], [], color=COLORS[2], label=f"Goal", animated=True)[0])
+
                     self.ax2.legend()
 
                 if self.plot_state:
@@ -585,8 +604,8 @@ class UAM(gym.Env):
                     self.ax1.scs[i].set_offsets(np.array([p.lon, p.lat]))
                     self.ax1.draw_artist(self.ax1.scs[i])
 
-                    # LoS area
-                    lats, lons = map(list, zip(*[qdrpos(latd1=p.lat, lond1=p.lon, qdr=deg, dist=meter_to_NM(self.LoS_dist))\
+                    # incident area
+                    lats, lons = map(list, zip(*[qdrpos(latd1=p.lat, lond1=p.lon, qdr=deg, dist=meter_to_NM(self.incident_dist/2))\
                         for deg in self.clock_degs]))
                     self.ax1.lns[i].set_data(lons, lats) 
                     self.ax1.draw_artist(self.ax1.lns[i])
@@ -603,11 +622,21 @@ class UAM(gym.Env):
                 if self.plot_reward:
                     if self.multi_agent:
                         for i in range(self.N_planes):
-                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r[i][:self.step_cnt+1])
-                            self.ax2.draw_artist(self.ax2.lns[i])
+                            self.ax2.lns_agg[i].set_data(np.arange(self.step_cnt+1), self.ax2.r[i][:self.step_cnt+1])
+                            self.ax2.lns_coll[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_coll[i][:self.step_cnt+1])
+                            self.ax2.lns_goal[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_goal[i][:self.step_cnt+1])
+
+                            self.ax2.draw_artist(self.ax2.lns_agg[i])
+                            self.ax2.draw_artist(self.ax2.lns_coll[i])
+                            self.ax2.draw_artist(self.ax2.lns_goal[i])
                     else:
-                        self.ax2.lns[0].set_data(np.arange(self.step_cnt+1), self.ax2.r[:self.step_cnt+1])
-                        self.ax2.draw_artist(self.ax2.lns[0])
+                        self.ax2.lns_agg[0].set_data(np.arange(self.step_cnt+1), self.ax2.r[:self.step_cnt+1])
+                        self.ax2.lns_coll[0].set_data(np.arange(self.step_cnt+1), self.ax2.r_coll[:self.step_cnt+1])
+                        self.ax2.lns_goal[0].set_data(np.arange(self.step_cnt+1), self.ax2.r_goal[:self.step_cnt+1])
+                        
+                        self.ax2.draw_artist(self.ax2.lns_agg[0])
+                        self.ax2.draw_artist(self.ax2.lns_coll[0])
+                        self.ax2.draw_artist(self.ax2.lns_goal[0])
 
                 # state
                 if self.plot_state:

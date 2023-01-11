@@ -654,7 +654,7 @@ class Plane:
         self.coslat = np.cos(np.radians(lat))
 
         # behavior type
-        assert role in ["RL", "VFG"], "Unknown behavior type of the plane."
+        assert role in ["RL", "VFG", "RND"], "Unknown behavior type of the plane."
         self.role = role
         if role == "VFG":
             self._VFG_help(init=True)
@@ -686,6 +686,8 @@ class Plane:
             self.cnt_hdg, self.cnt_tas = self._RL_control(a)
         elif self.role == "VFG":
             self.cnt_hdg, self.cnt_tas = self._VFG_control()
+        elif self.role == "RND":
+            self.cnt_hdg, self.cnt_tas = self._RND_control()
 
         #---------- Performance Update ------------------------
         perf.update(self.tas, self.vs, self.alt, self.ax)
@@ -720,6 +722,9 @@ class Plane:
         # control
         _, dc, _, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.n, EA=self.e, K=0.001)
         return rtd(dc), self.tas
+
+    def _RND_control(self):
+        return self.hdg + float(np.random.uniform(low=-self.delta_hdg, high=self.delta_hdg)), self.tas
 
     def _update_airspeed(self):
         """Note: We perform no update of vertical speed since we stay at a specific altitude."""
