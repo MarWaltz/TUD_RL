@@ -50,8 +50,8 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 self.N_TSs = 0
 
         super().__init__(plan_on_river=plan_on_river, state_design=state_design, data=data, N_TSs_max=self.N_TSs,\
-            N_TSs_random=False, w_ye=.0, w_ce=.0, w_coll=.0, w_comf=.0, w_speed=.0)
-        self._max_episode_steps = 1000
+            N_TSs_random=False, w_ye=.0, w_ce=.0, w_coll=.0, w_rule=.0, w_comf=.0, w_speed=.0)
+        self._max_episode_steps = 500
 
     def reset(self):
         s = super().reset()

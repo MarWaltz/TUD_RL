@@ -13,9 +13,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                  w_ye : float, 
                  w_ce : float, 
                  w_coll : float, 
+                 w_rule : float,
                  w_comf : float, 
                  w_speed : float=0.0):
-        super().__init__(nps_control_follower=None, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf,\
+        super().__init__(nps_control_follower=None, data=data, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_rule=w_rule, w_comf=w_comf,\
             w_speed=w_speed, N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random)
 
         assert state_design in ["recursive", "conventional"], "Unknown state design for the HHOS-planner. Should be 'recursive' or 'conventional'."
@@ -23,6 +24,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # type of planner
         self.plan_on_river = plan_on_river
+
+        # time horizon
+        self.act_every = 20.0 # [s], every how many seconds the planner can make a move
+        self.n_loops   = int(self.act_every / self.delta_t)
 
         # gym inherits
         self.num_obs_TS = 7
@@ -42,7 +47,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.surge_max = 5.0
         self.d_head_scale = dtr(10.0)
 
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 500
 
     def reset(self):
         s = super().reset()
@@ -65,7 +70,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._manual_control(a)
 
         # update agent dynamics (independent of environmental disturbances in this module)
-        self.OS._upd_dynamics()
+        [self.OS._upd_dynamics() for _ in range(self.n_loops)]
 
         # real data: check whether we are on river or open sea
         if self.data == "real":
@@ -81,28 +86,29 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self._set_cte(path_level="global")
         self._set_ce(path_level="global")
 
-        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
-        [TS._upd_dynamics() for TS in self.TSs]
+        for _ in range(self.n_loops):
+            # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
+            [TS._upd_dynamics() for TS in self.TSs]
 
-        # check respawn
-        self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
+            # check respawn
+            self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
-        # on river: update waypoints for other vessels
-        if self.plan_on_river:
-            self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
-
-        # on river: simple heading control of target ships
-        if control_TS:
+            # on river: update waypoints for other vessels
             if self.plan_on_river:
-                for TS in self.TSs:
-                    other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                    TS.river_control(other_vessels, VFG_K=self.VFG_K)
-            else:
-                [TS.opensea_control() for TS in self.TSs]
+                self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
+
+            # on river: simple heading control of target ships
+            if control_TS:
+                if self.plan_on_river:
+                    for TS in self.TSs:
+                        other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                        TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                else:
+                    [TS.opensea_control() for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
-        self.sim_t += self.delta_t
+        self.sim_t += (self.n_loops * self.delta_t)
 
         # compute state, reward, done        
         self._set_state()
@@ -133,15 +139,15 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ----------------------- TS information ------------------------------
         # parametrization depending on river or open sea
         if self.plan_on_river:
-            tcpa_norm = 5 * 60             # [s]
-            dcpa_norm = self.COLREG_range  # [m]
-            ED_norm   = self.COLREG_range  # [m]
-            v_norm    = 3                  # [m/s]
+            sight     = self.sight_river     # [m]
+            tcpa_norm = 5 * 60               # [s]
+            dcpa_norm = self.river_enc_range # [m]
+            v_norm    = 3                    # [m/s]
         else:
-            tcpa_norm = 15 * 60          # [s]
-            dcpa_norm = self.lidar_range # [m]
-            ED_norm   = self.lidar_range # [m]
-            v_norm    = 3                # [m/s]
+            sight     = self.sight_open     # [m]
+            tcpa_norm = 15 * 60             # [s]
+            dcpa_norm = self.lidar_range    # [m]
+            v_norm    = 3                   # [m/s]
 
         N0, E0, head0 = self.OS.eta
         v0 = self.OS._get_V()
@@ -153,41 +159,44 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             v1 = TS._get_V()
             chi1 = TS._get_course()
 
-            # distance
-            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
-                                OS=self.OS, TS=TS)
-            dist = (ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True) - D)/ED_norm
-            dist = np.clip(dist, 0.0, 1.0)
+            # check whether TS is in sight
+            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+            if dist <= sight:
 
-            # relative bearing
-            bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0, to_2pi=False) / (math.pi)
+                # distance
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
+                                    OS=self.OS, TS=TS)
+                dist = (dist - D)/sight
 
-            # heading intersection angle with path
-            C_TS_path = angle_to_pi(head1 - self.glo_pi_path) / math.pi
+                # relative bearing
+                bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0, to_2pi=False) / (math.pi)
 
-            # speed
-            v_rel = np.clip((v1-v0)/v_norm, -1.0, 1.0)
+                # heading intersection angle with path
+                C_TS_path = angle_to_pi(head1 - self.glo_pi_path) / math.pi
 
-            # encounter situation
-            if self.plan_on_river:
-                TS_encounter = -1.0 if (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= 90.0) else 1.0
-            else:
-                TS_encounter = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
-                                                          N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
-  
-            # collision risk metrics
-            d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
-                                                                       chiTS=chi1, VOS=v0, VTS=v1, get_positions=True)
-            ang = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
-            domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,
-                                          D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
-            d_cpa = max([0.0, d_cpa-domain_tcpa])
+                # speed
+                v_rel = np.clip((v1-v0)/v_norm, -1.0, 1.0)
 
-            t_cpa = np.clip(t_cpa/tcpa_norm, -1.0, 1.0)
-            d_cpa = np.clip(d_cpa/dcpa_norm,  0.0, 1.0)
-            
-            # store it
-            state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
+                # encounter situation
+                if self.plan_on_river:
+                    TS_encounter = -1.0 if (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= 90.0) else 1.0
+                else:
+                    TS_encounter = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
+                                                              N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
+    
+                # collision risk metrics
+                d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
+                                                                        chiTS=chi1, VOS=v0, VTS=v1, get_positions=True)
+                ang = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+                domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,
+                                            D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
+                d_cpa = max([0.0, d_cpa-domain_tcpa])
+
+                t_cpa = np.clip(t_cpa/tcpa_norm, -1.0, 1.0)
+                d_cpa = np.clip(d_cpa/dcpa_norm,  0.0, 1.0)
+                
+                # store it
+                state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
 
         if self.state_design == "recursive":
 
@@ -220,23 +229,23 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _calculate_reward(self, a):
         # parametrization depending on open sea or river
         if self.plan_on_river:
+            sight             =  self.sight_river
             k_ye              =  2.0
             ye_norm           =  2*self.OS.Lpp
             pen_ce            = -10.0
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
-            dx_norm           =  2*self.OS.Lpp
-            dy_norm           =  5*self.OS.Lpp
-            coll_f            =  3.0
+            dx_norm           =  (3*self.OS.B)**2
+            dy_norm           =  (1*self.OS.Lpp)**2
         else:
+            sight             =  self.sight_open
             k_ye              =  10.0
             ye_norm           =  NM_to_meter(0.5)
             pen_ce            = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
             dist_norm         =  1.5*self.lidar_range
-            coll_f            =  2.0
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -248,8 +257,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         else:
             self.r_ce = 0.0
 
-        # ---------------------- Collision Avoidance reward -----------------
+        # --------------- Collision Avoidance & Traffic rule reward -------------
         self.r_coll = 0
+        self.r_rule = 0.0
 
         # hit ground
         if self.plan_on_river:
@@ -259,44 +269,50 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # other vessels
         for TS in self.TSs:
 
-            # compute ship domain
+            # quick access
             N0, E0, head0 = self.OS.eta
             N1, E1, head1 = TS.eta
-            D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
-        
-            # check if collision
-            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)-D
-            if dist <= 0.0:
-                self.r_coll += pen_coll_TS
-            else:
-                # on river, we have asymetric longitudinal and lateral reward
-                if self.plan_on_river:
+            
+            # check whether TS is in sight
+            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+            if dist <= sight:
 
-                    # relative bng from TS perspective
-                    bng_rel_TS = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
-                    dx, dy = xy_from_polar(r=dist, angle=bng_rel_TS)
+                # compute ship domain
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D, OS=self.OS, TS=TS)
+                dist -= D
 
-                    self.r_coll += -coll_f * math.exp(-abs(dx)/dx_norm) * math.exp(-abs(dy)/dy_norm)
+                # check if collision
+                if dist <= 0.0:
+                    self.r_coll += pen_coll_TS
                 else:
-                    self.r_coll += -coll_f*math.exp(-dist/dist_norm)
+                    # on river, we have asymetric longitudinal and lateral reward
+                    if self.plan_on_river:
 
-            # violating traffic rules
-            if self.plan_on_river:
-                if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, \
-                    head1=head1, v1=TS._get_V(), Lpp=self.OS.Lpp):
-                    self.r_coll += pen_traffic_rules
-            else:
-                # Note: On open sea, we consider the current action for evaluating COLREG-compliance.
-                if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
-                    r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
-                    self.r_coll += pen_traffic_rules
+                        # relative bng from TS perspective
+                        bng_rel_TS = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
+                        dx, dy = xy_from_polar(r=dist, angle=bng_rel_TS)
+
+                        self.r_coll += -math.exp(-(dx)**2/dx_norm) * math.exp(-(dy)**2/dy_norm)
+                    else:
+                        self.r_coll += -math.exp(-dist/dist_norm)
+
+                # violating traffic rules
+                if self.plan_on_river:
+                    if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, \
+                        head1=head1, v1=TS._get_V()):
+                        self.r_rule += pen_traffic_rules
+                else:
+                    # Note: On open sea, we consider the current action for evaluating COLREG-compliance.
+                    if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
+                        r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
+                        self.r_rule += pen_traffic_rules
 
         # ---------------------- Comfort reward -----------------
         self.r_comf = -(float(a)**2)
 
         # ---------------------------- Aggregation --------------------------
-        weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_comf])
-        rews    = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_comf])
+        weights = np.array([self.w_ye, self.w_ce, self.w_coll, self.w_rule, self.w_comf])
+        rews    = np.array([self.r_ye, self.r_ce, self.r_coll, self.r_rule, self.r_comf])
         self.r  = float(np.sum(weights * rews) / np.sum(weights)) if np.sum(weights) != 0.0 else 0.0
 
     def _done(self):

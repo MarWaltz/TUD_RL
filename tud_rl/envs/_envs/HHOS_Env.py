@@ -37,6 +37,7 @@ class HHOS_Env(gym.Env):
                  w_ye : float, 
                  w_ce : float, 
                  w_coll : float, 
+                 w_rule : float,
                  w_comf : float, 
                  w_speed : float):
         super().__init__()
@@ -55,8 +56,12 @@ class HHOS_Env(gym.Env):
         self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, 
                                            num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
 
-        # COLREG encounter range
-        self.COLREG_range = NM_to_meter(5.0)
+        # range definitions
+        self.sight_open      = NM_to_meter(5.0)     # sight on open waters
+        self.sight_river     = NM_to_meter(0.5)     # sight on river
+
+        self.open_enc_range  = NM_to_meter(5.0)     # distance when we consider encounter situations on open waters
+        self.river_enc_range = 5 * 64.0             # distance when we consider encounter situations on the river
 
         # vector field guidance
         self.VFG_K = 0.001
@@ -111,27 +116,26 @@ class HHOS_Env(gym.Env):
         self.first_init     = True
 
         if not self.plot_in_latlon:
-            self.show_lon_lat = np.clip(self.show_lon_lat, 0.005, 5.95)
+            self.show_lon_lat    = np.clip(self.show_lon_lat, 0.005, 5.95)
             self.UTM_viz_range_E = abs(to_utm(lat=52.0, lon=6.0001)[1] - to_utm(lat=52.0, lon=6.0001+self.show_lon_lat/2)[1])
             self.UTM_viz_range_N = abs(to_utm(lat=50.0, lon=8.0)[0] - to_utm(lat=50.0+self.show_lon_lat/2, lon=8.0)[0])
 
         # other ships
-        self.N_TSs_max    = N_TSs_max                  # maximum number of other vessels
-        self.N_TSs_random = N_TSs_random               # if true, samples a random number in [0, N_TSs] at start of each episode
-                                                       # if false, always have N_TSs_max
-        self.TS_spawn_dists = [NM_to_meter(0.5), NM_to_meter(0.75)]  # for river
+        self.N_TSs_max    = N_TSs_max       # maximum number of other vessels
+        self.N_TSs_random = N_TSs_random    # if true, samples a random number in [0, N_TSs] at start of each episode
+                                            # if false, always have N_TSs_max
+
         self.TCPA_crit = 25 * 60 # spawning time for target ships on open sea
 
         # trajectory or path-planning and following
         self.two_actions = nps_control_follower is True
-
-        self.loc_path_upd_freq = 25
         self.desired_V = 3.0
 
         # reward weights
         self.w_ye = w_ye
         self.w_ce = w_ce
         self.w_coll = w_coll
+        self.w_rule = w_rule
         self.w_comf = w_comf
        
         if self.two_actions:
@@ -848,14 +852,14 @@ class HHOS_Env(gym.Env):
         # random
         if scenario == 0:
             speedy = bool(np.random.choice([0, 1], p=[0.8, 0.2]))
+            d      = self.river_enc_range + np.random.normal(loc=0.0, scale=20.0)
+
             if speedy: 
-                d = np.random.uniform(self.TS_spawn_dists[0]/2, self.TS_spawn_dists[0])
                 rev_dir = False
-                spd = np.random.uniform(1.3, 1.5) * self.desired_V
+                spd     = np.random.uniform(1.3, 1.5) * self.desired_V
             else:
-                d = np.random.uniform(*self.TS_spawn_dists)
                 rev_dir = bool(random.getrandbits(1))
-                spd = np.random.uniform(0.3, 0.6) * self.desired_V
+                spd     = np.random.uniform(0.4, 0.8) * self.desired_V
             offset = np.random.uniform(-20.0, 50.0)
 
         # vessel train
@@ -933,9 +937,6 @@ class HHOS_Env(gym.Env):
                 offset = 0.0
                 spd = 0.7 * self.desired_V
             speedy = False
-
-        # add some noise to distance
-        pass
 
         # get wps
         if speedy:
@@ -1070,8 +1071,8 @@ class HHOS_Env(gym.Env):
             4 - overtaking
             5 - no conflict situation
         """
-        # check whether TS is out of sight
-        if ED(N0=N0, E0=E0, N1=N1, E1=E1) > self.COLREG_range:
+        # check whether TS is too far away
+        if ED(N0=N0, E0=E0, N1=N1, E1=E1) > self.open_enc_range:
             return 5
 
         # relative bearing from OS to TS
@@ -1134,7 +1135,7 @@ class HHOS_Env(gym.Env):
         return False
 
     def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float,\
-        v1:float, Lpp:float) -> bool:
+        v1:float) -> bool:
         """Checks whether a situation violates the rules on the Elbe from Lighthouse Tinsdal to Cuxhaven.
         Args:
             N0(float):     north of OS
@@ -1144,30 +1145,30 @@ class HHOS_Env(gym.Env):
             N1(float):     north of TS
             E1(float):     east of TS
             head1(float):  heading of TS
-            v1(float):     speed of TS
-            Lpp(float):    length between perpendiculars of OS
-            """
+            v1(float):     speed of TS"""
         # preparation
         ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
         bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
         rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= dtr(90.0))
 
-        # OS should let speedys pass on OS's portside
-        if v1 > v0:
-            if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0) and ED_OS_TS <= 10*Lpp:
-                return True
-
-        # OS should not pass opposing ships on their portside
-        if rev_dir:
-            if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0) and ED_OS_TS <= 10*Lpp:
-                return True
-
-        # normal target ships should be overtaken on their portside
-        if v0 > v1:
-            if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
-                l = (35 - 2/math.pi *15* bng_rel_TS_pers)*Lpp
-                if ED_OS_TS <= l:
+        # check whether TS is too far away
+        if ED_OS_TS > self.river_enc_range:
+            return False
+        else:
+            # OS should not pass opposing ships on their portside
+            if rev_dir:
+                if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0):
                     return True
+            else:
+                # OS should let speedys pass on OS's portside
+                if v1 > v0:
+                    if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0):
+                        return True
+
+                # normal target ships should be overtaken on their portside
+                else:
+                    if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
+                        return True
         return False
 
     def _on_river(self, N0:float, E0:float):
@@ -1423,7 +1424,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 1 == 0:
+        if self.step_cnt % 2 == 0:
 
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:
@@ -1439,6 +1440,7 @@ class HHOS_Env(gym.Env):
 
                     if "Plan" in type(self).__name__:
                         self.ax2.r_coll = np.zeros(self._max_episode_steps)
+                        self.ax2.r_rule = np.zeros(self._max_episode_steps)
 
                     if self.two_actions:
                         self.ax2.r_speed = np.zeros(self._max_episode_steps)
@@ -1446,7 +1448,7 @@ class HHOS_Env(gym.Env):
                     # reward - naming
                     self.ax2.r_names = ["agg", "ye", "ce", "comf"]
                     if "Plan" in type(self).__name__:
-                        self.ax2.r_names += ["coll"]
+                        self.ax2.r_names += ["coll", "rule"]
 
                     if self.two_actions:
                         self.ax2.r_names += ["speed"]
@@ -1469,6 +1471,7 @@ class HHOS_Env(gym.Env):
 
                     if "Plan" in type(self).__name__:
                         self.ax2.r_coll[self.step_cnt] = self.r_coll
+                        self.ax2.r_rule[self.step_cnt] = self.r_rule
 
                     if self.two_actions:
                         self.ax2.r_speed[self.step_cnt] = self.r_speed
@@ -1489,7 +1492,7 @@ class HHOS_Env(gym.Env):
                     self.ax2.set_xlabel("Timestep in episode")
                     self.ax2.set_ylabel("Reward")
                     self.ax2.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
-                    self.ax2.set_ylim(-11.0, 3.0)
+                    self.ax2.set_ylim(-5.0, 3.0)
 
                     self.ax3.set_xlabel("Timestep in episode")
                     self.ax3.set_ylabel("Action")
@@ -1536,6 +1539,9 @@ class HHOS_Env(gym.Env):
 
                         elif lab == "coll":
                             self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_coll[:self.step_cnt+1])
+
+                        elif lab == "rule":
+                            self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_rule[:self.step_cnt+1])
 
                         elif lab == "speed":
                             self.ax2.lns[i].set_data(np.arange(self.step_cnt+1), self.ax2.r_speed[:self.step_cnt+1])
@@ -1614,10 +1620,10 @@ class HHOS_Env(gym.Env):
                     upper_lat_idx = min([find_nearest(array=self.WindData["lat"], value=ylims[1])[1] + 1, len(self.WindData["lat"])-1])
 
                     ax.barbs(self.WindData["lon"][lower_lon_idx:(upper_lon_idx+1)], 
-                            self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
-                            self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
-                            length=4, barbcolor="goldenrod")
+                             self.WindData["lat"][lower_lat_idx:(upper_lat_idx+1)], 
+                             self.WindData["eastward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                             self.WindData["northward_knots"][lower_lat_idx:(upper_lat_idx+1), lower_lon_idx:(upper_lon_idx+1)],
+                             length=4, barbcolor="goldenrod")
 
                 #------------------ set ships ------------------------
                 # OS

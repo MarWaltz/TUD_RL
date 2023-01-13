@@ -22,11 +22,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  N_TSs_random : bool, 
                  w_ye : float, 
                  w_ce : float, 
-                 w_coll : float, 
+                 w_coll : float,
+                 w_rule : float, 
                  w_comf : float,
                  w_speed : float):
         super().__init__(nps_control_follower=nps_control_follower, data=data, N_TSs_max=N_TSs_max,\
-            N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_comf=w_comf, w_speed=w_speed)
+            N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_rule=w_rule, w_comf=w_comf, w_speed=w_speed)
 
         # whether nps are controlled
         self.nps_control_follower = nps_control_follower
@@ -37,7 +38,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             assert planner_river_weights is not None and planner_opensea_weights is not None, \
                 "Need a river-planner and an opensea-planner on the real data."
         else:
-            assert isinstance(plan_on_river, bool), "Specify whether we are on river or not in artificial scenarios."
+            assert isinstance(plan_on_river, bool), "Specify whether we are on river in artificial scenarios."
             assert not(planner_river_weights is not None and planner_opensea_weights is not None), \
                 "Specify a river-planner or an opensea-planner, not both."
         assert planner_state_design in ["conventional", "recursive"], "Unknown state design."
@@ -81,6 +82,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
             # whether to use a safety-net as backup to guarantee safe plans
             self.planner_safety_net = planner_safety_net  
+
+        # update frequency
+        self.loc_path_upd_freq = 24 # results in a new local path every 2mins with delta t being 5s
 
         # gym inherits
         OS_infos   = 7 if self.nps_control_follower else 5
@@ -543,10 +547,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             T_0_wave = self.T_0_wave
             lambda_wave = self.lambda_wave
 
-        state_env = np.array([self.V_c/0.5,  self.beta_c/(2*math.pi),      # currents
-                              self.V_w/15.0, self.beta_w/(2*math.pi),      # winds
-                              beta_wave/(2*math.pi), eta_wave/0.5, T_0_wave/7.0, lambda_wave/60.0,    # waves
-                              self.H/100.0])    # depth
+        head0 = self.OS.eta[2]
+        state_env = np.array([self.V_c/0.5,  angle_to_pi(self.beta_c-head0)/(math.pi),      # currents
+                              self.V_w/15.0, angle_to_pi(self.beta_w-head0)/(math.pi),      # winds
+                              angle_to_pi(beta_wave-head0)/(math.pi), eta_wave/0.5, T_0_wave/7.0, lambda_wave/60.0,    # waves
+                              min([self.H/100.0, 1.0])])    # depth
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_env]).astype(np.float32)
@@ -581,8 +586,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # -------------------------- Comfort reward -------------------------
         # steering-based
-        #self.r_comf = -float(a[0])**2
-        self.r_comf = 0.0
+        self.r_comf = -float(a[0])**2
+        #self.r_comf = 0.0
 
         # drift-based
         #self.r_comf -= abs(self.OS.nu[1])
@@ -593,8 +598,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # ---------------------------- Speed reward -------------------------
         if self.nps_control_follower:
-            self.v_des = self._get_v_desired()
-            self.r_speed = max([-(self.v_des-self.OS._get_V())**2, -1.0])
+            self.r_speed = max([-(self._get_v_desired()-self.OS._get_V())**2, -1.0])
 
         # ---------------------------- Aggregation --------------------------
         weights = np.array([self.w_ye, self.w_ce, self.w_comf])
