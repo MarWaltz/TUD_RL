@@ -22,7 +22,9 @@ class ConfigFile:
 
     def __init__(self, file: str) -> None:
 
-        self.file = file
+        self.file  = file
+        self.Env   = self.Env()
+        self.Agent = self.Agent()
 
         # Load the YAML or JSON file into a dict
         if self.file.lower().endswith(".json"):
