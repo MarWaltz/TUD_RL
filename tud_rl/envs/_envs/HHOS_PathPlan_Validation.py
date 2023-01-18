@@ -51,7 +51,11 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
         super().__init__(plan_on_river=plan_on_river, state_design=state_design, data=data, N_TSs_max=self.N_TSs,\
             N_TSs_random=False, w_ye=.0, w_ce=.0, w_coll=.0, w_rule=.0, w_comf=.0, w_speed=.0)
-        self._max_episode_steps = 500
+        
+        if plan_on_river:
+            self._max_episode_steps = 100
+        else:
+            self._max_episode_steps = 200
 
     def reset(self):
         s = super().reset()
@@ -65,8 +69,9 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
             TS_info[f"TS{str(i)}_N"] = TS.eta[0]
             TS_info[f"TS{str(i)}_E"] = TS.eta[1]
             TS_info[f"TS{str(i)}_head"] = TS.eta[2]
+            TS_info[f"TS{str(i)}_V"] = TS._get_V()
 
-        self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
+        self.plotter = HHOSPlotter(sim_t=self.sim_t, a=0.0, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_V=self.OS._get_V(), OS_u=self.OS.nu[0],\
                 OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], glo_ye=self.glo_ye, glo_course_error=self.glo_course_error, **TS_info)
         return s
 
@@ -81,8 +86,9 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 TS_info[f"TS{str(i)}_N"] = TS.eta[0]
                 TS_info[f"TS{str(i)}_E"] = TS.eta[1]
                 TS_info[f"TS{str(i)}_head"] = TS.eta[2]
+                TS_info[f"TS{str(i)}_V"] = TS._get_V()
 
-            self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
+            self.plotter.store(sim_t=self.sim_t, a=float(self.a), OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_V=self.OS._get_V(), OS_u=self.OS.nu[0],\
                     OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], glo_ye=self.glo_ye, glo_course_error=self.glo_course_error, **TS_info)
         return s, r, d, info
 
@@ -335,5 +341,5 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 self.plotter.dump(name="Plan_Imazu_" + str(self.scenario))
         return d
 
-    #def render(self, data=None):
-    #    pass
+    def render(self, data=None):
+        pass

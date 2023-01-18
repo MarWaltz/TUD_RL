@@ -60,8 +60,9 @@ class HHOS_Env(gym.Env):
         self.sight_open      = NM_to_meter(5.0)     # sight on open waters
         self.sight_river     = NM_to_meter(0.5)     # sight on river
 
-        self.open_enc_range  = NM_to_meter(5.0)     # distance when we consider encounter situations on open waters
-        self.river_enc_range = 5 * 64.0             # distance when we consider encounter situations on the river
+        self.open_enc_range      = NM_to_meter(5.0)     # distance when we consider encounter situations on open waters
+        self.river_enc_range_min = NM_to_meter(0.25)    # lower distance when we consider encounter situations on the river
+        self.river_enc_range_max = NM_to_meter(0.50)    # lower distance when we consider encounter situations on the river
 
         # vector field guidance
         self.VFG_K = 0.001
@@ -101,7 +102,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.15
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -757,26 +758,16 @@ class HHOS_Env(gym.Env):
         # head-on = 1, starb. cross. = 2, ports. cross. = 3, overtaking = 4, null = 5
         COLREG_s = np.random.choice([1, 2, 3, 4, 5], p=[0.2, 0.2, 0.2, 0.2, 0.2])
 
-        # determine relative speed of OS towards goal, need absolute bearing first
         try:
-            g_idx = self.OS.glo_wp3_idx + 3
-            g_n = self.GlobalPath.north[g_idx]
-            g_e = self.GlobalPath.east[g_idx]
+            g_idx = self.OS.glo_wp3_idx + np.random.choice([13, 16, 17, 18, 18])
+            N_hit = self.GlobalPath.north[g_idx]
+            E_hit = self.GlobalPath.east[g_idx]
         except:
             g_idx = self.OS.glo_wp3_idx
-            g_n = self.GlobalPath.north[g_idx]
-            g_e = self.GlobalPath.east[g_idx]
-        bng_abs_goal = bng_abs(N0=N0, E0=E0, N1=g_n, E1=g_e)
+            N_hit = self.GlobalPath.north[g_idx]
+            E_hit = self.GlobalPath.east[g_idx]
 
-        # project VOS vector on relative velocity direction
-        VR_goal_x, VR_goal_y = project_vector(VA=VOS, angleA=chiOS, VB=1, angleB=bng_abs_goal)
-        
-        # sample time
-        t_hit = np.random.uniform(self.TCPA_crit * 0.75, self.TCPA_crit)
-
-        # compute hit point
-        E_hit = E0 + VR_goal_x * t_hit
-        N_hit = N0 + VR_goal_y * t_hit
+        bng_abs_goal = bng_abs(N0=self.GlobalPath.north[g_idx-1], E0=self.GlobalPath.east[g_idx-1], N1=N_hit, E1=E_hit)
 
         # Note: In the following, we only sample the intersection angle and not a relative bearing.
         #       This is possible since we construct the trajectory of the TS so that it will pass through (E_hit, N_hit), 
@@ -823,6 +814,7 @@ class HHOS_Env(gym.Env):
             TS.nps = TS._get_nps_from_u(VTS, psi=TS.eta[2])
 
         # backtrace original position of TS
+        t_hit = ED(N0=N0, E0=E0, N1=N_hit, E1=E_hit)/self.OS._get_V()
         E_TS = E_hit - VTS * math.sin(head_TS_s) * t_hit
         N_TS = N_hit - VTS * math.cos(head_TS_s) * t_hit
 
@@ -852,7 +844,7 @@ class HHOS_Env(gym.Env):
         # random
         if scenario == 0:
             speedy = bool(np.random.choice([0, 1], p=[0.8, 0.2]))
-            d      = self.river_enc_range + np.random.normal(loc=0.0, scale=20.0)
+            d      = self.river_enc_range_max + np.random.normal(loc=0.0, scale=20.0)
 
             if speedy: 
                 rev_dir = False
@@ -1134,6 +1126,24 @@ class HHOS_Env(gym.Env):
                 return True
         return False
 
+    def _get_river_enc_range(self, ang:float):
+        """Computes based on a relative bearing from TS perspective in [0,2pi) the assumed encounter range on the river."""
+        ang = rtd(ang)
+        a = self.river_enc_range_min
+        b = self.river_enc_range_max
+
+        if 0 <= ang < 90.0:
+            return a + ang * (b-a)/90.0
+        
+        elif 90.0 <= ang < 180.0:
+            return (2*b-a) + ang * (a-b)/90.0
+
+        elif 180.0 <= ang < 270.0:
+            return (3*a-2*b) + ang * (b-a)/90.0
+
+        else:
+            return (4*b-3*a) + ang * (a-b)/90.0
+
     def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float,\
         v1:float) -> bool:
         """Checks whether a situation violates the rules on the Elbe from Lighthouse Tinsdal to Cuxhaven.
@@ -1148,25 +1158,27 @@ class HHOS_Env(gym.Env):
             v1(float):     speed of TS"""
         # preparation
         ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-        bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
         rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= dtr(90.0))
 
+        bng_rel_TS_pers = bng_rel(N0=N1, E0=E1, N1=N0, E1=E0, head0=head1)
+        river_enc_range = self._get_river_enc_range(bng_rel_TS_pers)
+
         # check whether TS is too far away
-        if ED_OS_TS > self.river_enc_range:
+        if ED_OS_TS > river_enc_range:
             return False
         else:
-            # OS should not pass opposing ships on their portside
+            # OS should pass opposing ships on their portside
             if rev_dir:
                 if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0):
                     return True
             else:
                 # OS should let speedys pass on OS's portside
-                if v1 > v0:
-                    if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0):
-                        return True
+                #if v1 > v0:
+                #    if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0):
+                #        return True
 
                 # normal target ships should be overtaken on their portside
-                else:
+                if v0 > v1:
                     if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
                         return True
         return False
@@ -1236,7 +1248,7 @@ class HHOS_Env(gym.Env):
 
         # on river
         if self.plan_on_river:
-            if (TCPA < 0.0) and (dist >= NM_to_meter(0.5)):
+            if (TCPA < 0.0) and (dist >= self.river_enc_range_max):
                 return self._get_TS_river(scenario=0, n=None)
         # open sea
         else:
@@ -1424,7 +1436,7 @@ class HHOS_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 2 == 0:
+        if self.step_cnt % 1 == 0:
 
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:

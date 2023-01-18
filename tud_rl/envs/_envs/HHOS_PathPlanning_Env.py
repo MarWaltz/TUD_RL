@@ -139,10 +139,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ----------------------- TS information ------------------------------
         # parametrization depending on river or open sea
         if self.plan_on_river:
-            sight     = self.sight_river     # [m]
-            tcpa_norm = 5 * 60               # [s]
-            dcpa_norm = self.river_enc_range # [m]
-            v_norm    = 3                    # [m/s]
+            sight     = self.sight_river         # [m]
+            tcpa_norm = 5 * 60                   # [s]
+            dcpa_norm = self.river_enc_range_min # [m]
+            v_norm    = 3                        # [m/s]
         else:
             sight     = self.sight_open     # [m]
             tcpa_norm = 15 * 60             # [s]
@@ -240,12 +240,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             dy_norm           =  (1*self.OS.Lpp)**2
         else:
             sight             =  self.sight_open
-            k_ye              =  10.0
+            k_ye              =  1.0
             ye_norm           =  NM_to_meter(0.5)
             pen_ce            = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
-            dist_norm         =  1.5*self.lidar_range
+            dist_norm         =  (NM_to_meter(0.5))**2
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -294,7 +294,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
                         self.r_coll += -math.exp(-(dx)**2/dx_norm) * math.exp(-(dy)**2/dy_norm)
                     else:
-                        self.r_coll += -math.exp(-dist/dist_norm)
+                        self.r_coll += -math.exp(-(dist)**2/dist_norm)
 
                 # violating traffic rules
                 if self.plan_on_river:
@@ -318,7 +318,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
     def _done(self):
         """Returns boolean flag whether episode is over."""
         # OS approaches end of global path
-        if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= int(0.8*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal
