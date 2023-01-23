@@ -6,12 +6,12 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents: 8
+    N_agents: 14
     multi_agent: false
     full_RL: true
     plain_reward: false
     w_goal: 2
-    w_coll: 1.75
+    w_coll: 1.5
   info: ''
 agent:
   LSTMRecTD3:
@@ -25,7 +25,7 @@ agent:
 seed: 42
 timesteps: 2_500_000
 epoch_length: 5000
-eval_episodes: 5
+eval_episodes: 10
 actor_weights:
 critic_weights:
 gamma: 0.99

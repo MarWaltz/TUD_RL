@@ -30,9 +30,10 @@ class Destination:
         self.N, self.E, _ = to_utm(self.lat, self.lon) # [m], [m]
 
         # timing
-        self.dt = dt          # [s], simulation time step
-        self._t_close = 60    # [s], time the destination is closed after an aircraft has entered 
-        self._t_nxt_open = 0  # [s], current time until the destination opens again
+        self.dt = dt             # [s], simulation time step
+        self._t_close = 60       # [s], time the destination is closed after an aircraft has entered 
+        self._t_nxt_open = 0     # [s], current time until the destination opens again
+        self._t_open_since = 0   # [s], current time since the vertiport is open
         self._was_open = True
         self.open()
 
@@ -49,6 +50,8 @@ class Destination:
             self._t_nxt_open -= self.dt
             if self._t_nxt_open <= 0:
                 self.open()
+        else:
+            self._t_open_since += self.dt
 
         # store opening status
         self._was_open = copy(self._is_open)
@@ -69,11 +72,13 @@ class Destination:
         return entered_close, entered_open
 
     def open(self):
+        self._t_open_since = 0
         self._t_nxt_open = 0
         self._is_open = True
         self.color = "green"
     
     def close(self):
+        self._t_open_since = 0
         self._is_open = False
         self._t_nxt_open = copy(self._t_close)
         self.color = "red"
@@ -85,6 +90,10 @@ class Destination:
     @property
     def t_close(self):
         return self._t_close
+
+    @property
+    def t_open_since(self):
+        return self._t_open_since
 
     @property
     def is_open(self):
@@ -135,13 +144,15 @@ class UAM(gym.Env):
         # config
         self.obs_per_TS = 4
         self.obs_size   = 3 + self.obs_per_TS*(self.N_agents-1)
+        if not self.plain_reward:
+            self.obs_size += 1
 
         self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(self.obs_size,  np.inf, dtype=np.float32))
         self.act_size = 1
         self.action_space = spaces.Box(low  = np.full(self.act_size, -1.0, dtype=np.float32), 
                                        high = np.full(self.act_size, +1.0, dtype=np.float32))
-        self._max_episode_steps = 250
+        self._max_episode_steps = 500
 
         # viz
         self.plot_reward = True
@@ -154,10 +165,16 @@ class UAM(gym.Env):
             other_names += others
         self.obs_names = ["bng_goal", "D_goal", "t_close"] + other_names
 
+        self.n = 9
+
     def reset(self):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
+
+        self.N_accs = 0   # number of accidents during episode
+        self.N_incs = 0   # number of incidents during episode
+        self.N_enterances_closed_d = 0   # number of enterances to the vertiport althouhg it was closed
 
         # create some aircrafts
         self.planes:List[Plane] = []
@@ -166,6 +183,9 @@ class UAM(gym.Env):
             self.N_planes = self.N_agents
         else:
             self.N_planes = np.random.choice(np.arange(2, self.N_agents+1))
+
+        self.n += 1
+        self.N_planes = self.n
 
         for n in range(self.N_planes):
             self.planes.append(self._spawn_plane(n))
@@ -194,7 +214,7 @@ class UAM(gym.Env):
             if n == 0:
                 role = "RL"
             else:
-                role = np.random.choice(["RL", "VFG", "RND"], p=[0.45, 0.45, 0.1], size=1)[0]
+                role = np.random.choice(["RL", "VFG", "RND"], p=[0.5, 0.5, 0.0], size=1)[0]
         p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)   
 
         # compute initial distance to destination
@@ -252,6 +272,8 @@ class UAM(gym.Env):
         s_i = np.array([bng_goal/np.pi,\
                         NM_to_meter(d_goal)/self.dest.spawn_radius,\
                         1.0-self.dest.t_nxt_open/self.dest.t_close])
+        if not self.plain_reward:
+            s_i = np.append(s_i, [1.0-self.dest.t_open_since/self.dest.t_close])
 
         # information about other planes
         if self.N_planes > 1:
@@ -333,6 +355,9 @@ class UAM(gym.Env):
         # check destination entries
         entered_close, entered_open = self.dest.step(self.planes)
 
+        # count accidents, incidents, false entries
+        self._count_mistakes(entered_close)
+
         # respawning
         self._handle_respawn(entered_open)
 
@@ -375,7 +400,7 @@ class UAM(gym.Env):
                         r_coll[i] -= 5.0
 
                     else:
-                        r_coll[i] -= 2*np.exp(-D/(2*self.incident_dist))
+                        r_coll[i] -= 1*np.exp(-D/(2*self.incident_dist))
 
             # off-map (+5 agains numerical issues)
             if pi.D_dest > (self.dest.spawn_radius + 5.0): 
@@ -390,16 +415,18 @@ class UAM(gym.Env):
                 r_goal[i] += 5.0
 
             # incentive structure
-            if self.plain_reward:
-                if self.dest.is_open:
-                    r_goal[i] -= 0.2
+            if self.dest.is_open:
+                if self.plain_reward:
+                    r_goal[i] -= 0.25
                 else:
-                    r_goal[i] += 0.2
+                    r_goal[i] -= self.dest.t_open_since/self.dest.t_close
             else:
+                r_goal[i] += 0.25
+
                 # open goal approaching
-                if self.dest.was_open:
-                    if (not entered_close[i]) and (not entered_open[i]):
-                        r_goal[i] += (pi.D_dest_old - pi.D_dest)/100.0
+                #if self.dest.was_open:
+                #    if (not entered_close[i]) and (not entered_open[i]):
+                #        r_goal[i] += (pi.D_dest_old - pi.D_dest)/100.0
 
         # aggregate reward components
         r = (self.w_coll*r_coll + self.w_goal*r_goal)/self.w
@@ -420,8 +447,22 @@ class UAM(gym.Env):
             return True
         return False
 
+    def _count_mistakes(self, entered_close):
+        self.N_enterances_closed_d += sum(entered_close)
+        for i, pi in enumerate(self.planes):
+            for j, pj in enumerate(self.planes):
+                if i < j:
+                    D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)
+                    if D <= self.accident_dist:
+                        self.N_accs += 1
+                    elif D <= self.incident_dist:
+                        self.N_incs += 1
     def __str__(self):
-        return f"Step: {self.step_cnt}, Sim-Time [s]: {int(self.sim_t)}, Time-to-open [s]: {int(self.dest.t_nxt_open)}"
+
+        return f"Step: {self.step_cnt}, Sim-Time [s]: {int(self.sim_t)}, # Flight Taxis: {self.N_planes}" + "\n" +\
+            f"Time-to-open [s]: {int(self.dest.t_nxt_open)}, Time-since-open[s]: {int(self.dest.t_open_since)}" + "\n" +\
+                f"# Episode-Incidents: {self.N_incs}, # Episode-Accidents: {self.N_accs}" + "\n" +\
+                f"# Episode-Closed Vertiport Enterances: {self.N_enterances_closed_d}"
 
     def render(self, mode=None):
         """Renders the current environment."""
@@ -504,7 +545,7 @@ class UAM(gym.Env):
 
                 if self.plot_reward:
                     self.ax2.set_xlabel("Timestep in episode")
-                    self.ax2.set_ylabel("Reward")
+                    self.ax2.set_ylabel("Reward of ID0")
                     self.ax2.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
                     self.ax2.set_ylim(-7, 7)
 
@@ -527,7 +568,7 @@ class UAM(gym.Env):
 
                 # ---------- animated artists: initial drawing ---------
                 # step info
-                self.ax1.info_txt = self.ax1.text(x=9.9925, y=10.0125, s="", fontdict={"size" : 9}, animated=True)
+                self.ax1.info_txt = self.ax1.text(x=9.9865, y=10.012, s="", fontdict={"size" : 9}, animated=True)
 
                 # destination
                 lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.dest.radius))\

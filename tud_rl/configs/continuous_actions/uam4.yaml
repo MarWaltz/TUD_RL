@@ -11,7 +11,7 @@ env:
     full_RL: true
     plain_reward: false
     w_goal: 2
-    w_coll: 1.75
+    w_coll: 1.25
   info: ''
 agent:
   LSTMRecTD3:
