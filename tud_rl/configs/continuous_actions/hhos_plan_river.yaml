@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-PathPlanning-v0
-  max_episode_steps: 500
+  max_episode_steps: 100
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -9,12 +9,12 @@ env:
     plan_on_river: true
     data: sampled
     state_design: recursive
-    N_TSs_max: 4
+    N_TSs_max: 3
     N_TSs_random: true
-    w_ye : 2.0
+    w_ye : 3.0
     w_ce : 1.0
-    w_coll : 4.0
-    w_rule : 1.0
+    w_coll : 2.5
+    w_rule : 1.5
     w_comf : 2.0
   info: MDP
 agent:

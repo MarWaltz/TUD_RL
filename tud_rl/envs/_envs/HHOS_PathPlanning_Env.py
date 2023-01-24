@@ -33,12 +33,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.num_obs_TS = 7
 
         if plan_on_river is not None:
-            obs_size = 3 + self.num_obs_TS * self.N_TSs_max
+            self.obs_size = 3 + self.num_obs_TS * self.N_TSs_max
             if self.plan_on_river:
-                obs_size += self.lidar_n_beams
+                self.obs_size += self.lidar_n_beams
 
-            self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
-                                                high = np.full(obs_size,  np.inf, dtype=np.float32))
+            self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
+                                                high = np.full(self.obs_size,  np.inf, dtype=np.float32))
             self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
                                            high = np.full(1,  1.0, dtype=np.float32))
         # control scales
@@ -47,10 +47,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.surge_max = 5.0
         self.d_head_scale = dtr(10.0)
 
-        self._max_episode_steps = 500
+        self._max_episode_steps = 100
 
-    def reset(self):
-        s = super().reset()
+    def reset(self, set_state=True):
+        s = super().reset(set_state=set_state)
 
         # we can delete the local path and its characteritics
         del self.LocalPath
@@ -93,16 +93,24 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             # check respawn
             self.TSs = [self._handle_respawn(TS) for TS in self.TSs]
 
-            # on river: update waypoints for other vessels
-            if self.plan_on_river:
-                self.TSs = [self._init_wps(TS, "global") for TS in self.TSs]
-
-            # on river: simple heading control of target ships
+            # behavior of target ships
             if control_TS:
+
+                # river
                 if self.plan_on_river:
-                    for TS in self.TSs:
-                        other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                        TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                    for i, TS in enumerate(self.TSs):
+                        # update waypoints
+                        try:
+                            self.TSs[i] = self._init_wps(TS, "global")
+                            cnt = True
+                        except:
+                            cnt = False
+
+                        # simple heading control
+                        if cnt:
+                            other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                            TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                # open sea
                 else:
                     [TS.opensea_control() for TS in self.TSs]
 
@@ -175,7 +183,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                 C_TS_path = angle_to_pi(head1 - self.glo_pi_path) / math.pi
 
                 # speed
-                v_rel = np.clip((v1-v0)/v_norm, -1.0, 1.0)
+                v_rel = (v1-v0)/v_norm
 
                 # encounter situation
                 if self.plan_on_river:
@@ -192,8 +200,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                                             D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
                 d_cpa = max([0.0, d_cpa-domain_tcpa])
 
-                t_cpa = np.clip(t_cpa/tcpa_norm, -1.0, 1.0)
-                d_cpa = np.clip(d_cpa/dcpa_norm,  0.0, 1.0)
+                t_cpa = t_cpa/tcpa_norm
+                d_cpa = d_cpa/dcpa_norm
                 
                 # store it
                 state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
@@ -219,7 +227,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         # ----------------------- LiDAR for depth -----------------------------
         if self.plan_on_river:
             N0, E0, head0 = self.OS.eta
-            state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[0])
+            state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)[0])
         else:
             state_LiDAR = np.array([])
 
@@ -245,7 +253,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             pen_ce            = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
-            dist_norm         =  (NM_to_meter(0.5))**2
+            dist_norm         =  (NM_to_meter(1.0))**2
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -261,9 +269,18 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.r_coll = 0
         self.r_rule = 0.0
 
-        # hit ground
+        # hit ground or cross lane on river
         if self.plan_on_river:
             if self.H <= self.OS.critical_depth:
+                self.r_coll += pen_coll_depth
+            
+            # compute CTE to reversed lane
+            path = self.RevGlobalPath
+            NA, EA, _ = self.OS.eta
+            _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=path.north, e_array=path.east, a_n=NA, a_e=EA)
+
+            # switch wps since the path is reversed
+            if cte(N1=wp2_N, E1=wp2_E, N2=wp1_N, E2=wp1_E, NA=NA, EA=EA) < 0:
                 self.r_coll += pen_coll_depth
 
         # other vessels

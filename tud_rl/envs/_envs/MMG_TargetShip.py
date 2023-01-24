@@ -71,14 +71,14 @@ class TargetShip(KVLCC2):
 
             # easy access
             ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
-                                            E1 = self.glo_wp1_E, 
-                                            N2 = self.glo_wp2_N, 
-                                            E2 = self.glo_wp2_E,
-                                            NA = self.eta[0], 
-                                            EA = self.eta[1], 
-                                            K  = VFG_K, 
-                                            N3 = self.glo_wp3_N, 
-                                            E3 = self.glo_wp3_E)
+                                               E1 = self.glo_wp1_E, 
+                                               N2 = self.glo_wp2_N, 
+                                               E2 = self.glo_wp2_E,
+                                               NA = self.eta[0], 
+                                               EA = self.eta[1], 
+                                               K  = VFG_K, 
+                                               N3 = self.glo_wp3_N, 
+                                               E3 = self.glo_wp3_E)
 
             # consider vessel with smallest euclidean distance
             EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]

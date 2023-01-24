@@ -100,6 +100,8 @@ def tcpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS):
     nom = (xTS - xOS)*vrx + (yTS - yOS)*vry
     den = vrx**2 + vry**2
 
+    if den == 0:
+        return 0.0
     return - nom / den
 
 def cpa(NOS, EOS, NTS, ETS, chiOS, chiTS, VOS, VTS, get_positions=False):

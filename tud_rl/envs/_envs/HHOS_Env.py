@@ -13,7 +13,7 @@ from gym import spaces
 from matplotlib import cm
 from matplotlib import pyplot as plt
 
-from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, fill_array,
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, Z_at_latlon, ate, cte, fill_array,
                                         find_nearest, get_init_two_wp,
                                         mps_to_knots, to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
@@ -52,9 +52,8 @@ class HHOS_Env(gym.Env):
         self.lidar_beam_angles = np.deg2rad(np.sort(self.lidar_beam_angles))
 
         self.lidar_n_beams   = len(self.lidar_beam_angles)
-        self.n_dots_per_beam = 10          # number of subpoints per beam
-        self.d_dots_per_beam = np.linspace(start=0.0, stop=self.lidar_range, 
-                                           num=self.lidar_n_beams+1, endpoint=True)[1:] # distances from midship of subpoints per beam
+        self.n_dots_per_beam = 50          # number of subpoints per beam
+        self.d_dots_per_beam = (np.logspace(0.01, 1, self.n_dots_per_beam, endpoint=True)-1) /9 * self.lidar_range  # distances from midship of subpoints per beam
 
         # range definitions
         self.sight_open      = NM_to_meter(5.0)     # sight on open waters
@@ -102,7 +101,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.15
+        self.show_lon_lat = 0.05
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -499,10 +498,10 @@ class HHOS_Env(gym.Env):
         return angle, amplitude, period, length
 
     def _get_closeness_from_lidar(self, dists):
-        """Computes the closeness following Heiberg et al. (2022, Neural Networks) from given LiDAR distance measurements."""
-        return np.clip(1 - np.log(dists+1)/np.log(self.lidar_range+1), 0.0, 1.0)
+        """Computes the closeness from given LiDAR distance measurements."""
+        return np.clip(1.0-dists/self.lidar_range, 0.0, 1.0)
 
-    def _sense_LiDAR(self, N0:float, E0:float, head0:float):
+    def _sense_LiDAR(self, N0:float, E0:float, head0:float, check_lane_river:bool = False):
         """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
         The first beam is defined in direction of the heading of the OS. Each beam consists of 'n_dots_per_beam' sub-points, which are sequentially considered. 
         Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
@@ -511,6 +510,7 @@ class HHOS_Env(gym.Env):
             N0(float): north position
             E0(float): east position
             head0(float): heading
+            check_lane_river(bool): whether to consider the reversed path as artifical land that cannot be crossed
         
         Returns (as tuple):
             np.array(lidar_n_beams,) of dists
@@ -523,12 +523,15 @@ class HHOS_Env(gym.Env):
         out_lat_lon = []
         out_n = []
         out_e = []
+
+        if check_lane_river:
+            path = self.RevGlobalPath
         
         for out_idx, angle in enumerate(self.lidar_beam_angles):
 
             # current angle under consideration of the heading
             angle = angle_to_2pi(angle + head0)
-            
+
             for dist in self.d_dots_per_beam:
 
                 # compute N-E coordinates of dot
@@ -540,14 +543,28 @@ class HHOS_Env(gym.Env):
                 lat_dot, lon_dot = to_latlon(north=N_dot, east=E_dot, number=32)
 
                 # check water depth at that point
+                finish = False
                 depth_dot = self._depth_at_latlon(lat_q=lat_dot, lon_q=lon_dot)
 
                 if depth_dot <= self.OS.critical_depth:
+                    finish = True
+
+                elif check_lane_river:
+                    # compute CTE to reversed lane from that point
+                    _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=path.north, e_array=path.east, a_n=N_dot, a_e=E_dot)
+
+                    # switch wps since the path is reversed
+                    if cte(N1=wp2_N, E1=wp2_E, N2=wp1_N, E2=wp1_E, NA=N_dot, EA=E_dot) < 0:
+                        finish = True
+                
+                # breaking condition fulfilled
+                if finish:
                     out_dists[out_idx] = dist
                     out_lat_lon.append((lat_dot, lon_dot))
                     out_n.append(N_dot)
                     out_e.append(E_dot)
                     break
+
                 if dist == self.lidar_range:
                     out_lat_lon.append((lat_dot, lon_dot))
                     out_n.append(N_dot)
@@ -555,7 +572,7 @@ class HHOS_Env(gym.Env):
 
         return out_dists, out_lat_lon, np.array(out_n), np.array(out_e)
 
-    def reset(self, OS_wp_idx=20):
+    def reset(self, OS_wp_idx=20, set_state=True):
         """Resets environment to initial state."""
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
@@ -571,7 +588,7 @@ class HHOS_Env(gym.Env):
         E_init = self.GlobalPath.east[OS_wp_idx]
 
         # consider different speeds in training
-        if "Validation" in type(self).__name__:
+        if "Validation" in type(self).__name__ or self.data == "real":
             spd = self.desired_V
         else:
             spd = float(np.random.uniform(0.8, 1.2)) * self.desired_V
@@ -612,7 +629,7 @@ class HHOS_Env(gym.Env):
         self._set_cte(path_level="local")
 
         # set heading with noise in training
-        if "Validation" in type(self).__name__:
+        if "Validation" in type(self).__name__ or self.data == "real":
             self.OS.eta[2] = self.glo_pi_path
         else:
             self.OS.eta[2] = angle_to_2pi(self.glo_pi_path + dtr(np.random.uniform(-25.0, 25.0)))
@@ -654,8 +671,10 @@ class HHOS_Env(gym.Env):
         self._init_TSs()
 
         # init state
-        self._set_state()
-        self.state_init = self.state
+        if set_state:
+            self._set_state()
+        else:
+            self.state = None
 
         # viz
         if hasattr(self, "plotter"):
@@ -711,10 +730,12 @@ class HHOS_Env(gym.Env):
         # scenario 0 means all TS random, no manual configuration
         self.scenario = 0
         if self.N_TSs_random:
-            self.N_TSs = np.random.choice(self.N_TSs_max)
+            assert self.N_TSs_max == 3, "Go for maximum 3 TSs in HHOS planning."
+            self.N_TSs = np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
+            #self.N_TSs = np.random.choice(self.N_TSs_max+1)
         else:
             self.N_TSs = self.N_TSs_max
-   
+
         # sample TSs
         self.TSs : List[TargetShip]= []
         for n in range(self.N_TSs):
@@ -1239,6 +1260,7 @@ class HHOS_Env(gym.Env):
         """Checks whether the respawning condition of the target ship is fulfilled.
         Returns:
             TargetShip"""
+        return TS
         N0, E0, _ = self.OS.eta
         N1, E1, _ = TS.eta
 
@@ -1437,7 +1459,7 @@ class HHOS_Env(gym.Env):
             plt.show()
 
         if self.step_cnt % 1 == 0:
-
+            
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:
                 
@@ -1649,6 +1671,9 @@ class HHOS_Env(gym.Env):
                         col = None
                     ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=False)
 
+                    #if hasattr(TS, "path"):
+                    #    ax.scatter(TS.path.lon, TS.path.lat, c=col)
+
                 # set legend for COLREGS
                 if not self.plan_on_river:
                     legend1 = ax.legend(handles=[patches.Patch(color=COLREG_COLORS[i], label=COLREG_NAMES[i]) for i in range(5)], 
@@ -1739,7 +1764,7 @@ class HHOS_Env(gym.Env):
 
                 #--------------------- LiDAR sensing ------------------------
                 if self.plot_lidar and self.plot_in_latlon:
-                    lidar_lat_lon = self._sense_LiDAR(N0=N0, E0=E0, head0=head0)[1]
+                    lidar_lat_lon = self._sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True if self.plan_on_river else False)[1]
 
                     for _, latlon in enumerate(lidar_lat_lon):
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)#, alpha=(idx+1)/len(lidar_lat_lon))

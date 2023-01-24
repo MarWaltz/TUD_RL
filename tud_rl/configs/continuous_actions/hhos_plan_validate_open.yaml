@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-PathPlanning-Validation-v0
-  max_episode_steps: 500
+  max_episode_steps: 200
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -9,7 +9,10 @@ env:
     plan_on_river: false
     data: sampled
     state_design: recursive
-    scenario: 3
+    full_RL: false
+    star_formation: false
+    star_N_TSs: 7
+    scenario: 10
   info: 
 agent:
   DDPG: {}

@@ -27,7 +27,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                  w_comf : float,
                  w_speed : float):
         super().__init__(nps_control_follower=nps_control_follower, data=data, N_TSs_max=N_TSs_max,\
-            N_TSs_random=N_TSs_random,w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_rule=w_rule, w_comf=w_comf, w_speed=w_speed)
+            N_TSs_random=N_TSs_random, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_rule=w_rule, w_comf=w_comf, w_speed=w_speed)
 
         # whether nps are controlled
         self.nps_control_follower = nps_control_follower
@@ -35,12 +35,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # checks
         if data == "real":
             assert plan_on_river is None, "In real data, we check whether we are on river or open sea."
-            assert planner_river_weights is not None and planner_opensea_weights is not None, \
-                "Need a river-planner and an opensea-planner on the real data."
         else:
             assert isinstance(plan_on_river, bool), "Specify whether we are on river in artificial scenarios."
-            assert not(planner_river_weights is not None and planner_opensea_weights is not None), \
-                "Specify a river-planner or an opensea-planner, not both."
+
         assert planner_state_design in ["conventional", "recursive"], "Unknown state design."
         self.planner_state_design = planner_state_design
 
@@ -78,7 +75,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # construct planning env
         if len(self.planner.keys()) > 0:
             self.planning_env = HHOS_PathPlanning_Env(plan_on_river=plan_on_river, state_design=planner_state_design, data=data,\
-                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_comf=0.0, w_speed=0.0)
+                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0, w_speed=0.0)
 
             # whether to use a safety-net as backup to guarantee safe plans
             self.planner_safety_net = planner_safety_net  
@@ -106,9 +103,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         
         self._max_episode_steps = 500
 
-    def reset(self):
+    def reset(self, OS_wp_idx=20):
         # the local path equals the first couple of entries of the global path after the super().reset() call
-        s = super().reset()
+        s = super().reset(OS_wp_idx)
 
         if len(self.planner.keys()) == 0:
             return s
@@ -514,6 +511,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         N0, E0, head0 = env.OS.eta
         dists, _, river_n, river_e = env._sense_LiDAR(N0=N0, E0=E0, head0=head0)
         i = np.where(dists != env.lidar_range)
+        raise NotImplementedError("Clarify LiDAR handling of APF method. Check for river lane?")
 
         # computation
         du, dh = apf(OS=env.OS, TSs=env.TSs, G={"x" : g_e, "y" : g_n}, 
@@ -621,7 +619,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             return True
 
         # OS reaches end of global waypoints
-        if any([i >= int(0.9*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= int(0.8*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal
