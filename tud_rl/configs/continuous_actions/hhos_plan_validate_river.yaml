@@ -9,7 +9,7 @@ env:
     plan_on_river: true
     data: sampled
     state_design: recursive
-    scenario: 2
+    scenario: 4
   info: 
 agent:
   DDPG: {}

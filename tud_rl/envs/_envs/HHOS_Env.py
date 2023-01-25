@@ -101,7 +101,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.15
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -190,10 +190,10 @@ class HHOS_Env(gym.Env):
             ang_diff = dtr(np.random.uniform(-20., 20.))
             ang_diff2 = 0.0
             for i in range(1, self.n_wps_glo):
-                
+
                 # next angle
                 ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
-                ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2 + 0.0 * dtr(np.random.uniform(-5.0, 5.0))
+                ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2
                 ang = angle_to_2pi(ang + ang_diff)
 
                 # next point
@@ -1296,6 +1296,28 @@ class HHOS_Env(gym.Env):
         elif self.T_0_wave == 0.0:
             self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
 
+    def _get_CR_open_sea(self, vessel0:KVLCC2, vessel1:KVLCC2, DCPA_norm:float, TCPA_norm:float):
+        """Computes the collision risk with vessel 1 from perspective of vessel 0."""
+        N0, E0, head0 = vessel0.eta
+        N1, E1, _ = vessel1.eta
+
+        # compute CPA measures
+        DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, 
+                                                                 chiOS=vessel0._get_course(), chiTS=vessel1._get_course(),
+                                                                 VOS=vessel0._get_V(), VTS=vessel1._get_V(), get_positions=True)
+        # substract ship domain at TCPA = 0 from DCPA
+        bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+        domain_tcpa = get_ship_domain(A=vessel0.ship_domain_A, B=vessel0.ship_domain_B, C=vessel0.ship_domain_C,\
+            D=vessel0.ship_domain_D, OS=None, TS=None, ang=bng_rel_tcpa_from_OS_pers)
+        DCPA = max([0.0, DCPA-domain_tcpa])
+
+        # weight positive and negative TCPA differently
+        if TCPA < 0:
+            f = 5
+        else:
+            f = 1
+        return np.clip(math.exp(-DCPA/DCPA_norm) * math.exp(- f * abs(TCPA)/TCPA_norm), 0.0, 1.0)
+
     def step(self, a):
         pass
 
@@ -1373,17 +1395,6 @@ class HHOS_Env(gym.Env):
         if with_domain:
             xys = [rotate_point(E1 + x, N1 + y, cx=E1, cy=N1, angle=-head1) for x, y in zip(self.domain_xs, self.domain_ys)]
 
-        # collision risk and metrics
-        if plot_CR:
-            DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=self.OS._get_course(),\
-                chiTS=vessel._get_course(), VOS=self.OS._get_V(), VTS=vessel._get_V(), get_positions=True)
-
-            # substract ship domain at TCPA = 0 from DCPA
-            bng_rel_tcpa_from_OS_pers = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
-            domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,\
-                D=self.OS.ship_domain_D, OS=None, TS=None, ang=bng_rel_tcpa_from_OS_pers)
-            DCPA = max([0.0, DCPA-domain_tcpa])
-
         if self.plot_in_latlon:
 
             # convert rectangle points to lat/lon
@@ -1407,7 +1418,7 @@ class HHOS_Env(gym.Env):
             if plot_CR:
                 CR_x = min(lons) - np.abs(min(lons) - max(lons))
                 CR_y = min(lats) - 2*np.abs(min(lats) - max(lats))
-                ax.text(CR_x, CR_y, f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
+                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel, TCPA_norm=15*60, DCPA_norm=self.lidar_range):.2f}",\
                      fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         else:
             # draw the polygon
@@ -1424,7 +1435,7 @@ class HHOS_Env(gym.Env):
             if plot_CR:
                 CR_x = min(xs) - np.abs(min(xs) - max(xs))
                 CR_y = min(ys) - 2*np.abs(min(ys) - max(ys))
-                ax.text(CR_x, CR_y, f"DCPA: {DCPA:.2f}" + "\n" + f"TCPA: {TCPA:.2f}",\
+                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel, TCPA_norm=15*60, DCPA_norm=self.lidar_range):.2f}",\
                      fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         return ax
 
@@ -1669,7 +1680,7 @@ class HHOS_Env(gym.Env):
                         col = "darkgoldenrod" if TS.rev_dir else "purple"
                     else:
                         col = None
-                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=False)
+                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
 
                     #if hasattr(TS, "path"):
                     #    ax.scatter(TS.path.lon, TS.path.lat, c=col)
