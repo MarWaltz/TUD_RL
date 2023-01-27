@@ -64,7 +64,9 @@ class HHOS_Env(gym.Env):
         self.river_enc_range_max = NM_to_meter(0.50)    # lower distance when we consider encounter situations on the river
 
         # vector field guidance
-        self.VFG_K = 0.001
+        self.VFG_K_river    = 0.01
+        self.VFG_K_river_TS = 0.001
+        self.VFG_K_open     = 0.0005
 
         # data range
         self.lon_lims = [4.83, 14.33]
@@ -1140,7 +1142,7 @@ class HHOS_Env(gym.Env):
                                          N1=N1, E1=E1, head1=head1, chi1=chi1, v1=v1)
 
         # steer to the right in Head-on and starboard crossing situations
-        if (sit in [1, 2]) and r0 < 0.0:
+        if (sit in [1, 2]) and (r0 < 0.0):
 
             # evaluate only if TCPA with TS is positive
             if tcpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0, chiTS=chi1, VOS=v0, VTS=v1) >= 0.0:
@@ -1189,19 +1191,19 @@ class HHOS_Env(gym.Env):
             return False
         else:
             # OS should pass opposing ships on their portside
-            if rev_dir:
-                if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0):
-                    return True
-            else:
+            #if rev_dir:
+            #    if dtr(0.0) <= bng_rel_TS_pers <= dtr(90.0):
+            #        return True
+            #else:
                 # OS should let speedys pass on OS's portside
                 #if v1 > v0:
                 #    if dtr(180.0) <= bng_rel_TS_pers <= dtr(270.0):
                 #        return True
 
-                # normal target ships should be overtaken on their portside
-                if v0 > v1:
-                    if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
-                        return True
+            # normal target ships should be overtaken on their portside
+            if (not rev_dir) and (v0 > v1):
+                if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
+                    return True
         return False
 
     def _on_river(self, N0:float, E0:float):
@@ -1230,7 +1232,7 @@ class HHOS_Env(gym.Env):
                                                                             E2 = self.OS.glo_wp2_E,
                                                                             NA = self.OS.eta[0], 
                                                                             EA = self.OS.eta[1], 
-                                                                            K  = self.VFG_K, 
+                                                                            K  = self.VFG_K_river if self.plan_on_river else self.VFG_K_open, 
                                                                             N3 = N3,
                                                                             E3 = E3)
         else:
@@ -1244,7 +1246,7 @@ class HHOS_Env(gym.Env):
                                                                             E2 = self.OS.loc_wp2_E,
                                                                             NA = self.OS.eta[0], 
                                                                             EA = self.OS.eta[1], 
-                                                                            K  = self.VFG_K, 
+                                                                            K  = self.VFG_K_river if self.plan_on_river else self.VFG_K_open, 
                                                                             N3 = N3,
                                                                             E3 = E3)
     def _set_ce(self, path_level):
@@ -1296,11 +1298,21 @@ class HHOS_Env(gym.Env):
         elif self.T_0_wave == 0.0:
             self.beta_wave, self.eta_wave, self.T_0_wave, self.lambda_wave = None, None, None, None
 
-    def _get_CR_open_sea(self, vessel0:KVLCC2, vessel1:KVLCC2, DCPA_norm:float, TCPA_norm:float):
-        """Computes the collision risk with vessel 1 from perspective of vessel 0."""
+    def _get_CR_open_sea(self, vessel0:KVLCC2, vessel1:KVLCC2, DCPA_norm:float, TCPA_norm:float, dist_norm:float, dist:float=None):
+        """Computes the collision risk with vessel 1 from perspective of vessel 0. Inspired by Waltz & Okhrin (2022)."""
         N0, E0, head0 = vessel0.eta
         N1, E1, _ = vessel1.eta
 
+        # compute distance under consideration of ship domain
+        if dist is None:
+            dist = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
+            D = get_ship_domain(A=vessel0.ship_domain_A, B=vessel0.ship_domain_B, C=vessel0.ship_domain_C,\
+                D=vessel0.ship_domain_D, OS=vessel0, TS=vessel1)
+            dist -= D
+
+        if dist <= 0.0:
+            return 1.0
+        
         # compute CPA measures
         DCPA, TCPA, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, 
                                                                  chiOS=vessel0._get_course(), chiTS=vessel1._get_course(),
@@ -1312,11 +1324,12 @@ class HHOS_Env(gym.Env):
         DCPA = max([0.0, DCPA-domain_tcpa])
 
         # weight positive and negative TCPA differently
-        if TCPA < 0:
-            f = 5
-        else:
-            f = 1
-        return np.clip(math.exp(-DCPA/DCPA_norm) * math.exp(- f * abs(TCPA)/TCPA_norm), 0.0, 1.0)
+        f = 5 if TCPA < 0 else 1
+        CR_cpa = math.exp(-DCPA/DCPA_norm) * math.exp(-f * abs(TCPA)/TCPA_norm)
+
+        # euclidean distance
+        CR_ed = math.exp(-(dist)**2/dist_norm)
+        return np.clip(max([CR_cpa, CR_ed]), 0.0, 1.0)
 
     def step(self, a):
         pass
@@ -1418,8 +1431,8 @@ class HHOS_Env(gym.Env):
             if plot_CR:
                 CR_x = min(lons) - np.abs(min(lons) - max(lons))
                 CR_y = min(lats) - 2*np.abs(min(lats) - max(lats))
-                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel, TCPA_norm=15*60, DCPA_norm=self.lidar_range):.2f}",\
-                     fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
+                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel,TCPA_norm=15*60, DCPA_norm=self.lidar_range, dist_norm=(NM_to_meter(0.5))**2):.2f}",\
+                        fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         else:
             # draw the polygon
             xs = [A[0], B[0], D[0], C[0], A[0]]
@@ -1435,8 +1448,8 @@ class HHOS_Env(gym.Env):
             if plot_CR:
                 CR_x = min(xs) - np.abs(min(xs) - max(xs))
                 CR_y = min(ys) - 2*np.abs(min(ys) - max(ys))
-                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel, TCPA_norm=15*60, DCPA_norm=self.lidar_range):.2f}",\
-                     fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
+                ax.text(CR_x, CR_y, f"CR: {self._get_CR_open_sea(vessel0=self.OS, vessel1=vessel,TCPA_norm=15*60, DCPA_norm=self.lidar_range, dist_norm=(NM_to_meter(0.5))**2):.2f}",\
+                        fontsize=7, horizontalalignment='center', verticalalignment='center', color=color)
         return ax
 
     def _render_wps(self, ax, vessel, path_level, color):
@@ -1680,7 +1693,7 @@ class HHOS_Env(gym.Env):
                         col = "darkgoldenrod" if TS.rev_dir else "purple"
                     else:
                         col = None
-                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True)
+                    ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True if not self.plan_on_river else False)
 
                     #if hasattr(TS, "path"):
                     #    ax.scatter(TS.path.lon, TS.path.lat, c=col)

@@ -109,7 +109,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                         # simple heading control
                         if cnt:
                             other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                            TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                            TS.river_control(other_vessels, VFG_K=self.VFG_K_river_TS)
                 # open sea
                 else:
                     [TS.opensea_control() for TS in self.TSs]
@@ -240,7 +240,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             sight             =  self.sight_river
             k_ye              =  2.0
             ye_norm           =  2*self.OS.Lpp
-            pen_ce            = -10.0
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
@@ -250,10 +249,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             sight             =  self.sight_open
             k_ye              =  1.0
             ye_norm           =  NM_to_meter(0.5)
-            pen_ce            = -10.0
             pen_coll_TS       = -10.0
             pen_traffic_rules = -2.0
-            #dist_norm         =  (NM_to_meter(0.75))**2
+            dist_norm         =  (NM_to_meter(0.5))**2
             tcpa_norm = 15 * 60             # [s]
             dcpa_norm = self.lidar_range    # [m]
 
@@ -275,9 +273,14 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             if cte(N1=wp2_N, E1=wp2_E, N2=wp1_N, E2=wp1_E, NA=NA, EA=EA) < 0:
                 self.r_coll += pen_coll_depth
 
+        # being too far away from path on open sea
+        else:
+            if abs(self.glo_ye) >= NM_to_meter(2.5):
+                self.r_coll += pen_coll_TS
+
         # other vessels
-        if not self.plan_on_river:
-            CRs = []
+        #if not self.plan_on_river:
+        #    CRs = [0.0]
 
         for TS in self.TSs:
 
@@ -308,11 +311,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                     
                     # one open sea, we define a specific CR metric
                     else:
-                        #self.r_coll += -math.exp(-(dist)**2/dist_norm)
-
-                        CR = self._get_CR_open_sea(vessel0=self.OS, vessel1=TS, DCPA_norm=dcpa_norm, TCPA_norm=tcpa_norm)
-                        self.r_coll += -CR
-                        CRs.append(CR)
+                        CR = self._get_CR_open_sea(vessel0=self.OS, vessel1=TS, DCPA_norm=dcpa_norm, TCPA_norm=tcpa_norm, 
+                                                   dist=dist, dist_norm=dist_norm)
+                        self.r_coll += -math.sqrt(CR)
+                        #CRs.append(CR)
 
                 # violating traffic rules
                 if self.plan_on_river:
@@ -321,23 +323,22 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                         self.r_rule += pen_traffic_rules
                 else:
                     # Note: On open sea, we consider the current action for evaluating COLREG-compliance.
-                    if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
-                        r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
-                        self.r_rule += pen_traffic_rules
+                    # Crucially, since COLREGs are ambiguous in multi-ship encounter situations, we only consider them in single-ship encounters.
+                    if len(self.TSs) == 1:
+                        if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
+                            r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
+                            self.r_rule += pen_traffic_rules
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
         self.r_ye = math.exp(-k_ye * abs(self.glo_ye)/ye_norm)
 
         # adaptive on open sea
-        if not self.plan_on_river and len(self.TSs) > 0:
-            self.r_ye = 1*max(CRs) + self.r_ye*(1-max(CRs))
+        #if not self.plan_on_river:
+        #    self.r_ye = 1*max(CRs) + self.r_ye*(1-max(CRs))
 
         # course violation
-        if abs(angle_to_pi(self.OS.eta[2] - self.glo_pi_path)) >= math.pi/2:
-            self.r_ce = pen_ce
-        else:
-            self.r_ce = 0.0
+        self.r_ce = 1.0 - abs(angle_to_pi(self.glo_course_error))/math.pi
 
         # ---------------------- Comfort reward -----------------
         self.r_comf = -(float(a)**2)

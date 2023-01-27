@@ -230,7 +230,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         if self.plan_on_river:
             for TS in self.TSs:
                 other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
-                TS.river_control(other_vessels, VFG_K=self.VFG_K)
+                TS.river_control(other_vessels, VFG_K=self.VFG_K_river_TS)
         else:
             [TS.opensea_control() for TS in self.TSs]
 
