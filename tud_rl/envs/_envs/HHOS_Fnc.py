@@ -125,7 +125,7 @@ def find_neighbor(array, value, idx):
 
 def prep_angles_for_average(ang1, ang2):
     """Prepares two angles before they get averaged. Necessary since otherwise there are boundary issues at 2pi."""
-    # make sure they are in [0,2pi]
+    # make sure they are in [0,2pi)
     ang1 = angle_to_2pi(ang1)
     ang2 = angle_to_2pi(ang2)
 
@@ -306,7 +306,7 @@ def switch_wp(wp1_N, wp1_E, wp2_N, wp2_E, a_N, a_E):
     else:
         return False
 
-def get_init_two_wp(n_array, e_array, a_n, a_e, stop_goal=True):
+def get_init_two_wp(n_array, e_array, a_n, a_e, stop_goal=False):
     """Returns for a given set of waypoints and an agent position the coordinates of the first two waypoints.
 
     Args:
@@ -322,17 +322,21 @@ def get_init_two_wp(n_array, e_array, a_n, a_e, stop_goal=True):
     EDs = ED(N0=a_n, E0=a_e, N1=n_array, E1=e_array, sqrt=False)
     min_idx = np.argmin(EDs)
 
-    # limit case one
-    if min_idx == len(n_array)-1:
-        if stop_goal:
-            raise ValueError("The agent spawned already at the goal!")
-        else:
-            min_idx = 0
+    # limit cases
+    if min_idx in [0, len(n_array)-1]:
 
-    # limit case two
-    if min_idx == 0:
-        idx1 = min_idx
-        idx2 = min_idx + 1
+        # start of path
+        if min_idx == 0:
+            idx1 = 0
+            idx2 = 1
+        
+        # end of path
+        else:
+            idx1 = len(n_array)-2
+            idx2 = len(n_array)-1
+            if stop_goal:
+                raise ValueError("The agent spawned already at the goal!")
+
         wp1_N = n_array[idx1]
         wp1_E = e_array[idx1]
         wp2_N = n_array[idx2]

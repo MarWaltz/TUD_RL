@@ -239,6 +239,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         if self.plan_on_river:
             sight             =  self.sight_river
             k_ye              =  2.0
+            k_ce              =  4.0
             ye_norm           =  2*self.OS.Lpp
             pen_coll_depth    = -10.0
             pen_coll_TS       = -10.0
@@ -249,7 +250,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             sight             =  self.sight_open
             k_ye              =  1.0
             ye_norm           =  NM_to_meter(0.5)
-            pen_coll_TS       = -10.0
+            pen_coll_TS       = -100.0
             pen_traffic_rules = -2.0
             dist_norm         =  (NM_to_meter(0.5))**2
             tcpa_norm = 15 * 60             # [s]
@@ -308,8 +309,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                         dx, dy = xy_from_polar(r=dist, angle=bng_rel_TS)
 
                         self.r_coll += -math.exp(-(dx)**2/dx_norm) * math.exp(-(dy)**2/dy_norm)
-                    
-                    # one open sea, we define a specific CR metric
+
+                    # on open sea, we define a specific CR metric
                     else:
                         CR = self._get_CR_open_sea(vessel0=self.OS, vessel1=TS, DCPA_norm=dcpa_norm, TCPA_norm=tcpa_norm, 
                                                    dist=dist, dist_norm=dist_norm)
@@ -323,11 +324,9 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                         self.r_rule += pen_traffic_rules
                 else:
                     # Note: On open sea, we consider the current action for evaluating COLREG-compliance.
-                    # Crucially, since COLREGs are ambiguous in multi-ship encounter situations, we only consider them in single-ship encounters.
-                    if len(self.TSs) == 1:
-                        if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
-                            r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
-                            self.r_rule += pen_traffic_rules
+                    if self._violates_COLREG_rules(N0=N0, E0=E0, head0=head0, chi0=self.OS._get_course(), v0=self.OS._get_V(),\
+                        r0=a, N1=N1, E1=E1, head1=head1, chi1=TS._get_course(), v1=TS._get_V()):
+                        self.r_rule += pen_traffic_rules
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
@@ -338,7 +337,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         #    self.r_ye = 1*max(CRs) + self.r_ye*(1-max(CRs))
 
         # course violation
-        self.r_ce = 1.0 - abs(angle_to_pi(self.glo_course_error))/math.pi
+        if self.plan_on_river:
+            self.r_ce = math.exp(-k_ce * abs(angle_to_pi(self.glo_course_error)))
+        else:
+            self.r_ce = 1.0 - abs(angle_to_pi(self.glo_course_error))/math.pi
 
         # ---------------------- Comfort reward -----------------
         self.r_comf = -(float(a)**2)

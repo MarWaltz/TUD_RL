@@ -733,8 +733,11 @@ class HHOS_Env(gym.Env):
         self.scenario = 0
         if self.N_TSs_random:
             assert self.N_TSs_max == 3, "Go for maximum 3 TSs in HHOS planning."
-            self.N_TSs = np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
-            #self.N_TSs = np.random.choice(self.N_TSs_max+1)
+            
+            if self.plan_on_river:
+                self.N_TSs = np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
+            else:
+                self.N_TSs = np.random.choice([1, 2, 3])
         else:
             self.N_TSs = self.N_TSs_max
 
