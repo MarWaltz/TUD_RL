@@ -536,12 +536,16 @@ class HHOSPlotter:
             eval(f"self.{key}.append({value})")
 
     def dump(self, name):
-        # special handling of DepthData
-        if hasattr(self, "DepthData"):
-            with open(f"HHOS_Validate_{name}_DepthData.pkl", "wb") as f:
-                pickle.dump(self.DepthData, f)
-            del self.DepthData
-           
+        # special handling of DepthData, GlobalPath, and ReversedGlobalPath
+        info = dict()
+        for att in ["DepthData", "GlobalPath", "RevGlobalPath"]:
+            if hasattr(self, att):
+                info[att] = getattr(self, att)
+                delattr(self, att)
+        if len(info) > 0:
+            with open(f"HHOS_Validate_{name}_info.pkl", "wb") as f:
+                pickle.dump(info, f)
+
         # df creation and storage
         df = pd.DataFrame(vars(self))
         df.replace(to_replace=[None], value=0.0, inplace=True) # clear None

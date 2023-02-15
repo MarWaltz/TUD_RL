@@ -79,33 +79,37 @@ class TargetShip(KVLCC2):
                                                K  = VFG_K, 
                                                N3 = self.glo_wp3_N, 
                                                E3 = self.glo_wp3_E)
+            if len(other_vessels) > 0:
 
-            # consider vessel with smallest euclidean distance
-            EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]
-            i = EDs.index(min(EDs))
-            other_vessel = other_vessels[i]
+                # consider vessel with smallest euclidean distance
+                EDs = [ED(N0=self.eta[0], E0=self.eta[1], N1=other_vessel.eta[0], E1=other_vessel.eta[1]) for other_vessel in other_vessels]
+                i = EDs.index(min(EDs))
+                other_vessel = other_vessels[i]
 
-            # opposing traffic is a threat
-            opposing_traffic = self._is_opposing(other_vessel)
-            if opposing_traffic:
-                self.eta[2] = angle_to_2pi(dc + dtr(5.0))
+                # opposing traffic is a threat
+                opposing_traffic = self._is_opposing(other_vessel)
+                if opposing_traffic:
+                    self.eta[2] = angle_to_2pi(dc + dtr(5.0))
+                else:
+                    # vessel gets overtaken by other ship
+                    #gets_overtaken = self._is_overtaking(other_vessel=other_vessel, role="gets_overtaken")
+                    #if gets_overtaken:
+                    #    ang = smoothed_path_ang if ye > 0.0 else dc
+                    #    delta = self._control_hlp(ye=ye, x1=5*self.B, role="gets_overtaken")
+                    #    self.eta[2] = angle_to_2pi(ang + dtr(delta))
+                    #else:
 
-            # vessel gets overtaken by other ship
-            gets_overtaken = self._is_overtaking(other_vessel=other_vessel, role="gets_overtaken")
-            if gets_overtaken:
-                ang = smoothed_path_ang if ye > 0.0 else dc
-                delta = self._control_hlp(ye=ye, x1=5*self.B, role="gets_overtaken")
-                self.eta[2] = angle_to_2pi(ang + dtr(delta))
-            
-            # vessel is overtaking someone else
-            is_overtaking = self._is_overtaking(other_vessel=other_vessel, role="is_overtaking")
-            if is_overtaking:
-                ang = dc if ye > 0.0 else smoothed_path_ang
-                delta = self._control_hlp(ye=ye, x1=5*self.B, role="is_overtaking")
-                self.eta[2] = angle_to_2pi(ang - dtr(delta))
-
-            # otherwise we just use basic VFG control
-            self.eta[2] = dc
+                    # vessel is overtaking someone else
+                    is_overtaking = self._is_overtaking(other_vessel=other_vessel, role="is_overtaking")
+                    if is_overtaking:
+                        ang = dc if ye > 0.0 else smoothed_path_ang
+                        delta = self._control_hlp(ye=ye, x1=5*self.B, role="is_overtaking")
+                        self.eta[2] = angle_to_2pi(ang - dtr(delta))
+                    else:
+                        # otherwise we just use basic VFG control
+                        self.eta[2] = dc
+            else:
+                self.eta[2] = dc
 
     def _control_hlp(self, role, ye, x1):
         """Rule-based control helper fnc to determine the heading adjustment."""

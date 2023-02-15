@@ -103,7 +103,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.15
+        self.show_lon_lat = 0.05
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -893,13 +893,15 @@ class HHOS_Env(gym.Env):
 
         # overtake the overtaker
         elif scenario == 2:
-            d = NM_to_meter(0.5)
             rev_dir = False
-            offset = 0.0 if n == 0 else 100.0
             if n == 0:
-                spd = 0.4 * self.desired_V
+                offset = 0.0
+                spd = 0.35 * self.desired_V
+                d = NM_to_meter(0.5)
             else:
-                spd = 0.5 * self.desired_V
+                offset = 0.0
+                spd = 0.55 * self.desired_V
+                d = NM_to_meter(0.3)
             speedy = False
 
         # overtaking under oncoming traffic
@@ -913,26 +915,15 @@ class HHOS_Env(gym.Env):
             elif n == 1:
                 d = NM_to_meter(1.5)
                 rev_dir = True
-                offset = 50.0
+                offset = 0.0
                 spd = 0.7 * self.desired_V
 
             elif n == 2:
-                d = NM_to_meter(1.5)
+                d = NM_to_meter(1.3)
                 rev_dir = True
                 offset = 0.0
-                spd = 0.7 * self.desired_V
+                spd = 0.4 * self.desired_V
 
-            elif n == 3:
-                d = NM_to_meter(1.7)
-                rev_dir = True
-                offset = 0.0
-                spd = 0.7 * self.desired_V
-
-            elif n == 4:
-                d = NM_to_meter(1.7)
-                rev_dir = True
-                offset = 50.0
-                spd = 0.7 * self.desired_V
             speedy = False
 
         # overtake the overtaker under oncoming traffic
@@ -944,16 +935,22 @@ class HHOS_Env(gym.Env):
                 spd = 0.4 * self.desired_V
 
             elif n == 1:
-                d = NM_to_meter(0.5)
-                rev_dir = False
-                offset = 50.0
-                spd = 0.5 * self.desired_V
-
-            elif n == 2:
                 d = NM_to_meter(1.5)
                 rev_dir = True
                 offset = 0.0
                 spd = 0.7 * self.desired_V
+
+            elif n == 2:
+                d = NM_to_meter(1.3)
+                rev_dir = True
+                offset = 0.0
+                spd = 0.4 * self.desired_V
+
+            elif n == 3:
+                offset = 0.0
+                rev_dir = False
+                spd = 0.55 * self.desired_V
+                d = NM_to_meter(0.3)
             speedy = False
 
         # get wps
@@ -1013,7 +1010,7 @@ class HHOS_Env(gym.Env):
 
         if offset != 0.0:
             ang = TS_head - math.pi/2 if offset > 0.0 else TS_head + math.pi/2
-            E_add_rev, N_add_rev = xy_from_polar(r=offset, angle=angle_to_2pi(ang))
+            E_add_rev, N_add_rev = xy_from_polar(r=abs(offset), angle=angle_to_2pi(ang))
             N_TS += N_add_rev
             E_TS += E_add_rev
 
