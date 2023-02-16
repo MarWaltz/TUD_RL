@@ -71,6 +71,8 @@ agent:
   LSTMRecDQN:
     double: true
     history_length: 2
+    num_obs_OS: 7
+    num_obs_TS: 6
 seed: 1020
 timesteps: 10000000
 epoch_length: 5000

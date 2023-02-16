@@ -29,6 +29,10 @@ class LSTMRecDQNAgent(BaseAgent):
         self.needs_history   = True
         self.history_length  = getattr(c.Agent, agent_name)["history_length"]
         self.double          = getattr(c.Agent, agent_name)["double"]
+        
+        # the following args are specific to obstacle avoidance scenarios
+        self.num_obs_OS = getattr(c.Agent, agent_name)["num_obs_OS"]
+        self.num_obs_TS = getattr(c.Agent, agent_name)["num_obs_TS"]
 
         # checks
         assert not (self.mode == "test" and (self.dqn_weights is None)), "Need prior weights in test mode."
@@ -44,7 +48,6 @@ class LSTMRecDQNAgent(BaseAgent):
         self.exploration = LinearDecayEpsilonGreedy(eps_init        = self.eps_init, 
                                                     eps_final       = self.eps_final,
                                                     eps_decay_steps = self.eps_decay_steps)
-
         # replay buffer
         if self.mode == "train":
             self.replay_buffer = buffer.UniformReplayBuffer_LSTM(state_type     = self.state_type, 
@@ -54,10 +57,12 @@ class LSTMRecDQNAgent(BaseAgent):
                                                                  device         = self.device,
                                                                  disc_actions   = True,
                                                                  history_length = self.history_length)
-
         # init DQN
         if self.state_type == "feature":
-            self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions, device = self.device).to(self.device)
+            self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions, 
+                                       num_obs_OS  = self.num_obs_OS,
+                                       num_obs_TS  = self.num_obs_TS, 
+                                       device      = self.device).to(self.device)
 
         # number of parameters for actor and critic
         self.n_params = self._count_params(self.DQN)
@@ -80,7 +85,6 @@ class LSTMRecDQNAgent(BaseAgent):
         else:
             self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
-
     @torch.no_grad()
     def select_action(self, s, s_hist, a_hist, hist_len):
         """Epsilon-greedy based action selection for a given state.
@@ -88,7 +92,6 @@ class LSTMRecDQNAgent(BaseAgent):
         Arg s:   np.array with shape (in_channels, height, width) or, for feature input, (state_shape,)
         returns: int for the action
         """
-
         # get current epsilon
         curr_epsilon = self.exploration.get_epsilon(self.mode)
 
@@ -100,7 +103,6 @@ class LSTMRecDQNAgent(BaseAgent):
         else:
             a = self._greedy_action(s, s_hist, a_hist, hist_len)
         return a
-
 
     @torch.no_grad()
     def _greedy_action(self, s, s_hist, a_hist, hist_len, with_Q=False):
@@ -115,7 +117,6 @@ class LSTMRecDQNAgent(BaseAgent):
         Returns: 
             int
         """
-
         # reshape arguments and convert to tensors
         s = torch.tensor(s, dtype=torch.float32).view(1, self.state_shape).to(self.device)
         s_hist = torch.tensor(s_hist, dtype=torch.float32).view(1, self.history_length, self.state_shape).to(self.device)
@@ -132,11 +133,9 @@ class LSTMRecDQNAgent(BaseAgent):
             return a, q[0][a].item()
         return a
 
-
     def memorize(self, s, a, r, s2, d):
         """Stores current transition in replay buffer."""
         self.replay_buffer.add(s, a, r, s2, d)
-
 
     def _compute_target(self, s2_hist, a2_hist, hist_len2, r, s2, d):
  
@@ -153,14 +152,12 @@ class LSTMRecDQNAgent(BaseAgent):
             y = r + self.gamma * Q_next * (1 - d)
         return y
 
-
     def _compute_loss(self, Q, y, reduction="mean"):
         if self.loss == "MSELoss":
             return F.mse_loss(Q, y, reduction=reduction)
 
         elif self.loss == "SmoothL1Loss":
             return F.smooth_l1_loss(Q, y, reduction=reduction)
-
 
     def train(self):
         """Samples from replay_buffer, updates actor, critic and their target networks."""        
@@ -203,7 +200,6 @@ class LSTMRecDQNAgent(BaseAgent):
 
         #------- Update target networks -------
         self._target_update()
-
 
     @torch.no_grad()
     def _target_update(self):

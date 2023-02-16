@@ -677,13 +677,13 @@ class Plane:
             get_init_two_wp(n_array=self.path["n"], e_array=self.path["e"], a_n=self.n, a_e=self.e, stop_goal=False)
         #self.wp1_lat, self.wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=32)
 
-    def upd_dynamics(self, perf:OpenAP, a=None, dest=None):
+    def upd_dynamics(self, perf:OpenAP, discrete_acts=False, a=None, dest=None):
         #---------- Atmosphere --------------------------------
         self.p, self.rho, self.Temp = aero.vatmos(self.alt)
 
         #---------- Fly the Aircraft --------------------------
         if self.role == "RL":
-            self.cnt_hdg, self.cnt_tas = self._RL_control(a)
+            self.cnt_hdg, self.cnt_tas = self._RL_control(a, discrete_acts)
         elif self.role == "VFG":
             self.cnt_hdg, self.cnt_tas = self._VFG_control()
         elif self.role == "RND":
@@ -701,19 +701,27 @@ class Plane:
         self._update_groundspeed()
         self._update_pos(dest)
 
-    def _RL_control(self, a):
+    def _RL_control(self, a, discrete_acts):
         """a is np.array(2,) containing delta tas and delta heading, or np.array(1,) containing only delta heading."""
         # store action for rendering
         self.action = a
 
-        # checks
-        assert all([-1 <= ele <= 1 for ele in a]), "Actions need to be in [-1,1]."
-
-        # update
-        if len(a) == 2:
-            return [self.hdg + self.delta_hdg * a[0], self.tas + self.delta_tas * a[1]]
+        if discrete_acts:
+            assert a in [0, 1, 2, 3, 4, 5], "Unknown discrete action."
+            
+            if a in [0, 3]:
+                return [self.hdg, self.tas]
+            elif a in [1, 4]:
+                return [self.hdg + self.delta_hdg, self.tas]
+            elif a in [2, 5]:
+                return [self.hdg - self.delta_hdg, self.tas]
         else:
-            return [self.hdg + self.delta_hdg * a[0], self.tas]
+            assert all([-1 <= ele <= 1 for ele in a]), "Actions need to be in [-1,1]."
+
+            if len(a) == 2:
+                return [self.hdg + self.delta_hdg * a[0], self.tas + self.delta_tas * a[1]]
+            else:
+                return [self.hdg + self.delta_hdg * a[0], self.tas]
 
     def _VFG_control(self):
         # waypoint updating

@@ -728,13 +728,11 @@ class RecDQN(nn.Module):
         return x
 
 
-#------------------------------- LSTM-RecDQN for MMGEnv --------------------------------
-
+#------------------------------- LSTM-RecDQN --------------------------------
 class LSTMRecDQN(RecDQN):
-    """Defines an LSTM-Recursive-DQN particularly designed for the MMGEnv. There are two recursive parts:
-    one for different vessels inside one observation, one for sequential observations."""
-    
-    def __init__(self, num_actions, use_past_actions=False, num_obs_OS=7, num_obs_TS=6, device=None) -> None:
+    """Defines an LSTM-Recursive-DQN. 
+    There are two recursive parts: one for different vessels inside one observation, one for sequential observations."""
+    def __init__(self, num_actions, num_obs_OS, num_obs_TS, use_past_actions=False, device=None) -> None:
         super(LSTMRecDQN, self).__init__(num_actions=num_actions, num_obs_OS=num_obs_OS, num_obs_TS=num_obs_TS)
 
         self.device = device
