@@ -6,7 +6,7 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: true
+    nps_control_follower: false
     plan_on_river:
     data: real
     val_disturbance:  

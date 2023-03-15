@@ -14,11 +14,11 @@ COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in r
 
 #------------------- Helper functions with angles, mainly following Benjamin (2017) ----------------
 def dtr(angle):
-    """Takes angle in degree an transforms it to radiant."""
+    """Takes angle in degree and transforms it to radiant."""
     return angle * math.pi / 180
 
 def rtd(angle):
-    """Takes angle in degree an transforms it to radiant."""
+    """Takes angle in radiant and transforms it to degree."""
     return angle * 180 / math.pi
 
 def angle_to_2pi(angle):

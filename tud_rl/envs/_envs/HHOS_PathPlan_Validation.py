@@ -9,22 +9,33 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                  state_design : str, 
                  data : str, 
                  scenario : bool,
+                 river_curve: str,
                  star_formation : bool = False,
-                 star_N_TSs: int = 0,
-                 full_RL:bool = False):
-        self.scenario       = scenario
-        self.full_RL        = full_RL
-        self.star_formation = star_formation
-        self.star_N_TSs     = star_N_TSs
+                 clock_formation : bool = False,
+                 clock_scenario : int = 1,
+                 star_N_TSs : int = 0,
+                 full_RL : bool = False,
+                 APF_TS : bool = False):
+        self.scenario        = scenario
+        self.river_curve     = river_curve
+        self.full_RL         = full_RL
+        self.APF_TS          = APF_TS
+        self.star_formation  = star_formation
+        self.star_N_TSs      = star_N_TSs
+        self.clock_formation = clock_formation
+        self.clock_scenario  = clock_scenario
 
         if self.full_RL:
             self.history_length = 2
         
         assert data == "sampled", "Planning validation should be on simulated data."
+        assert not (APF_TS and plan_on_river), "APF control of target ships is only considered for open waters."
+        assert not (full_RL and APF_TS), "Either RL- or APF-control for target ships, not both."
 
         # scenarios on the river
         if plan_on_river:
             assert self.scenario in range(1, 5), "Unknown validation scenario for the river."
+            assert self.river_curve in ["straight", "left", "right"], "Unknown river curvature."
 
             # vessel train
             if self.scenario == 1:
@@ -36,18 +47,22 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
 
             # overtaking under oncoming traffic
             elif self.scenario == 3:
-                self.N_TSs = 5
+                self.N_TSs = 3
             
             # overtake the overtaker under oncoming traffic
             elif self.scenario == 4:
-                self.N_TSs = 3
-        
-        # Imazu problems for open sea
+                self.N_TSs = 4
+
+        # Imazu, Clock, or Star problems for open sea
         else:
             self.TCPA_gap = 25 * 60 # [s]
 
             if self.star_formation:
                 self.N_TSs = self.star_N_TSs
+
+            elif self.clock_formation:
+                self.N_TSs = 1
+
             else:
                 assert self.scenario in range(1, 23), "Unknown validation scenario for open sea."
                 if self.scenario in range(1, 5):
@@ -76,8 +91,8 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         # overwrite OS nps since its computation considered environmental disturbances
         self.OS.nps = self.OS._get_nps_from_u(u=self.desired_V)
         
-        # create straight paths for TSs in all-RL Imazu cases
-        if self.full_RL:
+        # create straight paths for TSs in all-RL Imazu cases or when APF-control is used
+        if self.full_RL or self.APF_TS:
             for TS in self.TSs:
                 n, e = [TS.eta[0]], [TS.eta[1]]
                 for _ in range(1, self.n_wps_glo):
@@ -86,9 +101,10 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                     e.append(e[-1] + e_add)
                 TS.path = Path(level="global", north=n, east=e)
 
-            # now set the state
-            self._set_state()
-            s = self.state
+            # now set the state in full-RL mode
+            if self.full_RL:
+                self._set_state()
+                s = self.state
 
         # viz
         TS_info = {}
@@ -101,6 +117,87 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         self.plotter = HHOSPlotter(sim_t=self.sim_t, a=0.0, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_V=self.OS._get_V(), OS_u=self.OS.nu[0],\
                 OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], glo_ye=self.glo_ye, glo_course_error=self.glo_course_error, **TS_info)
         return s
+
+    def _sample_depth_data(self, OS_lat, OS_lon):
+        """Generates random depth data."""
+        self.DepthData = {}
+        self.DepthData["lat"] = np.linspace(self.lat_lims[0], self.lat_lims[1] + self.off, num=500)
+        self.DepthData["lon"] = np.linspace(self.lon_lims[0], self.lon_lims[1], num=500)
+        self.DepthData["data"] = np.ones((len(self.DepthData["lat"]), len(self.DepthData["lon"])))
+
+        if self.plan_on_river:
+
+            while True:
+                # sample distances to waypoints
+                d_left  = np.zeros(self.n_wps_glo) + self.river_dist_left_loc
+                d_right = np.zeros(self.n_wps_glo) + self.river_dist_right_loc
+                depth   = np.zeros(self.n_wps_glo) + 70
+
+                # fill close points at that distance away from the path
+                lat_path = self.GlobalPath.lat
+                lon_path = self.GlobalPath.lon
+
+                for i, (lat_p, lon_p) in enumerate(zip(lat_path, lon_path)):
+                    
+                    if i != self.n_wps_glo-1:
+
+                        # go to utm
+                        n1, e1, _ = to_utm(lat=lat_p, lon=lon_p)
+                        n2, e2, _ = to_utm(lat=lat_path[i+1], lon=lon_path[i+1])
+
+                        # angles
+                        bng_absolute = bng_abs(N0=n1, E0=e1, N1=n2, E1=e2)
+                        angle_left  = angle_to_2pi(bng_absolute - math.pi/2)
+                        angle_right = angle_to_2pi(bng_absolute + math.pi/2)
+
+                        # compute resulting points
+                        e_add_l, n_add_l = xy_from_polar(r=d_left[i], angle=angle_left)
+                        lat_left, lon_left = to_latlon(north=n1+n_add_l, east=e1+e_add_l, number=32)
+
+                        e_add_r, n_add_r = xy_from_polar(r=d_right[i], angle=angle_right)
+                        lat_right, lon_right = to_latlon(north=n1+n_add_r, east=e1+e_add_r, number=32)
+
+                        # find closest point in the array
+                        _, lat_left_idx = find_nearest(array=self.DepthData["lat"], value=lat_left)
+                        _, lon_left_idx = find_nearest(array=self.DepthData["lon"], value=lon_left)
+
+                        _, lat_right_idx = find_nearest(array=self.DepthData["lat"], value=lat_right)
+                        _, lon_right_idx = find_nearest(array=self.DepthData["lon"], value=lon_right)
+
+                        if i != 0:
+                            lat_idx1 = np.min([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
+                            lat_idx2 = np.max([lat_left_idx, lat_left_idx_old, lat_right_idx, lat_right_idx_old])
+
+                            lon_idx1 = np.min([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+                            lon_idx2 = np.max([lon_left_idx, lon_left_idx_old, lon_right_idx, lon_right_idx_old])
+
+                            self.DepthData["data"] = fill_array(Z=self.DepthData["data"], lat_idx1=lat_idx1, lon_idx1=lon_idx1,
+                                                                lat_idx2=lat_idx2, lon_idx2=lon_idx2,
+                                                                value=depth[i])
+                        lat_left_idx_old = lat_left_idx
+                        lon_left_idx_old = lon_left_idx
+                        lat_right_idx_old = lat_right_idx
+                        lon_right_idx_old = lon_right_idx
+
+                # smoothing things
+                self.DepthData["data"] = np.clip(scipy.ndimage.gaussian_filter(self.DepthData["data"], sigma=[3, 3], mode="constant"), 1.0, np.infty)
+
+                # disturbance for viz
+                self.DepthData["data"][0][0] = 100
+
+                if self._depth_at_latlon(lat_q=OS_lat, lon_q=OS_lon) >= self.OS.critical_depth:
+                    break
+        else:
+            self.DepthData["data"] *= np.clip(np.random.exponential(scale=90, size=1), 20, 700)
+
+        # log
+        self.log_Depth = np.log(self.DepthData["data"])
+
+        # for contour plot
+        self.con_ticks = np.log([1.0, 2.0, 5.0, 15.0, 50.0, 150.0, 500.0])
+        self.con_ticklabels = [int(np.round(tick, 0)) for tick in np.exp(self.con_ticks)]
+        self.con_ticklabels[0] = 0
+        self.clev = np.arange(0, self.log_Depth.max(), .1)
 
     def _set_state(self):
         if self.full_RL:
@@ -183,7 +280,7 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                                            hist_len = self.hist_len)
                 TS.eta[2] = angle_to_2pi(TS.eta[2] + a_TS*self.d_head_scale)
 
-        s, r, d, info = super().step(a, control_TS=True if self.plan_on_river else False)
+        s, r, d, info = super().step(a, control_TS=True)
 
         # viz
         if not d:
@@ -207,9 +304,32 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         path_n[0], path_e[0], _ = to_utm(lat=56.0, lon=9.0)
 
         # sample other points
+        if self.plan_on_river:
+            if self.river_curve == "straight":
+                angle = 0
+                angle_diff = 0
+            else:
+                angle = dtr(330)
+
         for i in range(1, self.n_wps_glo):
-            # next point
-            e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=0)
+            if self.plan_on_river:
+                if 10 <= i < 40:
+                    if self.river_curve == "right":
+                        angle_diff = dtr(5.0)
+
+                    elif self.river_curve == "left":
+                        angle_diff = -dtr(5.0)
+                else:
+                    if self.river_curve == "right":
+                        angle_diff = dtr(1.0)
+
+                    elif self.river_curve == "left":
+                        angle_diff = -dtr(5.0)
+                angle = angle_to_2pi(angle + angle_diff)
+            else:
+                angle = 0
+
+            e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=angle)
             path_n[i] = path_n[i-1] + n_add
             path_e[i] = path_e[i-1] + e_add
 
@@ -244,6 +364,9 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         for TS in self.TSs:
             TS.random_moves = False
 
+            if self.APF_TS:
+                TS.APF_moves = True
+
     def _spawn_TS(self, CPA_N, CPA_E, TCPA):
         """TS should be after 'TCPA' at point (CPA_N, CPA_E).
         Since we have speed and heading, we can uniquely determine origin of the motion."""
@@ -277,8 +400,22 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
                 # backtrace motion
                 TS.eta[0] = CPA_N - TS._get_V() * np.cos(TS.eta[2]) * TCPA
                 TS.eta[1] = CPA_E - TS._get_V() * np.sin(TS.eta[2]) * TCPA
-        else:
+        
+        elif self.clock_formation:
+            # predict converged speed of first TS
+            TS1.nps = TS1._get_nps_from_u(TS1.nu[0])
+            
+            # init TS-list
+            self.TSs = [TS1]
 
+            # set heading
+            TS1.eta[2] = np.linspace(0, 2*math.pi, num=25, endpoint=False)[1:25][self.clock_scenario]
+
+            # backtrace motion
+            TS1.eta[0] = CPA_N - TS1._get_V() * np.cos(TS1.eta[2]) * TCPA
+            TS1.eta[1] = CPA_E - TS1._get_V() * np.sin(TS1.eta[2]) * TCPA
+
+        else:
             if self.scenario in range(1, 5):
 
                 # lower speed for overtaking situations
@@ -459,14 +596,20 @@ class HHOS_PathPlan_Validation(HHOS_PathPlanning_Env):
         # viz
         if d:
             if self.plan_on_river:
-                self.plotter.DepthData = self.DepthData
-                self.plotter.dump(name="Plan_river_" + str(self.scenario))
+                self.plotter.DepthData     = self.DepthData
+                self.plotter.GlobalPath    = self.GlobalPath
+                self.plotter.RevGlobalPath = self.RevGlobalPath
+                self.plotter.dump(name="Plan_river_" + self.river_curve + "_" + str(self.scenario))
             else:
                 if self.star_formation:
                     self.plotter.dump(name="Plan_Star_" + str(self.star_N_TSs))
+                
+                elif self.clock_formation:
+                    self.plotter.dump(name="Plan_Clock_" + str(self.clock_scenario))
+                
                 else:
                     self.plotter.dump(name="Plan_Imazu_" + str(self.scenario))
         return d
 
-    #def render(self, data=None):
-    #    pass
+    def render(self, data=None):
+        pass

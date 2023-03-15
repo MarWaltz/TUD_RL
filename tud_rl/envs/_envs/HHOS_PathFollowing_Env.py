@@ -46,14 +46,13 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # construct planner network(s)
         self.planner = dict()
-        self.num_obs_TS = 7
 
         if planner_river_weights is not None:
-            plan_in_size = 3 + self.num_obs_TS * self.N_TSs_max + self.lidar_n_beams
+            plan_in_size = 3 + 7 * self.N_TSs_max + self.lidar_n_beams
 
             # init
             if planner_state_design == "recursive":
-                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams, num_obs_TS=self.num_obs_TS)
+                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams, num_obs_TS=7)
             else:
                 self.planner["river"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             
@@ -61,11 +60,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             self.planner["river"].load_state_dict(torch.load(planner_river_weights))
 
         if planner_opensea_weights is not None:
-            plan_in_size = 3 + self.num_obs_TS * self.N_TSs_max
+            plan_in_size = 3 + 6 * self.N_TSs_max
 
             # init
             if planner_state_design == "recursive":
-                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3, num_obs_TS=self.num_obs_TS)
+                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3, num_obs_TS=6)
             else:
                 self.planner["opensea"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
             
@@ -229,10 +228,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # on river: control of target ships
         if self.plan_on_river:
             for TS in self.TSs:
-                other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                other_vessels = [ele for ele in self.TSs if ele is not TS] # + [self.OS]
                 TS.river_control(other_vessels, VFG_K=self.VFG_K_river_TS)
         else:
-            [TS.opensea_control() for TS in self.TSs]
+            other_vessels = [ele for ele in self.TSs if ele is not TS]  + [self.OS]
+            [TS.opensea_control(other_vessels) for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.sim_t += self.delta_t
@@ -397,9 +397,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # setup history if needed
         if self.planner_state_design == "recursive":
             if self.planning_env.plan_on_river:
-                state_shape = 3 + self.num_obs_TS * self.N_TSs_max + self.lidar_n_beams
+                state_shape = 3 + 7 * self.N_TSs_max + self.lidar_n_beams
             else:
-                state_shape = 3 + self.num_obs_TS * self.N_TSs_max
+                state_shape = 3 + 6 * self.N_TSs_max
 
             s_hist = np.zeros((2, state_shape))  # history length 2
             hist_len = 0

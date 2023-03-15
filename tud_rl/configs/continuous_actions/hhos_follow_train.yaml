@@ -6,12 +6,12 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: true
+    nps_control_follower: false
     plan_on_river: true
     planner_river_weights: 
     planner_opensea_weights: 
     planner_state_design: recursive
-    planner_safety_net: true   
+    planner_safety_net: false   
     data: sampled
     N_TSs_max : 0
     N_TSs_random : false
@@ -20,7 +20,7 @@ env:
     w_coll : None
     w_rule : None
     w_comf : 0.25
-    w_speed: 0.25
+    w_speed: None
   info: MDP
 agent:
   DDPG: {}
@@ -61,9 +61,9 @@ agent:
     n_qs: 25
     n_critics: 5
 seed: 12
-timesteps: 5_000_000
+timesteps: 3_000_000
 epoch_length: 5000
-eval_episodes: 10
+eval_episodes: 3
 actor_weights:
 critic_weights:
 gamma: 0.99

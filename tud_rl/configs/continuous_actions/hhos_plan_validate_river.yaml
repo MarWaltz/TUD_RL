@@ -9,7 +9,8 @@ env:
     plan_on_river: true
     data: sampled
     state_design: recursive
-    scenario: 4
+    river_curve: right
+    scenario: 1
   info: 
 agent:
   DDPG: {}
@@ -41,7 +42,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 3
-    num_obs_TS: 7
+    num_obs_TS: 6
   SAC:
     lr_temp: 0.0001
     temp_tuning: true
@@ -63,8 +64,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: river_actor.pth
-critic_weights: river_critic.pth
+actor_weights: river_actor_60.pth
+critic_weights: river_critic_60.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

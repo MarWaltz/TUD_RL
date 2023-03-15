@@ -30,7 +30,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         self.n_loops   = int(self.act_every / self.delta_t)
 
         # gym inherits
-        self.num_obs_TS = 7
+        self.num_obs_TS = 7 if self.plan_on_river else 6
 
         if plan_on_river is not None:
             self.obs_size = 3 + self.num_obs_TS * self.N_TSs_max
@@ -95,10 +95,10 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
             # behavior of target ships
             if control_TS:
+                for i, TS in enumerate(self.TSs):
 
-                # river
-                if self.plan_on_river:
-                    for i, TS in enumerate(self.TSs):
+                    # river
+                    if self.plan_on_river:
                         # update waypoints
                         try:
                             self.TSs[i] = self._init_wps(TS, "global")
@@ -108,11 +108,12 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
                         # simple heading control
                         if cnt:
-                            other_vessels = [self.OS] + [ele for ele in self.TSs if ele is not TS]
+                            other_vessels = [ele for ele in self.TSs if ele is not TS] #+ [self.OS]
                             TS.river_control(other_vessels, VFG_K=self.VFG_K_river_TS)
-                # open sea
-                else:
-                    [TS.opensea_control() for TS in self.TSs]
+                    # open sea
+                    else:
+                        other_vessels = [ele for ele in self.TSs if ele is not TS] + [self.OS]
+                        TS.opensea_control(other_vessels)
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
@@ -152,10 +153,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
             dcpa_norm = self.river_enc_range_min # [m]
             v_norm    = 3                        # [m/s]
         else:
-            sight     = self.sight_open     # [m]
-            tcpa_norm = 15 * 60             # [s]
-            dcpa_norm = self.lidar_range    # [m]
-            v_norm    = 3                   # [m/s]
+            sight     = self.sight_open       # [m]
+            tcpa_norm = 15 * 60               # [s]
+            dcpa_norm = self.lidar_range      # [m]
+            dist_norm = (NM_to_meter(0.5))**2 # [m²]
+            v_norm    = 3                     # [m/s]
 
         N0, E0, head0 = self.OS.eta
         v0 = self.OS._get_V()
@@ -192,29 +194,48 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                     TS_encounter = self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, v0=v0, chi0=self.OS._get_course(), 
                                                               N1=N1, E1=E1, head1=head1, v1=v1, chi1=TS._get_course())
     
-                # collision risk metrics
-                d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
-                                                                        chiTS=chi1, VOS=v0, VTS=v1, get_positions=True)
-                ang = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
-                domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,
-                                            D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
-                d_cpa = max([0.0, d_cpa-domain_tcpa])
+                if self.plan_on_river:
 
-                t_cpa = t_cpa/tcpa_norm
-                d_cpa = d_cpa/dcpa_norm
-                
-                # store it
-                state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
+                    # collision risk metrics
+                    d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
+                                                                            chiTS=chi1, VOS=v0, VTS=v1, get_positions=True)
+                    ang = bng_rel(N0=NOS_tcpa, E0=EOS_tcpa, N1=NTS_tcpa, E1=ETS_tcpa, head0=head0)
+                    domain_tcpa = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C,
+                                                D=self.OS.ship_domain_D, OS=None, TS=None, ang=ang)
+                    d_cpa = max([0.0, d_cpa-domain_tcpa])
+
+                    t_cpa = t_cpa/tcpa_norm
+                    d_cpa = d_cpa/dcpa_norm
+                    
+                    # store it
+                    state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, t_cpa, d_cpa])
+                else:
+                    # collision risk metric
+                    CR = self._get_CR_open_sea(vessel0=self.OS, vessel1=TS, DCPA_norm=dcpa_norm, TCPA_norm=tcpa_norm, 
+                                                dist=dist, dist_norm=dist_norm)
+                    # store it
+                    state_TSs.append([dist, bng_rel_TS, C_TS_path, v_rel, TS_encounter, CR])
 
         if self.state_design == "recursive":
 
             # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
             if len(state_TSs) == 0:
-                enc_pad = 1.0 if self.plan_on_river else 5.0
-                state_TSs.append([1.0, -1.0, 1.0, -1.0, enc_pad, -1.0, 1.0])
+                if self.plan_on_river:
+                    enc_pad = 1.0
+                    state_TSs.append([1.0, -1.0, 1.0, -1.0, enc_pad, -1.0, 1.0])
+                else:
+                    enc_pad = 5.0
+                    state_TSs.append([1.0, -1.0, 1.0, -1.0, enc_pad, 0.0])
 
-            # sort according to d_cpa (descending, smaller d_cpa is more dangerous)
-            state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=False)).flatten()
+            # sort
+            if self.plan_on_river:
+
+                # according to d_cpa (descending, smaller d_cpa is more dangerous)
+                state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1], reverse=True)).flatten()
+            else:
+
+                # according to CR (ascending, larger d_cpa is more dangerous)
+                state_TSs = np.array(sorted(state_TSs, key=lambda x: x[-1])).flatten()
 
             # at least one since there is always the ghost ship
             desired_length = self.num_obs_TS * max([self.N_TSs_max, 1])
@@ -249,6 +270,7 @@ class HHOS_PathPlanning_Env(HHOS_Env):
         else:
             sight             =  self.sight_open
             k_ye              =  1.0
+            k_ce              =  2.0
             ye_norm           =  NM_to_meter(0.5)
             pen_coll_TS       = -100.0
             pen_traffic_rules = -2.0
@@ -276,12 +298,8 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # being too far away from path on open sea
         else:
-            if abs(self.glo_ye) >= NM_to_meter(2.5):
+            if abs(self.glo_ye) >= NM_to_meter(4.0):
                 self.r_coll += pen_coll_TS
-
-        # other vessels
-        #if not self.plan_on_river:
-        #    CRs = [0.0]
 
         for TS in self.TSs:
 
@@ -315,7 +333,6 @@ class HHOS_PathPlanning_Env(HHOS_Env):
                         CR = self._get_CR_open_sea(vessel0=self.OS, vessel1=TS, DCPA_norm=dcpa_norm, TCPA_norm=tcpa_norm, 
                                                    dist=dist, dist_norm=dist_norm)
                         self.r_coll += -math.sqrt(CR)
-                        #CRs.append(CR)
 
                 # violating traffic rules
                 if self.plan_on_river:
@@ -330,11 +347,11 @@ class HHOS_PathPlanning_Env(HHOS_Env):
 
         # ----------------------- GlobalPath-following reward --------------------
         # cross-track error
-        self.r_ye = math.exp(-k_ye * abs(self.glo_ye)/ye_norm)
-
-        # adaptive on open sea
-        #if not self.plan_on_river:
-        #    self.r_ye = 1*max(CRs) + self.r_ye*(1-max(CRs))
+        if self.plan_on_river:
+            self.r_ye = math.exp(-k_ye * abs(self.glo_ye)/ye_norm)
+        else:
+            self.r_ye = np.clip((abs(self.glo_ye_old) - abs(self.glo_ye))/50.0, -1.0, 1.0)
+            self.glo_ye_old = self.glo_ye
 
         # course violation
         if self.plan_on_river:

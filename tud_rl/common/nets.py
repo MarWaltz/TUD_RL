@@ -813,10 +813,13 @@ class LSTMRecDQN(RecDQN):
         hidden_mem = extracted_mem[torch.arange(batch_size), hist_len]
 
         # final dense layers
+        return self._final_dense_forward(hidden_mem)
+ 
+    def _final_dense_forward(self, hidden_mem):
         x = F.relu(self.PI_dense1(hidden_mem))
         x = self.PI_dense2(x)
-        return x
- 
+        return x  
+
     def _inner_rec(self, s, time):
         """Computes the inner recurrence for temporal information about target ships.
         s:      torch.Size([batch_size, num_obs_OS + num_obs_TS * N_TSs])

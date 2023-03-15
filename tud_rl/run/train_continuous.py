@@ -1,5 +1,6 @@
 import csv
 import random
+import shutil
 import time
 
 import gym
@@ -8,10 +9,13 @@ import pandas as pd
 import torch
 
 import tud_rl.agents.continuous as agents
+from tud_rl import logger
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import EpochLogger
 from tud_rl.common.logging_plot import plot_from_progress
+from tud_rl.common.open_scenario_eval import Imazu_eval
+from tud_rl.common.river_scenario_eval import scenario_eval
 from tud_rl.wrappers import get_wrapper
 
 
@@ -48,7 +52,10 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
                 a = agent.select_action(s)
 
             # perform step
-            s2, r, d, _ = test_env.step(a)
+            if c.Env.name == "UAM-v0" and agent.name == "LSTMRecTD3":
+                s2, r, d, _ = test_env.step(agent)
+            else:
+                s2, r, d, _ = test_env.step(a)
 
             # LSTM: update history
             if agent.needs_history:
@@ -120,8 +127,8 @@ def train(c: ConfigFile, agent_name: str):
         agent_name_red = agent_name + "Agent"
 
     # init agent
-    agent_ = getattr(agents, agent_name_red)  # Get agent class by name
-    agent: _Agent = agent_(c, agent_name)  # Instantiate agent
+    agent_ = getattr(agents, agent_name_red)  # get agent class by name
+    agent: _Agent = agent_(c, agent_name)  # instantiate agent
 
     # initialize logging
     agent.logger = EpochLogger(alg_str    = agent.name,
@@ -132,6 +139,15 @@ def train(c: ConfigFile, agent_name: str):
 
     agent.logger.save_config({"agent_name": agent.name, **c.config_dict})
     agent.print_params(agent.n_params, case=1)
+
+    # save env-file for traceability
+    try:
+        entry_point = vars(gym.envs.registry[c.Env.name])["entry_point"][12:]
+        shutil.copy2(src="tud_rl/envs/_envs/" + entry_point + ".py", dst=agent.logger.output_dir)
+    except:
+        logger.warning(
+            f"Could not find {'tud_rl/envs/_envs/' + entry_point + '.py'}. Make sure that the file name matches the class name. Skipping..."
+        )
 
     # LSTM: init history
     if agent.needs_history:
@@ -164,7 +180,10 @@ def train(c: ConfigFile, agent_name: str):
                 a = agent.select_action(s)
 
         # perform step
-        s2, r, d, _ = env.step(a)
+        if c.Env.name == "UAM-v0" and agent.name == "LSTMRecTD3":
+            s2, r, d, _ = env.step(agent)
+        else:
+            s2, r, d, _ = env.step(a)
 
         # Ignore "done" if it comes from hitting the time horizon of the environment
         d = False if epi_steps == c.Env.max_episode_steps else d
@@ -272,6 +291,13 @@ def train(c: ConfigFile, agent_name: str):
                                info    = c.Env.info)
             # save weights
             save_weights(agent, eval_ret)
+
+            # HHOS specialty: scenario checks
+            if c.Env.name == "HHOS-PathPlanning-v0" and agent.name == "LSTMRecTD3_a":
+                scenario_eval(agent.logger.output_dir)
+
+            elif c.Env.name == "HHOS-PathPlanning-v0" and agent.name == "LSTMRecTD3_b":
+                Imazu_eval(agent.logger.output_dir)
 
 def save_weights(agent: _Agent, eval_ret) -> None:
 

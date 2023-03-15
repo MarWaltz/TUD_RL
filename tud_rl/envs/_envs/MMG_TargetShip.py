@@ -4,11 +4,12 @@ from typing import List, Union
 
 import numpy as np
 
-from tud_rl.envs._envs.HHOS_Fnc import (VFG, prep_angles_for_average,
+from tud_rl.envs._envs.HHOS_Fnc import (VFG, apf, prep_angles_for_average,
                                         to_latlon, to_utm)
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_abs, bng_rel,
-                                         cpa, dtr, rtd, xy_from_polar)
+from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
+                                         bng_abs, bng_rel, cpa, dtr, rtd,
+                                         xy_from_polar)
 
 
 class TargetShip(KVLCC2):
@@ -16,6 +17,7 @@ class TargetShip(KVLCC2):
     def __init__(self, N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size) -> None:
         super().__init__(N_init, E_init, psi_init, u_init, v_init, r_init, nps, delta_t, N_max, E_max, full_ship, ship_domain_size)
         self.random_moves = np.random.choice([True, False], p=[0.25, 0.75])
+        self.APF_moves = False
 
     def _is_overtaking(self, other_vessel : KVLCC2, role : str):
         """Checks whether a vessel overtakes an other one.
@@ -54,9 +56,14 @@ class TargetShip(KVLCC2):
             return True
         return False
 
-    def opensea_control(self):
+    def opensea_control(self, other_vessels : List[KVLCC2]):
         """Defines target ship behavior for vessels on open sea."""
-        if self.random_moves:
+        if self.APF_moves:
+            _, dh = apf(OS=self, TSs=other_vessels, G={"x":self.path.east[100], "y":self.path.north[100]},
+                        dh_clip=dtr(10.0), r_min=NM_to_meter(1.0), k_r_TS=2.5e10)
+            self.eta[2] = angle_to_2pi(self.eta[2] + dh)
+
+        elif self.random_moves:
             self.eta[2] = angle_to_2pi(self.eta[2] + dtr(float(np.random.uniform(-5.0, 5.0, size=1))))
 
     def river_control(self, other_vessels : List[KVLCC2], VFG_K : float):

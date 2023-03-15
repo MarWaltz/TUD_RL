@@ -7,12 +7,16 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     plan_on_river: false
+    river_curve:
     data: sampled
     state_design: recursive
     full_RL: false
+    APF_TS: false
     star_formation: false
-    star_N_TSs: 7
-    scenario: 10
+    star_N_TSs: 15
+    clock_formation: true
+    clock_scenario: 4
+    scenario: 4
   info: 
 agent:
   DDPG: {}
@@ -44,7 +48,7 @@ agent:
     history_length: 2
     use_past_actions: false
     num_obs_OS: 3
-    num_obs_TS: 7
+    num_obs_TS: 6
   SAC:
     lr_temp: 0.0001
     temp_tuning: true
@@ -66,8 +70,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: open_actor.pth
-critic_weights: open_critic.pth
+actor_weights: open_actor_376.pth
+critic_weights: open_critic_376.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

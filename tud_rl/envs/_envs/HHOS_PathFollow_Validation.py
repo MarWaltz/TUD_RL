@@ -163,7 +163,7 @@ class HHOS_PathFollowing_Validation(HHOS_PathFollowing_Env):
             self.CurrentData["eastward_mps"] = e
             self.CurrentData["northward_mps"] = n
         else:
-            # clear wave impact
+            # clear current impact
             super()._sample_current_data()
             for key in self.CurrentData.keys():
                 if key not in ["lat", "lon", "metaData"]:
@@ -237,7 +237,6 @@ class HHOS_PathFollowing_Validation(HHOS_PathFollowing_Env):
 
         # sample other points
         for i in range(1, self.n_wps_glo):
-            # next point
             e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=0)
             path_n[i] = path_n[i-1] + n_add
             path_e[i] = path_e[i-1] + e_add

@@ -14,7 +14,7 @@ from tud_rl.common.exploration import LinearDecayEpsilonGreedy
 
 
 class DQNAgent(BaseAgent):
-    def __init__(self, c: ConfigFile, agent_name):
+    def __init__(self, c: ConfigFile, agent_name, init_DQN=True):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
@@ -46,37 +46,38 @@ class DQNAgent(BaseAgent):
                                                             device        = self.device,
                                                             disc_actions  = True)
         # init DQN
-        if self.state_type == "image":
-            self.DQN = nets.MinAtar_DQN(in_channels = self.state_shape[0],
-                                        height      = self.state_shape[1],
-                                        width       = self.state_shape[2],
-                                        num_actions = self.num_actions).to(self.device)
+        if init_DQN:
+            if self.state_type == "image":
+                self.DQN = nets.MinAtar_DQN(in_channels = self.state_shape[0],
+                                            height      = self.state_shape[1],
+                                            width       = self.state_shape[2],
+                                            num_actions = self.num_actions).to(self.device)
 
-        elif self.state_type == "feature":
-            self.DQN = nets.MLP(in_size   = self.state_shape,
-                                out_size  = self.num_actions, 
-                                net_struc = self.net_struc).to(self.device)
+            elif self.state_type == "feature":
+                self.DQN = nets.MLP(in_size   = self.state_shape,
+                                    out_size  = self.num_actions, 
+                                    net_struc = self.net_struc).to(self.device)
 
-        # number of parameters of net
-        self.n_params = self._count_params(self.DQN)
-        
-        # load prior weights if available
-        if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
+            # number of parameters of net
+            self.n_params = self._count_params(self.DQN)
+            
+            # load prior weights if available
+            if self.dqn_weights is not None:
+                self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
-        # init target net and counter for target update
-        self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
-        self.tgt_up_cnt = 0
-        
-        # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_DQN.parameters():
-            p.requires_grad = False
+            # init target net and counter for target update
+            self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
+            self.tgt_up_cnt = 0
+            
+            # freeze target nets with respect to optimizers to avoid unnecessary computations
+            for p in self.target_DQN.parameters():
+                p.requires_grad = False
 
-        # define optimizer
-        if self.optimizer == "Adam":
-            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
-        else:
-            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
+            # define optimizer
+            if self.optimizer == "Adam":
+                self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
+            else:
+                self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
 
     def memorize(self, s, a, r, s2, d):

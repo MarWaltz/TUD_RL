@@ -2,7 +2,6 @@ import numpy as np
 import torch
 
 
-
 class UniformReplayBuffer:
     """A simple replay buffer with uniform sampling."""
     def __init__(self, state_type, state_shape, buffer_length, batch_size, device, disc_actions, action_dim=None):
@@ -59,7 +58,6 @@ class UniformReplayBuffer:
                 torch.tensor(self.d[ind]).to(self.device))
 
 
-
 class MultiAgentUniformReplayBuffer(UniformReplayBuffer):
     """A simple replay buffer with uniform sampling for multi-agent scenarios."""
     def __init__(self, N_agents, state_type, state_shape, buffer_length, batch_size, device, action_dim) -> None:
@@ -69,15 +67,15 @@ class MultiAgentUniformReplayBuffer(UniformReplayBuffer):
         self.N_agents = N_agents
 
         if state_type == "image":
-            self.s  = np.zeros((self.max_size, N_agents, *state_shape), dtype=np.float32)
-            self.s2 = np.zeros((self.max_size, N_agents, *state_shape), dtype=np.float32)
+            self.s  = np.zeros((self.max_size, self.N_agents, *state_shape), dtype=np.float32)
+            self.s2 = np.zeros((self.max_size, self.N_agents, *state_shape), dtype=np.float32)
 
         elif state_type == "feature":
-            self.s  = np.zeros((self.max_size, N_agents, state_shape), dtype=np.float32)
-            self.s2 = np.zeros((self.max_size, N_agents, state_shape), dtype=np.float32)
+            self.s  = np.zeros((self.max_size, self.N_agents, state_shape), dtype=np.float32)
+            self.s2 = np.zeros((self.max_size, self.N_agents, state_shape), dtype=np.float32)
         
-        self.a = np.zeros((self.max_size, N_agents, action_dim), dtype=np.float32)
-        self.r = np.zeros((self.max_size, N_agents, 1), dtype=np.float32)
+        self.a = np.zeros((self.max_size, self.N_agents, action_dim), dtype=np.float32)
+        self.r = np.zeros((self.max_size, self.N_agents, 1), dtype=np.float32)
         self.d = np.zeros((self.max_size, 1), dtype=np.float32)
 
     def add(self, s, a, r, s2, d):

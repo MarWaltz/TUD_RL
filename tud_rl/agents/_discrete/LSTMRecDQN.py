@@ -15,7 +15,7 @@ from tud_rl.common.exploration import LinearDecayEpsilonGreedy
 
 
 class LSTMRecDQNAgent(BaseAgent):
-    def __init__(self, c: ConfigFile, agent_name):
+    def __init__(self, c: ConfigFile, agent_name, init_DQN=True):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
@@ -58,32 +58,33 @@ class LSTMRecDQNAgent(BaseAgent):
                                                                  disc_actions   = True,
                                                                  history_length = self.history_length)
         # init DQN
-        if self.state_type == "feature":
-            self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions, 
-                                       num_obs_OS  = self.num_obs_OS,
-                                       num_obs_TS  = self.num_obs_TS, 
-                                       device      = self.device).to(self.device)
+        if init_DQN:
+            if self.state_type == "feature":
+                self.DQN = nets.LSTMRecDQN(num_actions = self.num_actions, 
+                                        num_obs_OS  = self.num_obs_OS,
+                                        num_obs_TS  = self.num_obs_TS, 
+                                        device      = self.device).to(self.device)
 
-        # number of parameters for actor and critic
-        self.n_params = self._count_params(self.DQN)
+            # number of parameters for actor and critic
+            self.n_params = self._count_params(self.DQN)
 
-        # load prior weights if available
-        if self.dqn_weights is not None:
-            self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
+            # load prior weights if available
+            if self.dqn_weights is not None:
+                self.DQN.load_state_dict(torch.load(self.dqn_weights, map_location=self.device))
 
-        # init target net and counter for target update
-        self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
-        self.tgt_up_cnt = 0
+            # init target net and counter for target update
+            self.target_DQN = copy.deepcopy(self.DQN).to(self.device)
+            self.tgt_up_cnt = 0
 
-        # freeze target nets with respect to optimizers to avoid unnecessary computations
-        for p in self.target_DQN.parameters():
-            p.requires_grad = False
+            # freeze target nets with respect to optimizers to avoid unnecessary computations
+            for p in self.target_DQN.parameters():
+                p.requires_grad = False
 
-        # define optimizer
-        if self.optimizer == "Adam":
-            self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
-        else:
-            self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
+            # define optimizer
+            if self.optimizer == "Adam":
+                self.DQN_optimizer = optim.Adam(self.DQN.parameters(), lr=self.lr)
+            else:
+                self.DQN_optimizer = optim.RMSprop(self.DQN.parameters(), lr=self.lr, alpha=0.95, centered=True, eps=0.01)
 
     @torch.no_grad()
     def select_action(self, s, s_hist, a_hist, hist_len):

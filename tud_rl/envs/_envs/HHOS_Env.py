@@ -103,7 +103,7 @@ class HHOS_Env(gym.Env):
         self.dist_des_rev_path = 250
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.2
 
         # visualization
         self.plot_in_latlon = True         # if False, plots in UTM coordinates
@@ -189,16 +189,31 @@ class HHOS_Env(gym.Env):
 
             # sample other points
             ang = np.random.uniform(0, 2*math.pi)
-            ang_diff = dtr(np.random.uniform(-20., 20.))
-            ang_diff2 = 0.0
+            
+            if self.plan_on_river:
+                ang_diff = 0.0
+            else:
+                ang_diff = dtr(np.random.uniform(-20., 20.))
+                ang_diff2 = 0.0
+
             for i in range(1, self.n_wps_glo):
 
-                # next angle
-                ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
-                ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2
-                ang = angle_to_2pi(ang + ang_diff)
+                # generate angle delta
+                if self.plan_on_river:
+                    if i <= 100:
+                        if i % 15 == 0:
+                            if ang_diff == 0.0:
+                                ang_diff = dtr(float(np.random.uniform(-8, 8, size=1)))
+                            else:
+                                ang_diff = 0.0
+                    else:
+                        ang_diff = 0.0
+                else:
+                    ang_diff2 = 0.5 * ang_diff2 + 0.5 * dtr(np.random.uniform(-5.0, 5.0))
+                    ang_diff = 0.5 * ang_diff + 0.5 * ang_diff2
 
                 # next point
+                ang = angle_to_2pi(ang + ang_diff)
                 e_add, n_add = xy_from_polar(r=self.l_seg_path, angle=ang)
                 path_n[i] = path_n[i-1] + n_add
                 path_e[i] = path_e[i-1] + e_add
@@ -622,6 +637,7 @@ class HHOS_Env(gym.Env):
         # init waypoints and cte of OS for global path
         self.OS = self._init_wps(self.OS, "global")
         self._set_cte(path_level="global")
+        self.glo_ye_old = self.glo_ye
 
         # init local path
         self._init_local_path()
@@ -1301,7 +1317,7 @@ class HHOS_Env(gym.Env):
     def _get_CR_open_sea(self, vessel0:KVLCC2, vessel1:KVLCC2, DCPA_norm:float, TCPA_norm:float, dist_norm:float, dist:float=None):
         """Computes the collision risk with vessel 1 from perspective of vessel 0. Inspired by Waltz & Okhrin (2022)."""
         N0, E0, head0 = vessel0.eta
-        N1, E1, _ = vessel1.eta
+        N1, E1, head1 = vessel1.eta
 
         # compute distance under consideration of ship domain
         if dist is None:
@@ -1322,6 +1338,12 @@ class HHOS_Env(gym.Env):
         domain_tcpa = get_ship_domain(A=vessel0.ship_domain_A, B=vessel0.ship_domain_B, C=vessel0.ship_domain_C,\
             D=vessel0.ship_domain_D, OS=None, TS=None, ang=bng_rel_tcpa_from_OS_pers)
         DCPA = max([0.0, DCPA-domain_tcpa])
+
+        # check whether OS will be in front of TS when TCPA = 0
+        bng_rel_tcpa_from_TS_pers = abs(bng_rel(N0=NTS_tcpa, E0=ETS_tcpa, N1=NOS_tcpa, E1=EOS_tcpa, head0=head1, to_2pi=False))
+
+        if TCPA >= 0.0 and bng_rel_tcpa_from_TS_pers <= dtr(30.0):
+            DCPA = DCPA * (1.2-math.exp(-math.log(5.0)/dtr(30.0)*bng_rel_tcpa_from_TS_pers))
 
         # weight positive and negative TCPA differently
         f = 5 if TCPA < 0 else 1

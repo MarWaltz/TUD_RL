@@ -1,5 +1,6 @@
 import csv
 import random
+import shutil
 import time
 
 import gym
@@ -8,6 +9,7 @@ import pandas as pd
 import torch
 
 import tud_rl.agents.discrete as agents
+from tud_rl import logger
 from tud_rl.agents._discrete.BootDQN import BootDQNAgent
 from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
@@ -132,6 +134,15 @@ def train(c: ConfigFile, agent_name: str):
 
     agent.logger.save_config({"agent_name": agent.name, **c.config_dict})
     agent.print_params(agent.n_params, case=0)
+
+    # save env-file for traceability
+    try:
+        entry_point = vars(gym.envs.registry[c.Env.name])["entry_point"][12:]
+        shutil.copy2(src="tud_rl/envs/_envs/" + entry_point + ".py", dst=agent.logger.output_dir)
+    except:
+        logger.warning(
+            f"Could not find {'tud_rl/envs/_envs/' + entry_point + '.py'}. Make sure that the file name matches the class name. Skipping..."
+        )
 
     # LSTM: init history
     if agent.needs_history:
