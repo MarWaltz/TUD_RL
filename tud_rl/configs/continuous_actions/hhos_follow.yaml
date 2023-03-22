@@ -1,26 +1,14 @@
 ---
 env:
-  name: HHOS-PathFollowing-v0
+  name: HHOS-Following-v0
   max_episode_steps: 500
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: false
-    plan_on_river: true
-    planner_river_weights: 
-    planner_opensea_weights: 
-    planner_state_design: recursive
-    planner_safety_net: false   
-    data: sampled
-    N_TSs_max : 0
-    N_TSs_random : false
-    w_ye : 0.25
-    w_ce : 0.25
-    w_coll : None
-    w_rule : None
-    w_comf : 0.25
-    w_speed: None
+    w_ye : 1
+    w_ce : 1
+    w_comf : 1
   info: MDP
 agent:
   DDPG: {}

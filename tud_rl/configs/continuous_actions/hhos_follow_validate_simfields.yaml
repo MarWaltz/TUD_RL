@@ -1,15 +1,18 @@
 ---
 env:
-  name: HHOS-PathFollowing-Validation-v0
+  name: HHOS-Following-Validation-v0
   max_episode_steps: 600
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: false
-    plan_on_river: true
-    data: sampled
-    val_disturbance: waves 
+    real_data: false
+    global_path_file:
+    depth_data_file:
+    current_data_file:
+    wind_data_file:
+    wave_data_file:
+    val_disturbance: winds 
   info: MDP
 agent:
   DDPG: {}

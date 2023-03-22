@@ -1,26 +1,19 @@
 ---
 env:
-  name: HHOS-PathFollowing-v0
+  name: HHOS-RiverPipeline-v0
   max_episode_steps: 100_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: false
-    plan_on_river:
-    planner_river_weights: river_actor.pth
-    planner_opensea_weights: open_actor.pth
-    planner_state_design: recursive
-    planner_safety_net: true   
-    data: real
-    N_TSs_max : 3
-    N_TSs_random : false
-    w_ye : 0.0
-    w_ce : 0.0
-    w_coll : 0.0
-    w_rule : 0.0
-    w_comf : 0.0
-    w_speed: 0.0
+    planner_weights: river_actor.pth
+    planner_safety_net: false
+    global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/Path_latlon.pickle
+    depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/depth/DepthData_latlon.pickle
+    current_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/currents/CurrentData_latlon.pickle
+    wind_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/winds/WindData_latlon.pickle
+    wave_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/waves/WaveData_latlon.pickle
+    N_TSs_max: 10
   info: MDP
 agent:
   DDPG: {}

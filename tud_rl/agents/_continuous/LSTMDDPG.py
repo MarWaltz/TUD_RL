@@ -111,7 +111,8 @@ class LSTMDDPGAgent(BaseAgent):
         # reshape arguments and convert to tensors
         s = torch.tensor(s, dtype=torch.float32).view(1, self.state_shape).to(self.device)
         s_hist = torch.tensor(s_hist, dtype=torch.float32).view(1, self.history_length, self.state_shape).to(self.device)
-        a_hist = torch.tensor(a_hist, dtype=torch.float32).view(1, self.history_length, self.num_actions).to(self.device)
+        if a_hist is not None:
+            a_hist = torch.tensor(a_hist, dtype=torch.float32).view(1, self.history_length, self.num_actions).to(self.device)
         hist_len = torch.tensor(hist_len).to(self.device)
 
         # forward pass

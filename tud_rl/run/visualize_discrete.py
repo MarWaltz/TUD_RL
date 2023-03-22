@@ -72,7 +72,7 @@ def test(c: ConfigFile, agent_name: str):
 
     # wrappers
     for wrapper in c.Env.wrappers:
-        wrapper_kwargs = c.Env.wrappers[wrapper]
+        wrapper_kwargs = c.Env.wrapper_kwargs[wrapper]
         env: gym.Env = get_wrapper(name=wrapper, env=env, **wrapper_kwargs)
 
     # get state shape
@@ -91,6 +91,7 @@ def test(c: ConfigFile, agent_name: str):
     np.random.seed(c.seed)
     random.seed(c.seed)
 
+    # agent prep
     if agent_name[-1].islower():
         agent_name_red = agent_name[:-2] + "Agent"
     else:

@@ -1,22 +1,18 @@
 ---
 env:
-  name: HHOS-PathPlanning-Validation-v0
+  name: HHOS-OpenPlanning-Validation-v0
   max_episode_steps: 200
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    plan_on_river: false
-    river_curve:
-    data: sampled
-    state_design: recursive
-    full_RL: false
-    APF_TS: false
-    star_formation: false
-    star_N_TSs: 15
-    clock_formation: true
-    clock_scenario: 4
     scenario: 4
+    star_formation: true
+    star_N_TSs: 7
+    clock_formation: false
+    clock_scenario: 4
+    full_RL: true
+    APF_TS: false
   info: 
 agent:
   DDPG: {}
@@ -33,21 +29,13 @@ agent:
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-  LSTMRecTD3_a:
+  LSTMRecTD3:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-    num_obs_OS: 13
-    num_obs_TS: 7
-  LSTMRecTD3_b:
-    tgt_noise: 0.2
-    tgt_noise_clip: 0.5
-    pol_upd_delay: 2
-    history_length: 2
-    use_past_actions: false
-    num_obs_OS: 3
+    num_obs_OS: 4
     num_obs_TS: 6
   SAC:
     lr_temp: 0.0001
@@ -70,8 +58,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: open_actor_376.pth
-critic_weights: open_critic_376.pth
+actor_weights:
+critic_weights:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

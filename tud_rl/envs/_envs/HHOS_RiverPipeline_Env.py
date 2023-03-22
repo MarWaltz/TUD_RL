@@ -3,91 +3,67 @@ from typing import List, Union
 
 import torch
 
-from tud_rl.common.nets import MLP, LSTMRecActor
-from tud_rl.envs._envs.HHOS_Env import *
+from tud_rl.common.nets import LSTMRecActor
+from tud_rl.envs._envs.HHOS_Base_Env import *
 from tud_rl.envs._envs.HHOS_Fnc import apf
-from tud_rl.envs._envs.HHOS_PathPlanning_Env import HHOS_PathPlanning_Env
+from tud_rl.envs._envs.HHOS_RiverPlanning_Env import HHOS_RiverPlanning_Env
 
 
-class HHOS_PathFollowing_Env(HHOS_Env):
+class HHOS_RiverPipeline_Env(HHOS_Base_Env):
+    """Validation environment for the complete pipeline for planning & low-level control on rivers.
+    Runs exlusively on real data."""
     def __init__(self, 
-                 plan_on_river : bool,
-                 planner_river_weights : str,
-                 planner_opensea_weights : str, 
-                 planner_state_design : str,
+                 planner_weights : str,
                  planner_safety_net : bool, 
-                 nps_control_follower : bool,
-                 data : str, 
-                 N_TSs_max : int, 
-                 N_TSs_random : bool, 
-                 w_ye : float, 
-                 w_ce : float, 
-                 w_coll : float,
-                 w_rule : float, 
-                 w_comf : float,
-                 w_speed : float):
-        super().__init__(nps_control_follower=nps_control_follower, data=data, N_TSs_max=N_TSs_max,\
-            N_TSs_random=N_TSs_random, w_ye=w_ye, w_ce=w_ce, w_coll=w_coll, w_rule=w_rule, w_comf=w_comf, w_speed=w_speed)
+                 global_path_file:str,
+                 depth_data_file:str,
+                 current_data_file:str,
+                 wind_data_file:str,
+                 wave_data_file:str,
+                 N_TSs_max : int):
+        super().__init__()
 
-        # whether nps are controlled
-        self.nps_control_follower = nps_control_follower
+        self.planner_weights    = planner_weights
+        self.planner_safety_net = planner_safety_net
+        self.global_path_file   = global_path_file
+        self.depth_data_file    = depth_data_file
+        self.current_data_file  = current_data_file
+        self.wind_data_file     = wind_data_file
+        self.wave_data_file     = wave_data_file
 
-        # checks
-        if data == "real":
-            assert plan_on_river is None, "In real data, we check whether we are on river or open sea."
-        else:
-            assert isinstance(plan_on_river, bool), "Specify whether we are on river in artificial scenarios."
+        self.N_TSs     = N_TSs_max
+        self.N_TSs_max = N_TSs_max
 
-        assert planner_state_design in ["conventional", "recursive"], "Unknown state design."
-        self.planner_state_design = planner_state_design
+        # construct planner network
+        self.lidar_n_beams = 10
 
-        # situation
-        self.plan_on_river = plan_on_river
-
-        # construct planner network(s)
-        self.planner = dict()
-
-        if planner_river_weights is not None:
-            plan_in_size = 3 + 7 * self.N_TSs_max + self.lidar_n_beams
-
-            # init
-            if planner_state_design == "recursive":
-                self.planner["river"] = LSTMRecActor(action_dim=1, num_obs_OS=3+self.lidar_n_beams, num_obs_TS=7)
-            else:
-                self.planner["river"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
-            
-            # weight loading
-            self.planner["river"].load_state_dict(torch.load(planner_river_weights))
-
-        if planner_opensea_weights is not None:
-            plan_in_size = 3 + 6 * self.N_TSs_max
-
-            # init
-            if planner_state_design == "recursive":
-                self.planner["opensea"] = LSTMRecActor(action_dim=1, num_obs_OS=3, num_obs_TS=6)
-            else:
-                self.planner["opensea"] = MLP(in_size=plan_in_size, out_size=1, net_struc=[[128, "relu"], [128, "relu"], "tanh"])
-            
-            # weight loading
-            self.planner["opensea"].load_state_dict(torch.load(planner_opensea_weights))
+        # init
+        self.planner = LSTMRecActor(action_dim=1, num_obs_OS=4+self.lidar_n_beams, num_obs_TS=7)
+        
+        # weight loading
+        self.planner.load_state_dict(torch.load(planner_weights))
 
         # construct planning env
-        if len(self.planner.keys()) > 0:
-            self.planning_env = HHOS_PathPlanning_Env(plan_on_river=plan_on_river, state_design=planner_state_design, data=data,\
-                N_TSs_max=N_TSs_max, N_TSs_random=N_TSs_random, w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0, w_speed=0.0)
-
-            # whether to use a safety-net as backup to guarantee safe plans
-            self.planner_safety_net = planner_safety_net  
+        self.planning_env = HHOS_RiverPlanning_Env(N_TSs_max=N_TSs_max, N_TSs_random=False, 
+                                                   w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0)
 
         # update frequency
         self.loc_path_upd_freq = 24 # results in a new local path every 2mins with delta t being 5s
 
+        # path characteristics
+        self.dist_des_rev_path = 250
+        self.n_wps_loc = 20
+
+        # vector field guidance
+        self.VFG_K = 0.01  # follower value
+        self.VFG_K_TS = 0.001
+
         # gym inherits
-        OS_infos   = 7 if self.nps_control_follower else 5
+        OS_infos   = 5
         path_infos = 2
         env_infos  = 9
         obs_size   = OS_infos + path_infos + env_infos
-        act_size   = 2 if self.nps_control_follower else 1
+        act_size   = 1
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -96,19 +72,97 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # vessel config
         self.rud_angle_max = dtr(20.0)
         self.rud_angle_inc = dtr(5.0)
-        self.nps_inc = 0.25
-        self.nps_min = 0.5
-        self.nps_max = 5.0
-        
+
+        # how many longitude/latitude degrees to show for the visualization
+        self.show_lon_lat = 0.05
+
+        # episode length
         self._max_episode_steps = 500
 
-    def reset(self, OS_wp_idx=20):
-        # the local path equals the first couple of entries of the global path after the super().reset() call
-        s = super().reset(OS_wp_idx)
+    def _init_local_path(self):
+        """Generates a local path based on the global one."""
+        self.LocalPath = self.GlobalPath.construct_local_path(wp_idx=self.OS.glo_wp1_idx, n_wps_loc=self.n_wps_loc, 
+                                                              v_OS=self.OS._get_V())
+        self.planning_method = "global"
 
-        if len(self.planner.keys()) == 0:
-            return s
-        
+    def reset(self, OS_wp_idx=20):
+        self.step_cnt = 0           # simulation step counter
+        self.sim_t    = 0           # overall passed simulation time (in s)
+
+        # generate global path
+        self._load_global_path()
+
+        # add reversed global path for TS spawning
+        self.RevGlobalPath = deepcopy(self.GlobalPath)
+        self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
+
+        # init OS
+        lat_init = self.GlobalPath.lat[OS_wp_idx]
+        lon_init = self.GlobalPath.lon[OS_wp_idx]
+        N_init = self.GlobalPath.north[OS_wp_idx]
+        E_init = self.GlobalPath.east[OS_wp_idx]
+
+        # always same speed
+        spd = self.base_speed
+        self.OS = KVLCC2(N_init    = N_init, 
+                         E_init    = E_init, 
+                         psi_init  = None,
+                         u_init    = spd,
+                         v_init    = 0.0,
+                         r_init    = 0.0,
+                         delta_t   = self.delta_t,
+                         N_max     = np.infty,
+                         E_max     = np.infty,
+                         nps       = None,
+                         full_ship = False,
+                         ship_domain_size = 2)
+
+        # init waypoints and cte of OS for global path
+        self.OS = self._init_wps(self.OS, "global")
+        self._set_cte(path_level="global")
+
+        # init local path
+        self._init_local_path()
+
+        # init waypoints and cte of OS for local path
+        self.OS = self._init_wps(self.OS, "local")
+        self._set_cte(path_level="local")
+
+        # set heading with noise in training
+        self.OS.eta[2] = self.loc_pi_path
+
+        # generate environmental data
+        self._load_depth_data()
+        self._load_wind_data()
+        self._load_current_data()
+        self._load_wave_data()
+
+        # environmental effects
+        self._update_disturbances(lat_init, lon_init)
+
+        # set nps to near-convergence
+        self.OS.nps = self.OS._get_nps_from_u(u           = self.OS.nu[0], 
+                                              psi         = self.OS.eta[2], 
+                                              V_c         = self.V_c, 
+                                              beta_c      = self.beta_c, 
+                                              V_w         = self.V_w, 
+                                              beta_w      = self.beta_w, 
+                                              H           = self.H,
+                                              beta_wave   = self.beta_wave, 
+                                              eta_wave    = self.eta_wave, 
+                                              T_0_wave    = self.T_0_wave, 
+                                              lambda_wave = self.lambda_wave)
+        # set course error
+        self._set_ce(path_level="global")
+        self._set_ce(path_level="local")
+
+        # use the river planning env to generate target ships since we do not want to reimplement this functionality here
+        self.planning_env.OS = deepcopy(self.OS)
+        self.planning_env.GlobalPath = deepcopy(self.GlobalPath)
+        self.planning_env.RevGlobalPath = deepcopy(self.RevGlobalPath)
+        self.planning_env._init_TSs()
+        self.TSs = deepcopy(self.planning_env.TSs)
+
         # prepare planning env
         self.planning_env    = self.setup_planning_env(env=self.planning_env, initial=True)
         self.planning_env, _ = self.setup_planning_env(env=self.planning_env, initial=False)
@@ -125,19 +179,22 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
         # init state
         self._set_state()
-        self.state_init = self.state
+
+        # viz
+        if hasattr(self, "plotter"):
+            self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
+                    OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
+                        glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
+                        T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
+                                rud_angle=self.OS.rud_angle, nps=self.OS.nps)
         return self.state
 
-    def setup_planning_env(self, env:HHOS_PathPlanning_Env, initial : bool):
+    def setup_planning_env(self, env:HHOS_RiverPlanning_Env, initial:bool):
         """Prepares the planning env depending on the current status of the following env. Returns the env if initial, else
         returns env, state."""
-
-        if initial:      
-            # number of TS and scenario
+        if initial:
+            # number of target ships
             env.N_TSs = self.N_TSs
-            env.plan_on_river = self.plan_on_river
-            if hasattr(self, "scenario"):
-                env.scenario = self.scenario
 
             # global path
             env.GlobalPath = deepcopy(self.GlobalPath)
@@ -145,11 +202,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 env.RevGlobalPath = deepcopy(self.RevGlobalPath)
 
             # environmental disturbances (although not needed for dynamics, only for depth-checking)
-            env.DepthData = deepcopy(self.DepthData)
-            env.log_Depth = deepcopy(self.log_Depth)
-            env.WindData = deepcopy(self.WindData)
+            env.DepthData   = deepcopy(self.DepthData)
+            env.log_Depth   = deepcopy(self.log_Depth)
+            env.WindData    = deepcopy(self.WindData)
             env.CurrentData = deepcopy(self.CurrentData)
-            env.WaveData = deepcopy(self.WaveData)
+            env.WaveData    = deepcopy(self.WaveData)
 
             # visualization specs
             env.domain_xs = self.domain_xs
@@ -163,9 +220,9 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             env.step_cnt = 0
 
             # OS and TSs
-            env.OS = deepcopy(self.OS)
+            env.OS  = deepcopy(self.OS)
             env.TSs = deepcopy(self.TSs)
-            env.H = copy(self.H)
+            env.H   = copy(self.H)
 
             # guarantee OS moves linearly
             env.OS.nu[0]  = self.OS._get_V()
@@ -194,14 +251,15 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.OS._upd_dynamics(V_w=self.V_w, beta_w=self.beta_w, V_c=self.V_c, beta_c=self.beta_c, H=self.H, 
                               beta_wave=self.beta_wave, eta_wave=self.eta_wave, T_0_wave=self.T_0_wave, lambda_wave=self.lambda_wave)
 
-        # real data: check whether we are on river or open sea
-        if self.data == "real":
-            self.plan_on_river = self._on_river(N0=self.OS.eta[0], E0=self.OS.eta[1])
-
         # environmental effects
         self._update_disturbances()
 
-        # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
+        # control of target ships
+        for TS in self.TSs:
+            other_vessels = [ele for ele in self.TSs if ele is not TS] # + [self.OS]
+            TS.river_control(other_vessels, VFG_K=self.VFG_K_TS)
+
+        # update TS dynamics independent of environmental disturbances
         [TS._upd_dynamics() for TS in self.TSs]
 
         # check respawn
@@ -221,18 +279,8 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
 
-        # on river: update waypoints for other vessels
-        if self.plan_on_river:
-            self.TSs = [self._init_wps(TS, path_level="global") for TS in self.TSs]
-
-        # on river: control of target ships
-        if self.plan_on_river:
-            for TS in self.TSs:
-                other_vessels = [ele for ele in self.TSs if ele is not TS] # + [self.OS]
-                TS.river_control(other_vessels, VFG_K=self.VFG_K_river_TS)
-        else:
-            other_vessels = [ele for ele in self.TSs if ele is not TS]  + [self.OS]
-            [TS.opensea_control(other_vessels) for TS in self.TSs]
+        # update waypoints for other vessels
+        self.TSs = [self._init_wps(TS, path_level="global") for TS in self.TSs]
 
         # increase step cnt and overall simulation time
         self.sim_t += self.delta_t
@@ -251,19 +299,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         self.a = a
 
         # make sure array has correct size
-        if self.nps_control_follower:
-            assert len(a) == 2, "There need to be two actions for the follower with nps-control."
-        else:
-            assert len(a) == 1, "There needs to be one action for the follower without nps-control."
+        assert len(a) == 1, "There needs to be one action for the follower."
 
         # rudder control
         assert -1 <= float(a[0]) <= 1, "Unknown action."
         self.OS.rud_angle = np.clip(self.OS.rud_angle + float(a[0])*self.rud_angle_inc, -self.rud_angle_max, self.rud_angle_max)
-
-        # nps control
-        if self.nps_control_follower:
-            assert -1 <= float(a[1]) <= 1, "Unknown action."
-            self.OS.nps = np.clip(self.OS.nps + float(a[1])*self.nps_inc, self.nps_min, self.nps_max)
 
     def _hasConflict(self, localPath:Path, TSnavData : Union[List[Path], None], path_from:str):
         """Checks whether a given local path yields a conflict.
@@ -327,32 +367,24 @@ class HHOS_PathFollowing_Env(HHOS_Env):
 
                     # quick access
                     N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
-                    chi0, v0 = localPath.chis[t], localPath.vs[t]
+                    v0 = localPath.vs[t]
                     
                     N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
-                    chi1, v1 = TSnavData[i].chis[t], TSnavData[i].vs[t]
+                    v1 = TSnavData[i].vs[t]
 
-                    # on river: check whether the global path violates some rules
-                    if self.plan_on_river:
-                        if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, head1=head1, v1=v1,
-                                                              Lpp=self.OS.Lpp):
-                            return True
-
-                    # on open sea: activate RL planner as soon as there is an encounter situation
-                    else:
-                        if self._get_COLREG_situation(N0=N0, E0=E0, head0=head0, chi0=chi0, v0=v0, 
-                                                      N1=N1, E1=E1, head1=head1, chi1=chi1, v1=v1) != 5:
-                            return True
+                    # check whether the global path violates some rules
+                    if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, 
+                                                          head1=head1, v1=v1):
+                        return True
         return False
 
     def _update_local_path(self):
         """Updates the local path either by simply using the global path, using the RL-based path planner, or the APF safety net."""
         # default: set part of global path as local path
-        super()._update_local_path()
+        self._init_local_path()
 
-        if len(self.planner.keys()) > 0:
-
-            # check local plan for conflicts (collisions AND traffic rules)
+        # check local plan for conflicts (collisions AND traffic rules)
+        if self.N_TSs > 0:
             conflict = self._hasConflict(localPath=copy(self.LocalPath), TSnavData=None, path_from="global")
             if conflict:
                 TSnavData:List[Path] = self._update_local_path_safe(method="RL")
@@ -391,43 +423,22 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             TS_chis    = [[TS._get_course()] for TS in self.planning_env.TSs]
             TS_vs      = [[TS._get_V()] for TS in self.planning_env.TSs]
 
-        # river or open sea
-        assert isinstance(self.planning_env.plan_on_river, bool), "Check whether we are on river or open sea."
-
-        # setup history if needed
-        if self.planner_state_design == "recursive":
-            if self.planning_env.plan_on_river:
-                state_shape = 3 + 7 * self.N_TSs_max + self.lidar_n_beams
-            else:
-                state_shape = 3 + 6 * self.N_TSs_max
-
-            s_hist = np.zeros((2, state_shape))  # history length 2
-            hist_len = 0
+        # setup history
+        state_shape = 3 + 7 * max([self.N_TSs_max, 1]) + self.lidar_n_beams
+        s_hist = np.zeros((2, state_shape))  # history length 2
+        hist_len = 0
 
         # planning loop
         for _ in range(self.n_wps_loc-1):
 
             # planner's move
             if method == "RL":
-                
+
                 # recursive state design needs history
-                if self.planner_state_design == "recursive":
-                    s_tens = torch.tensor(s, dtype=torch.float32).view(1, state_shape)
-                    s_hist_tens = torch.tensor(s_hist, dtype=torch.float32).view(1, 2, state_shape) # batch size, history length, state shape
-                    hist_len_tens = torch.tensor(hist_len)
-
-                    if self.planning_env.plan_on_river:
-                        a = self.planner["river"](s=s_tens, s_hist=s_hist_tens, a_hist=None, hist_len=hist_len_tens)[0]
-                    else:
-                        a = self.planner["opensea"](s=s_tens, s_hist=s_hist_tens, a_hist=None, hist_len=hist_len_tens)[0]
-
-                # conventional state design based only on current observation
-                else:
-                    s = torch.tensor(s, dtype=torch.float32).unsqueeze(0)
-                    if self.planning_env.plan_on_river:
-                        a = self.planner["river"](s)
-                    else:
-                        a = self.planner["opensea"](s)
+                s_tens        = torch.tensor(s, dtype=torch.float32).view(1, state_shape)
+                s_hist_tens   = torch.tensor(s_hist, dtype=torch.float32).view(1, 2, state_shape) # batch size, history length, state shape
+                hist_len_tens = torch.tensor(hist_len)
+                a = self.planner(s=s_tens, s_hist=s_hist_tens, a_hist=None, hist_len=hist_len_tens)[0]
 
             # get APF move, always two components
             elif method == "APF":
@@ -454,13 +465,12 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             s2, _, d, _ = self.planning_env.step(a, control_TS=False)
 
             # update history
-            if self.planner_state_design == "recursive":
-                if hist_len == 2:
-                    s_hist = np.roll(s_hist, shift=-1, axis=0)
-                    s_hist[1, :] = s
-                else:
-                    s_hist[hist_len] = s
-                    hist_len += 1
+            if hist_len == 2:
+                s_hist = np.roll(s_hist, shift=-1, axis=0)
+                s_hist[1, :] = s
+            else:
+                s_hist[hist_len] = s
+                hist_len += 1
 
             # s becomes s2
             s = s2
@@ -495,7 +505,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
                 TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i], chis=TS_chis[i]))
             return TSnavData
 
-    def _get_APF_move(self, env : HHOS_PathPlanning_Env):
+    def _get_APF_move(self, env : HHOS_RiverPlanning_Env):
         """Takes an env as input and returns the du, dh suggested by the APF-method."""
         # define goal for attractive forces of APF
         try:
@@ -525,10 +535,6 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         cmp2 = np.array([self.OS.nu_dot[2] / (8e-5), self.OS.rud_angle / self.OS.rud_angle_max])   # r_dot, rudder angle
         state_OS = np.concatenate([cmp1, cmp2])
 
-        if self.nps_control_follower:
-            state_OS = np.append(state_OS, [self._get_v_desired() - self.OS._get_V(),
-                                            self.OS.nps / 3.0])
-
         # ------------------------- local path information ---------------------------
         state_path = np.array([self.loc_ye/self.OS.Lpp, self.loc_course_error/math.pi])
 
@@ -554,59 +560,11 @@ class HHOS_PathFollowing_Env(HHOS_Env):
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_env]).astype(np.float32)
 
-    def _get_v_desired(self):
-        """Computes the desired velocity time at the position of the agent."""
-        v1 = self.LocalPath.vs[self.OS.loc_wp1_idx]
-        v2 = self.LocalPath.vs[self.OS.loc_wp2_idx]
-
-        ate_12 = ate(N1 = self.OS.loc_wp1_N, 
-                     E1 = self.OS.loc_wp1_E, 
-                     N2 = self.OS.loc_wp2_N, 
-                     E2 = self.OS.loc_wp2_E,
-                     NA = self.OS.eta[0], 
-                     EA = self.OS.eta[1])
-        d = self.LocalPath.wp_dist(wp1_idx=self.OS.loc_wp1_idx, wp2_idx=self.OS.loc_wp2_idx)
-        frac = np.clip(ate_12/d, 0.0, 1.0)
-        return frac*v2 + (1-frac)*v1
-
     def _calculate_reward(self, a):
-        # ----------------------- LocalPath-following reward --------------------
-        # cross-track error
-        k_ye = 0.05
-        self.r_ye = math.exp(-k_ye * abs(self.loc_ye))
-
-        # course error
-        k_ce = 5.0
-        if abs(rtd(self.loc_course_error)) >= 90.0:
-            self.r_ce = -10.0
-        else:
-            self.r_ce = math.exp(-k_ce * abs(self.loc_course_error))
-
-        # -------------------------- Comfort reward -------------------------
-        # steering-based
-        self.r_comf = -float(a[0])**2
-        #self.r_comf = 0.0
-
-        # drift-based
-        #self.r_comf -= abs(self.OS.nu[1])
-
-        # nps-based
-        if self.nps_control_follower:
-            self.r_comf -= float(a[1])**2
-
-        # ---------------------------- Speed reward -------------------------
-        if self.nps_control_follower:
-            self.r_speed = max([-(self._get_v_desired()-self.OS._get_V())**2, -1.0])
-
-        # ---------------------------- Aggregation --------------------------
-        weights = np.array([self.w_ye, self.w_ce, self.w_comf])
-        rews = np.array([self.r_ye, self.r_ce, self.r_comf])
-
-        if self.nps_control_follower:
-            weights = np.append(weights, [self.w_speed])
-            rews = np.append(rews, [self.r_speed])
-
-        self.r = float(np.sum(weights * rews) / np.sum(weights))
+        self.r = 0.0
+        self.r_ye = 0.0
+        self.r_ce = 0.0
+        self.r_comf = 0.0
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
@@ -619,7 +577,7 @@ class HHOS_PathFollowing_Env(HHOS_Env):
             return True
 
         # OS reaches end of global waypoints
-        if any([i >= int(0.8*self.n_wps_glo) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
+        if any([i >= int(0.8*self.GlobalPath.n_wps) for i in (self.OS.glo_wp1_idx, self.OS.glo_wp2_idx, self.OS.glo_wp3_idx)]):
             return True
 
         # artificial done signal

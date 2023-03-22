@@ -65,7 +65,7 @@ def polar_from_xy(x, y, with_r=True, with_angle=True):
 
 def xy_from_polar(r, angle):
     """Get x,y-coordinates from polar system, where angle is defined clockwise with zero at the y-axis."""
-    return r * math.sin(angle), r * math.cos(angle)
+    return r * np.sin(angle), r * np.cos(angle)
 
 def bng_abs(N0, E0, N1, E1):
     """Computes the absolute bearing (in radiant, [0, 2pi)) of (N1, E1) from perspective of (N0, E0)."""

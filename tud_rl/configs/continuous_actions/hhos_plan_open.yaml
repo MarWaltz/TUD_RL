@@ -1,14 +1,11 @@
 ---
 env:
-  name: HHOS-PathPlanning-v0
-  max_episode_steps: 100
+  name: HHOS-OpenPlanning-v0
+  max_episode_steps: 125
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    plan_on_river: false
-    data: sampled
-    state_design: recursive
     N_TSs_max: 3
     N_TSs_random: true
     w_ye : 0.0
@@ -32,21 +29,13 @@ agent:
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-  LSTMRecTD3_a:
+  LSTMRecTD3:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-    num_obs_OS: 13
-    num_obs_TS: 7
-  LSTMRecTD3_b:
-    tgt_noise: 0.2
-    tgt_noise_clip: 0.5
-    pol_upd_delay: 2
-    history_length: 2
-    use_past_actions: false
-    num_obs_OS: 3
+    num_obs_OS: 4
     num_obs_TS: 6
   SAC:
     lr_temp: 0.0001

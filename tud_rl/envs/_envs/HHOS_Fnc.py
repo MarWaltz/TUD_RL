@@ -14,6 +14,10 @@ from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
 def to_latlon(north, east, number):
     """Converts North, East, number in UTM into longitude and latitude. Assumes northern hemisphere.
     Returns: (lat, lon)"""
+    if isinstance(north, list):
+        north = np.array(north)
+    if isinstance(east, list):
+        east = np.array(east)
     return utm.to_latlon(easting=east, northing=north, zone_number=number, northern=True, strict=False)
 
 def to_utm(lat, lon):
@@ -359,7 +363,6 @@ def get_init_two_wp(n_array, e_array, a_n, a_e, stop_goal=False):
             wp1_E = e_array[idx1]
             wp2_N = n_array[idx2]
             wp2_E = e_array[idx2]
-
     return idx1, wp1_N, wp1_E, idx2, wp2_N, wp2_E
 
 def fill_array(Z, lat_idx1, lon_idx1, lat_idx2, lon_idx2, value):

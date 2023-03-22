@@ -1,15 +1,18 @@
 ---
 env:
-  name: HHOS-PathFollowing-Validation-v0
-  max_episode_steps: 100_000
+  name: HHOS-Following-Validation-v0
+  max_episode_steps: 10_000_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    nps_control_follower: false
-    plan_on_river:
-    data: real
-    val_disturbance:  
+    real_data: true
+    global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/Path_latlon.pickle
+    depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/depth/DepthData_latlon.pickle
+    current_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/currents/CurrentData_latlon.pickle
+    wind_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/winds/WindData_latlon.pickle
+    wave_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/waves/WaveData_latlon.pickle
+    val_disturbance:
   info: MDP
 agent:
   DDPG: {}

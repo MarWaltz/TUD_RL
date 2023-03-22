@@ -38,26 +38,38 @@ gym.register(
     id="MMGWorld-v0",
     entry_point=loc + "MMG_World"
 )
+
 gym.register(
-    id="HHOS-v0",
-    entry_point=loc + "HHOS_Env"
+    id="HHOS-Following-v0",
+    entry_point=loc + "HHOS_Following_Env"
 )
 gym.register(
-    id="HHOS-PathFollowing-v0",
-    entry_point=loc + "HHOS_PathFollowing_Env"
+    id="HHOS-Following-Validation-v0",
+    entry_point=loc + "HHOS_Following_Validation"
+)
+
+gym.register(
+    id="HHOS-OpenPlanning-v0",
+    entry_point=loc + "HHOS_OpenPlanning_Env"
 )
 gym.register(
-    id="HHOS-PathFollowing-Validation-v0",
-    entry_point=loc + "HHOS_PathFollowing_Validation"
+    id="HHOS-OpenPlanning-Validation-v0",
+    entry_point=loc + "HHOS_OpenPlanning_Validation"
+)
+
+gym.register(
+    id="HHOS-RiverPlanning-v0",
+    entry_point=loc + "HHOS_RiverPlanning_Env"
 )
 gym.register(
-    id="HHOS-PathPlanning-v0",
-    entry_point=loc + "HHOS_PathPlanning_Env"
+    id="HHOS-RiverPlanning-Validation-v0",
+    entry_point=loc + "HHOS_RiverPlanning_Validation"
 )
 gym.register(
-    id="HHOS-PathPlanning-Validation-v0",
-    entry_point=loc + "HHOS_PathPlan_Validation"
+    id="HHOS-RiverPipeline-v0",
+    entry_point=loc + "HHOS_RiverPipeline_Env"
 )
+
 gym.register(
     id="PredatorPrey-v0",
     entry_point=loc + "PredatorPrey"
@@ -69,6 +81,10 @@ gym.register(
 gym.register(
     id="UAM-v0",
     entry_point=loc + "UAM"
+)
+gym.register(
+    id="SimpleComm-v0",
+    entry_point=loc + "SimpleComm"
 )
 
 # Initialize logger

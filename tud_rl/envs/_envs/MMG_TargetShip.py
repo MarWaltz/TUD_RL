@@ -1,5 +1,4 @@
 import math
-import random
 from typing import List, Union
 
 import numpy as np
@@ -228,13 +227,12 @@ class Path:
 
         return wp1_rev, wp2_rev
 
-    def construct_local_path(self, wp_idx:int, n_wps_loc:int, two_actions:bool, desired_V:float):
+    def construct_local_path(self, wp_idx:int, n_wps_loc:int, v_OS:float=None):
         """Constructs a local path based on a given wp_idx and number of waypoints.
         Args:
             wp_idx(int):       Waypoint index where the local path starts
             n_wps_loc(int):    Length of the constructed path
-            two_actions(bool): whether to construct 'v' as well in the new path
-            desired_V(float):  base-velocity 'v', only considered if two_actions
+            v_OS(float):       velocity of OS, assumed constant over the path since we do not consider trajectory following
         Returns:
             Path"""
         assert (wp_idx + n_wps_loc) < self.n_wps, "You want to construct a local path that is longer than the global one!"
@@ -245,11 +243,6 @@ class Path:
         north = self.north[wp_idx:wp_idx+n_wps_loc]
         east  = self.east[wp_idx:wp_idx+n_wps_loc]
 
-        if two_actions:
-            vs = np.ones_like(lat) * desired_V * np.random.uniform(0.75, 1.25)
-        else:
-            vs = None
-
         # compute heading
         heads = np.zeros_like(north)
         for i in range(n_wps_loc):
@@ -257,6 +250,12 @@ class Path:
                 heads[i] = bng_abs(N0=north[i], E0=east[i], N1=north[i+1], E1=east[i+1])
             else:
                 heads[i] = heads[i-1]
+
+        # speed
+        if v_OS is not None:
+            vs = np.ones_like(lat) * v_OS
+        else:
+            vs = None
 
         # construct while setting course to heading
         return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, chis=heads, vs=vs)
