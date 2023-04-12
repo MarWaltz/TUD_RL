@@ -509,10 +509,7 @@ class VO_Planner:
         self.N_search     = 500
         self.dhead_search = dtr(90)
         self.dhead_max    = dtr(2.5)
-        self.w_time       = 100.0
         self.w_v          = 1.0
-        self.CR_rec_dist  = NM_to_meter(2.0)
-        self.CR_al        = 0.1
 
         # ship domain size
         Lpp = 320.0
