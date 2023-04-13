@@ -58,7 +58,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.WindData["lon"] = copy(self.DepthData["lon"])
 
         # sample constants
-        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=15.0)
+        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=12.0)
         angle = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=2*math.pi)
 
         # add noise
@@ -66,7 +66,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=15.0)
+        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=12.0)
         angle = angle % (2*np.pi)
 
         # overwrite other entries
@@ -124,7 +124,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        height = np.clip(height, a_min=0.01, a_max=2.0)
+        height = np.clip(height, a_min=0.01, a_max=1.5)
         length = np.clip(length, a_min=1.0,  a_max=100.0)
         period = np.clip(period, a_min=0.5,  a_max=7.0)
         angle = angle % (2*np.pi)

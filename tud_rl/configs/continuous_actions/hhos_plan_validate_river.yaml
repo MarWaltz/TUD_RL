@@ -6,8 +6,8 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    river_curve: left
-    scenario: 2
+    river_curve: right
+    scenario: 6
   info: 
 agent:
   DDPG: {}
@@ -53,8 +53,8 @@ seed: 12
 timesteps: 10_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights: river_actor_60.pth
-critic_weights: river_critic_60.pth
+actor_weights: LSTMRecTD3_actor_weights.pth
+critic_weights: LSTMRecTD3_critic_weights.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

@@ -58,7 +58,7 @@ class HHOS_Following_Validation(HHOS_Following_Env):
             self._max_episode_steps = 600
 
     def reset(self):
-        s = super().reset(OS_wp_idx=10, real_data=self.real_data)
+        s = super().reset(OS_wp_idx=0 if self.real_data else 10, real_data=self.real_data)
 
         # viz
         self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
@@ -217,7 +217,15 @@ class HHOS_Following_Validation(HHOS_Following_Env):
 
     def _done(self):
         """Returns boolean flag whether episode is over."""
-        d = super()._done()
+        d = False
+
+        # OS hit land
+        if self.H <= self.OS.critical_depth:
+            d = True
+
+        # artificial done signal
+        elif self.step_cnt >= self._max_episode_steps:
+            d = True
         
         # viz
         if d:

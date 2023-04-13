@@ -10,7 +10,7 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
         self.scenario    = scenario
         self.river_curve = river_curve
         
-        assert self.scenario in range(1, 5), "Unknown validation scenario for the river."
+        assert self.scenario in range(1, 7), "Unknown validation scenario for the river."
         assert self.river_curve in ["straight", "left", "right"], "Unknown river curvature."
 
         # vessel train
@@ -29,6 +29,14 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
         elif self.scenario == 4:
             self.N_TSs = 4
 
+        # getting overtaken
+        elif self.scenario == 5:
+            self.N_TSs = 1
+
+        # static obstacles
+        elif self.scenario == 6:
+            self.N_TSs = 5
+
         super().__init__(N_TSs_max=self.N_TSs, N_TSs_random=False, 
                          w_ye=.0, w_ce=.0, w_coll=.0, w_rule=.0, w_comf=.0)
         
@@ -37,11 +45,11 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
             self.path_config = {"n_seg_path" : 10, "straight_wp_dist" : 50, "straight_lmin" :1000, "straight_lmax" :1000, 
                                 "phi_min" : None, "phi_max" : None, "rad_min" : None, "rad_max" : None, "build" : "straight"}
         elif river_curve == "left":
-            self.path_config = {"n_seg_path" : 1, "straight_wp_dist" : 50, "straight_lmin" : 500, "straight_lmax" : 500, 
-                                "phi_min" : 45, "phi_max" : 45, "rad_min" : 5000, "rad_max" : 5000, "build" : "left_curved"}
+            self.path_config = {"n_seg_path" : 2, "straight_wp_dist" : 50, "straight_lmin" : 50, "straight_lmax" : 50, 
+                                "phi_min" : 120, "phi_max" : 120, "rad_min" : 2000, "rad_max" : 2000, "build" : "left_curved"}
         else:
-            self.path_config = {"n_seg_path" : 1, "straight_wp_dist" : 50, "straight_lmin" :500, "straight_lmax" : 500, 
-                                "phi_min" : 45, "phi_max" : 45, "rad_min" : 5000, "rad_max" : 5000, "build" : "right_curved"}
+            self.path_config = {"n_seg_path" : 2, "straight_wp_dist" : 50, "straight_lmin" :50, "straight_lmax" : 50, 
+                                "phi_min" : 120, "phi_max" : 120, "rad_min" : 2000, "rad_max" : 2000, "build" : "right_curved"}
 
         # depth configuration
         self.depth_config = {"validation" : True}
@@ -103,5 +111,5 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
             self.plotter.dump(name="Plan_river_" + self.river_curve + "_" + str(self.scenario))
         return d
 
-    #def render(self, data=None):
-    #    pass
+    def render(self, data=None):
+        pass

@@ -130,7 +130,6 @@ class HHOS_Base_Env(gym.Env):
         assert build in ["straight", "right_curved", "left_curved", "random"], "Unknown river build."
 
         # do it until we have a path whichs stays in our simulation domain 
-        # and the river does not cross itsself
         while True:
 
             # set starting point
@@ -141,10 +140,9 @@ class HHOS_Base_Env(gym.Env):
             # initialize path angle
             if build == "random":
                 eps = dtr(np.random.randint(361))
-                eps_total = 0.0
+                last_curves_right = np.array([None, None])
             else:
                 eps = 0.0
-                eps_total = 0.0
 
             for _ in range(n_seg_path):
 
@@ -161,7 +159,18 @@ class HHOS_Base_Env(gym.Env):
 
                     # sample curved segment
                     if build == "random":
-                        right_curve = bool(random.getrandbits(1))
+
+                        # allow for maximal two times the same curve to avoid producing a self-crossing river
+                        if all(last_curves_right):
+                            right_curve = False
+                        elif all(last_curves_right == False):
+                            right_curve = True
+                        else:
+                            right_curve = bool(random.getrandbits(1))
+
+                        # update curve-history
+                        last_curves_right[0] = copy(last_curves_right[1])
+                        last_curves_right[1] = right_curve
                     
                     elif build == "right_curved":
                         right_curve = True
@@ -196,14 +205,13 @@ class HHOS_Base_Env(gym.Env):
 
                     # update epsilon, rounded to nearest full degree
                     eps = bng_abs(N0=path_n[-2], E0=path_e[-2], N1=path_n[-1], E1=path_e[-1])
-                    eps_total += eps
 
             # to latlon
             lat, lon = to_latlon(north=np.array(path_n), east=np.array(path_e), number=32)
-
+ 
             # check
             if all(self.lat_lims[0] <= lat) and all(self.lat_lims[1] >= lat) and all(6.1 <= lon)\
-                and all(11.9 >= lon) and (eps_total < 2*np.pi) :
+                and all(11.9 >= lon):
                 break
         # store
         self.GlobalPath = Path(level="global", lat=lat, lon=lon, north=path_n, east=path_e)
@@ -853,7 +861,7 @@ class HHOS_Base_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 1 == 0:
+        if self.step_cnt % 2 == 0:
             
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:

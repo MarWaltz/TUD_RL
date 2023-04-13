@@ -175,7 +175,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
 
                     # simple heading control
                     if cnt:
-                        other_vessels = [ele for ele in self.TSs if ele is not TS] #+ [self.OS]
+                        other_vessels = [ele for ele in self.TSs if ele is not TS] + [self.OS]
                         TS.river_control(other_vessels, VFG_K=self.VFG_K_TS)
 
             # update TS dynamics (independent of environmental disturbances since they move linear and deterministic)
@@ -313,6 +313,40 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
                 rev_dir = False
                 spd = 0.55 * self.base_speed
                 d = NM_to_meter(0.3)
+            speedy = False
+
+        # getting overtaken
+        elif scenario == 5:
+            d = NM_to_meter(0.5)
+            offset = 0
+            rev_dir = False
+            spd = 1.5 * self.base_speed
+            speedy = True
+
+        # static obstacles
+        elif scenario == 6:
+            if n == 0:
+                d = NM_to_meter(0.3)
+                offset = 0
+
+            elif n == 1:
+                d = NM_to_meter(0.7)
+                offset = 50
+
+            elif n == 2:
+                d = NM_to_meter(1.1)
+                offset = 50
+
+            elif n == 3:
+                d = NM_to_meter(1.5)
+                offset = 50
+
+            elif n == 4:
+                d = NM_to_meter(1.9)
+                offset = 0
+
+            rev_dir = False
+            spd = 0
             speedy = False
 
         # get wps

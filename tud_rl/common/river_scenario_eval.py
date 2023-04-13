@@ -80,15 +80,16 @@ def scenario_eval(dir):
     os.chdir(dir)
 
     eval_CONFIG_FILE = "hhos_plan_validate_river.yaml"
-    eval_ACTOR_WEIGHTS  = "LSTMRecTD3_a_actor_weights.pth"
-    eval_CRITIC_WEIGHTS = "LSTMRecTD3_a_critic_weights.pth"
+    eval_ACTOR_WEIGHTS  = "LSTMRecTD3_actor_weights.pth"
+    eval_CRITIC_WEIGHTS = "LSTMRecTD3_critic_weights.pth"
 
     eval_config_path = f"{cont_path[0]}/{eval_CONFIG_FILE}"
     eval_c = ConfigFile(eval_config_path)
     eval_c.overwrite(critic_weights=eval_CRITIC_WEIGHTS)
     eval_c.overwrite(actor_weights=eval_ACTOR_WEIGHTS)
+    eval_c.overwrite(river_curve="straight")
 
-    eval_agent_name = "LSTMRecTD3_a"
+    eval_agent_name = "LSTMRecTD3"
     if eval_agent_name[-1].islower():
         eval_agent_name_red = eval_agent_name[:-2] + "Agent"
     else:
@@ -165,7 +166,7 @@ def scenario_eval(dir):
     for j in range(NCOLS):
         
         # data loading
-        with open(f"HHOS_Validate_Plan_river_{j+1}.pkl", "rb") as f:
+        with open(f"HHOS_Validate_Plan_river_straight_{j+1}.pkl", "rb") as f:
             x = pickle.load(f)
 
         # go to minutes

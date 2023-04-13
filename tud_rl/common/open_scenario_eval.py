@@ -21,19 +21,19 @@ def Imazu_eval(dir):
     os.chdir(dir)
 
     eval_CONFIG_FILE = "hhos_plan_validate_open.yaml"
-    eval_ACTOR_WEIGHTS  = "LSTMRecTD3_b_actor_weights.pth"
-    eval_CRITIC_WEIGHTS = "LSTMRecTD3_b_critic_weights.pth"
+    eval_ACTOR_WEIGHTS  = "LSTMRecTD3_actor_weights.pth"
+    eval_CRITIC_WEIGHTS = "LSTMRecTD3_critic_weights.pth"
 
     eval_config_path = f"{cont_path[0]}/{eval_CONFIG_FILE}"
     eval_c = ConfigFile(eval_config_path)
     eval_c.overwrite(critic_weights=eval_CRITIC_WEIGHTS)
     eval_c.overwrite(actor_weights=eval_ACTOR_WEIGHTS)
     eval_c.overwrite(full_RL=False)
+    eval_c.overwrite(APF_TS=False)
     eval_c.overwrite(star_formation=False)
     eval_c.overwrite(clock_formation=False)
-    eval_c.overwrite(plan_on_river=False)
 
-    eval_agent_name = "LSTMRecTD3_b"
+    eval_agent_name = "LSTMRecTD3"
     if eval_agent_name[-1].islower():
         eval_agent_name_red = eval_agent_name[:-2] + "Agent"
     else:

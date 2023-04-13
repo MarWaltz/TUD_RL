@@ -188,12 +188,22 @@ class TrajPlotter:
                       r_COLREG = None, 
                       r_comf   = None, 
                       star     = False,
-                      world    = False):
+                      world    = False,
+                      Add_traj_N = None,
+                      Add_traj_E = None,
+                      Add_col_N = None,
+                      Add_col_E = None,
+                      Add2_traj_N = None,
+                      Add2_traj_E = None,
+                      Add2_col_N = None,
+                      Add2_col_E = None):
         if ax is None:
             _, ax = plt.subplots()
             create_pdf = True
         else:
             create_pdf = False
+
+        OS_col = "black" if Add_traj_E is None else "grey"
 
         # E-axis
         ax.set_xlim(0, E_max)
@@ -218,21 +228,57 @@ class TrajPlotter:
                 ax.scatter(g["E"], g["N"], c=col)
         
         # OS trajectory
-        ax.plot(self.OS_traj_E, self.OS_traj_N, color='black')
+        ax.plot(self.OS_traj_E, self.OS_traj_N, color=OS_col)
 
         # triangle at beginning
-        rec = get_triangle(E = self.OS_traj_E[0], N = self.OS_traj_N[0], l=Lpp, heading = self.OS_traj_h[0],\
-                facecolor="white", edgecolor="black", linewidth=1.5, zorder=10)
+        rec = get_triangle(E = self.OS_traj_E[0], N = self.OS_traj_N[0], l=Lpp, heading = self.OS_traj_h[0],
+                           facecolor="white", edgecolor="black", linewidth=1.5, zorder=10)
         ax.add_patch(rec)
 
         # OS markers
         OS_traj_E_m = [ele for idx, ele in enumerate(self.OS_traj_E) if idx % self.plot_every_step == 0]
         OS_traj_N_m = [ele for idx, ele in enumerate(self.OS_traj_N) if idx % self.plot_every_step == 0]
-        ax.scatter(OS_traj_E_m, OS_traj_N_m, color="black", s=5)
+        ax.scatter(OS_traj_E_m, OS_traj_N_m, color=OS_col, s=5)
 
         # OS collision
         if len(self.OS_col_N) > 0:
             ax.scatter(self.OS_col_E, self.OS_col_N, color="red", s=5)
+
+        # ---------- Additional (VO & RL) --------
+        if (Add_traj_E is not None) and (Add_traj_N is not None) and (Add2_traj_E is not None) and (Add2_traj_N is not None):
+            
+            # trajectory
+            ax.plot(Add_traj_E, Add_traj_N, color="black")
+            ax.plot(Add2_traj_E, Add2_traj_N, color="darkviolet")
+            
+            # markers
+            Add_traj_E_m = [ele for idx, ele in enumerate(Add_traj_E) if idx % self.plot_every_step == 0]
+            Add_traj_N_m = [ele for idx, ele in enumerate(Add_traj_N) if idx % self.plot_every_step == 0]
+            ax.scatter(Add_traj_E_m, Add_traj_N_m, color="black", s=5)
+
+            Add2_traj_E_m = [ele for idx, ele in enumerate(Add2_traj_E) if idx % self.plot_every_step == 0]
+            Add2_traj_N_m = [ele for idx, ele in enumerate(Add2_traj_N) if idx % self.plot_every_step == 0]
+            ax.scatter(Add2_traj_E_m, Add2_traj_N_m, color="darkviolet", s=5)
+
+            # triangle at beginning
+            #rec = get_triangle(E = self.OS_traj_E[0], N = self.OS_traj_N[0], l=Lpp, heading = self.OS_traj_h[0],\
+            #                   facecolor="white", edgecolor="black", linewidth=1.5, zorder=10)
+            #ax.add_patch(rec)
+
+            # collision
+            if (Add_col_E is not None) and (Add_col_N is not None):
+                if len(Add_col_N) > 0:
+                    ax.scatter(Add_col_E, Add_col_N, color="red", s=5)
+
+            if (Add2_col_E is not None) and (Add2_col_N is not None):
+                if len(Add2_col_N) > 0:
+                    ax.scatter(Add2_col_E, Add2_col_N, color="red", s=5)
+
+            # legend
+            APF_patch = patches.Patch(color="grey", label="APF")
+            VO_patch  = patches.Patch(color="black", label="VO")
+            RL_patch  = patches.Patch(color="darkviolet", label="RL")
+            ax.legend(handles=[APF_patch, VO_patch, RL_patch], prop={"size": 6}, loc="lower left")
 
         # TS
         for TS_idx in range(self.N_TSs):
