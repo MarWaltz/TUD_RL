@@ -58,7 +58,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.WindData["lon"] = copy(self.DepthData["lon"])
 
         # sample constants
-        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=12.0)
+        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=15.0)
         angle = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=2*math.pi)
 
         # add noise
@@ -66,7 +66,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=12.0)
+        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=15.0)
         angle = angle % (2*np.pi)
 
         # overwrite other entries
@@ -199,35 +199,45 @@ class HHOS_Following_Env(HHOS_Base_Env):
             self.OS.eta[2] = angle_to_2pi(self.loc_pi_path + dtr(np.random.uniform(-25.0, 25.0)))
 
         # generate environmental data
-        if real_data:
-            self._load_depth_data()
-            self._load_wind_data()
-            self._load_current_data()
-            self._load_wave_data()
-        else:
-            if self.n_resets % 5 == 0:
-                self._sample_river_depth_data(**self.depth_config)
+        finish = False
+        while not finish:
+            if real_data:
+                self._load_depth_data()
+                self._load_wind_data()
+                self._load_current_data()
+                self._load_wave_data()
+            else:
+                if self.n_resets % 5 == 0:
+                    self._sample_river_depth_data(**self.depth_config)
+
+                self._sample_wind_data_follower()
+                self._sample_current_data_follower()
+                self._sample_wave_data_follower()
+
+            # environmental effects
+            self._update_disturbances(lat_init, lon_init)
+
+            # set nps to near-convergence
+            try:
+                self.OS.nps = self.OS._get_nps_from_u(u           = self.OS.nu[0], 
+                                                    psi         = self.OS.eta[2], 
+                                                    V_c         = self.V_c, 
+                                                    beta_c      = self.beta_c, 
+                                                    V_w         = self.V_w, 
+                                                    beta_w      = self.beta_w, 
+                                                    H           = self.H,
+                                                    beta_wave   = self.beta_wave, 
+                                                    eta_wave    = self.eta_wave, 
+                                                    T_0_wave    = self.T_0_wave, 
+                                                    lambda_wave = self.lambda_wave)
+                finish = True
+            except:
+                finish = False
+
+        # update environmental disturbances sampling counter
+        if not real_data:
             self.n_resets += 1
 
-            self._sample_wind_data_follower()
-            self._sample_current_data_follower()
-            self._sample_wave_data_follower()
-
-        # environmental effects
-        self._update_disturbances(lat_init, lon_init)
-
-        # set nps to near-convergence
-        self.OS.nps = self.OS._get_nps_from_u(u           = self.OS.nu[0], 
-                                              psi         = self.OS.eta[2], 
-                                              V_c         = self.V_c, 
-                                              beta_c      = self.beta_c, 
-                                              V_w         = self.V_w, 
-                                              beta_w      = self.beta_w, 
-                                              H           = self.H,
-                                              beta_wave   = self.beta_wave, 
-                                              eta_wave    = self.eta_wave, 
-                                              T_0_wave    = self.T_0_wave, 
-                                              lambda_wave = self.lambda_wave)
         # set course error
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
