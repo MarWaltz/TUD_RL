@@ -55,7 +55,7 @@ class HHOS_Following_Validation(HHOS_Following_Env):
         if real_data:
             self._max_episode_steps = int(1e7)
         else:
-            self._max_episode_steps = 600
+            self._max_episode_steps = 750
 
     def reset(self):
         s = super().reset(OS_wp_idx=0 if self.real_data else 10, real_data=self.real_data)
@@ -86,11 +86,11 @@ class HHOS_Following_Validation(HHOS_Following_Env):
                     # only on river
                     if self.DepthData["data"][lat_idx, lon_idx] > 1.0:
 
-                        if (56.06 <= lat <= 56.08):
+                        if (56.02 <= lat <= 56.04):
                             speed_mps[lat_idx, lon_idx] = V_const
                             angle[lat_idx, lon_idx] = 3/2*np.pi
 
-                        elif (56.10 <= lat <= 56.12):
+                        elif (56.06 <= lat <= 56.08):
                             speed_mps[lat_idx, lon_idx] = V_const
                             angle[lat_idx, lon_idx] = 1/2*np.pi
 
@@ -120,9 +120,9 @@ class HHOS_Following_Validation(HHOS_Following_Env):
             period = np.zeros_like(height)
             angle = np.zeros_like(height)
 
-            height_const = 1.0
+            height_const = 3.0
             length_const = 20
-            period_const = 3
+            period_const = 5
 
             # sampling
             for lat_idx, lat in enumerate(self.WaveData["lat"]):
@@ -131,13 +131,13 @@ class HHOS_Following_Validation(HHOS_Following_Env):
                     # only on river
                     if self.DepthData["data"][lat_idx, lon_idx] > 1.0:
 
-                        if (56.06 <= lat <= 56.08):
+                        if (56.02 <= lat <= 56.04):
                             height[lat_idx, lon_idx] = height_const
                             length[lat_idx, lon_idx] = length_const
                             period[lat_idx, lon_idx] = period_const
                             angle[lat_idx, lon_idx] = 3/2*np.pi
 
-                        elif (56.10 <= lat <= 56.12):
+                        elif (56.06 <= lat <= 56.08):
                             height[lat_idx, lon_idx] = height_const
                             length[lat_idx, lon_idx] = length_const
                             period[lat_idx, lon_idx] = period_const
@@ -170,7 +170,7 @@ class HHOS_Following_Validation(HHOS_Following_Env):
 
             speed_mps = np.zeros((len(self.WindData["lat"]), len(self.WindData["lon"])))
             angle = np.zeros_like(speed_mps)
-            V_const = 10.0
+            V_const = 20.0
 
             for lat_idx, lat in enumerate(self.WindData["lat"]):
                 for lon_idx, lon in enumerate(self.WindData["lon"]):
@@ -178,11 +178,11 @@ class HHOS_Following_Validation(HHOS_Following_Env):
                     # only on river
                     if self.DepthData["data"][lat_idx, lon_idx] > 1.0:
 
-                        if (56.06 <= lat <= 56.08):
+                        if (56.02 <= lat <= 56.04):
                             speed_mps[lat_idx, lon_idx] = V_const
                             angle[lat_idx, lon_idx] = 3/2*np.pi
 
-                        elif (56.10 <= lat <= 56.12):
+                        elif (56.06 <= lat <= 56.08):
                             speed_mps[lat_idx, lon_idx] = V_const
                             angle[lat_idx, lon_idx] = 1/2*np.pi
 
@@ -227,6 +227,10 @@ class HHOS_Following_Validation(HHOS_Following_Env):
         elif self.step_cnt >= self._max_episode_steps:
             d = True
         
+        # reach end of path
+        elif self.OS.glo_wp3_idx >= (self.GlobalPath.n_wps-1):
+            d = True
+
         # viz
         if d:
             if self.real_data:
@@ -234,3 +238,6 @@ class HHOS_Following_Validation(HHOS_Following_Env):
             else:
                 self.plotter.dump(name="Follow_" + self.val_disturbance)
         return d
+
+    #def render(data=None):
+    #    pass
