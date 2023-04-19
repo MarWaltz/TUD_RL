@@ -46,7 +46,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.depth_config = {"validation" : False}
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.075
+        self.show_lon_lat = 0.15
 
         # episode length
         self._max_episode_steps = 500
@@ -244,14 +244,6 @@ class HHOS_Following_Env(HHOS_Base_Env):
 
         # init state
         self._set_state()
-
-        # viz
-        if hasattr(self, "plotter"):
-            self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
-                    OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
-                        glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
-                        T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
-                                rud_angle=self.OS.rud_angle, nps=self.OS.nps)
         return self.state
 
     def step(self, a:np.ndarray):

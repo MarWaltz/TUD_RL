@@ -446,7 +446,7 @@ def k_r_TS_dyn(DCPA:float, TCPA:float, a1:float=math.log(0.1)/3704, a2:float=1.5
     else:
         return math.exp(a1*(DCPA + a2*TCPA))
 
-def apf(OS : KVLCC2, 
+def apf_DZN(OS : KVLCC2, 
         TSs : List[KVLCC2], 
         G: dict, 
         dh_clip: float = None,

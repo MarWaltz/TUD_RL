@@ -1055,10 +1055,10 @@ class HHOS_Base_Env(gym.Env):
                 # TSs
                 if hasattr(self, "TSs"):
                     for TS in self.TSs:
-                        if "River" in type(self).__name__:
+                        if "River" in type(self).__name__ and hasattr(TS, "rev_dir"):
                             col = "darkgoldenrod" if TS.rev_dir else "purple"
                         else:
-                            col = None
+                            col = "yellow"
                         ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True if not "River" in type(self).__name__ else False)
 
                         #if hasattr(TS, "path"):

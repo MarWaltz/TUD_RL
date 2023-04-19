@@ -57,12 +57,13 @@ class TargetShip(KVLCC2):
 
     def opensea_control(self, other_vessels : List[KVLCC2]):
         """Defines target ship behavior for vessels on open sea."""
+        raise Exception("Careful here, not implemented. Check non-cooperative vessels.")
         if self.APF_moves:
             _, dh = apf(OS=self, TSs=other_vessels, G={"x":self.path.east[100], "y":self.path.north[100]},
                         dh_clip=dtr(10.0), r_min=NM_to_meter(1.0), k_r_TS=2.5e10)
             self.eta[2] = angle_to_2pi(self.eta[2] + dh)
 
-        elif self.random_moves:
+        elif self.non_cooperative:
             self.eta[2] = angle_to_2pi(self.eta[2] + dtr(float(np.random.uniform(-5.0, 5.0, size=1))))
 
     def river_control(self, other_vessels : List[KVLCC2], VFG_K : float):

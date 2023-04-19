@@ -133,14 +133,6 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
             self._set_state()
         else:
             self.state = None
-
-        # viz
-        if hasattr(self, "plotter"):
-            self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
-                    OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
-                        glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
-                        T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
-                                rud_angle=self.OS.rud_angle, nps=self.OS.nps)
         return self.state
 
     def step(self, a, control_TS=True):
@@ -453,6 +445,22 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
             TS.glo_wp1_N, TS.glo_wp1_E = path.north[TS.glo_wp1_idx], path.east[TS.glo_wp1_idx]
             TS.glo_wp2_N, TS.glo_wp2_E = path.north[TS.glo_wp2_idx], path.east[TS.glo_wp2_idx]
             TS.glo_wp3_N, TS.glo_wp3_E = path.north[TS.glo_wp3_idx], path.east[TS.glo_wp3_idx]
+
+        # careful: we want static obstacles in scenario 6 and cannot spawn the target ships 1, 2, 3 with zero heading due to VFG guidance
+        # thus, we hardcode the resulting heading right away
+        if scenario == 6 and n in [1, 2, 3]:
+
+            # straight
+            if TS.eta[2] == 0.0:
+                TS.eta[2] = 0.049958397
+
+            # right curve
+            elif TS.eta[2] < np.pi:
+                TS.eta[2] = [0.79247516, 1.2130557, 1.583511, 1.9536078, 2.240454][n]
+
+            # left curve
+            else:
+                TS.eta[2] = [5.4907103, 5.170374, 4.799682, 4.4292483, 4.0427313][n]
 
         # predict converged speed of sampled TS
         TS.nps = TS._get_nps_from_u(TS.nu[0], psi=TS.eta[2])

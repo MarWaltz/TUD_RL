@@ -1,19 +1,20 @@
 ---
 env:
   name: HHOS-RiverPipeline-v0
-  max_episode_steps: 100_000
+  max_episode_steps: 10_000_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: river_actor.pth
+    planner_weights: LSTMRecTD3_actor_weights.pth
     planner_safety_net: false
-    global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/Path_latlon.pickle
-    depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/depth/DepthData_latlon.pickle
-    current_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/currents/CurrentData_latlon.pickle
-    wind_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/winds/WindData_latlon.pickle
-    wave_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/waves/WaveData_latlon.pickle
-    N_TSs_max: 10
+    global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/Path_HHCH.pickle
+    depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/DepthData.pickle
+    current_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/CurrentData_calm.pickle
+    wind_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WindData_calm.pickle
+    wave_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WaveData_calm.pickle
+    AIS_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/AIS_2021_07_03-calm.csv
+    N_TSs_max: 50
   info: MDP
 agent:
   DDPG: {}

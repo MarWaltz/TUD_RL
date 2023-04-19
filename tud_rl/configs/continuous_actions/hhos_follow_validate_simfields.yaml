@@ -1,7 +1,7 @@
 ---
 env:
   name: HHOS-Following-Validation-v0
-  max_episode_steps: 600
+  max_episode_steps: 750
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -12,7 +12,7 @@ env:
     current_data_file:
     wind_data_file:
     wave_data_file:
-    val_disturbance: winds 
+    val_disturbance: waves
   info: MDP
 agent:
   DDPG: {}

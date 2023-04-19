@@ -198,7 +198,7 @@ class HHOS_OpenPlanning_Validation(HHOS_OpenPlanning_Env):
         
         # deterministic behavior in evaluation
         for TS in self.TSs:
-            TS.random_moves = False
+            TS.non_cooperative = False
 
             if self.APF_TS:
                 TS.APF_moves = True
