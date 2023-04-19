@@ -31,7 +31,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
         self.N_TSs_random = N_TSs_random    # if true, samples a random number in [0, N_TSs] at start of each episode
                                             # if false, always have N_TSs_max
         # vector field guidance
-        self.VFG_K    = 0.01
+        self.VFG_K    = 0.001
         self.VFG_K_TS = 0.001
 
         # path characteristics
@@ -189,8 +189,8 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
     def _init_TSs(self):
         # scenario = 0 means all TS random, no manual configuration
         if self.N_TSs_random:
-            assert self.N_TSs_max == 3, "Go for maximum 3 TSs in HHOS planning."
-            self.N_TSs = np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
+            assert self.N_TSs_max == 10, "Go for maximum 10 TSs in HHOS planning."
+            self.N_TSs = np.random.choice([5, 6, 7, 8, 9, 10]) # np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
         else:
             self.N_TSs = self.N_TSs_max
 
@@ -223,15 +223,20 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
 
         # random
         if scenario == 0:
-            speedy = bool(np.random.choice([0, 1], p=[0.8, 0.2]))
-            d      = self.river_enc_range_max + np.random.normal(loc=0.0, scale=20.0)
+            speedy = bool(np.random.choice([0, 1], p=[0.9, 0.1]))
 
             if speedy: 
                 rev_dir = False
                 spd     = np.random.uniform(1.3, 1.5) * self.base_speed
+                d       = self.river_enc_range_max + np.random.uniform(low=-NM_to_meter(0.2), high=NM_to_meter(0.2))
             else:
                 rev_dir = bool(random.getrandbits(1))
                 spd     = np.random.uniform(0.4, 0.8) * self.base_speed
+
+                if rev_dir:
+                    d = 3*self.river_enc_range_max + np.random.uniform(low=-NM_to_meter(0.4), high=NM_to_meter(0.4))
+                else:
+                    d = self.river_enc_range_max + np.random.uniform(low=-NM_to_meter(0.2), high=NM_to_meter(0.2))
             offset = np.random.uniform(-20.0, 50.0)
 
         # vessel train

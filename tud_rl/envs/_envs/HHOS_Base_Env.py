@@ -798,7 +798,7 @@ class HHOS_Base_Env(gym.Env):
             # draw the polygon (A is included twice to create a closed shape)
             lons = [A_lon, B_lon, D_lon, C_lon, A_lon]
             lats = [A_lat, B_lat, D_lat, C_lat, A_lat]
-            ax.plot(lons, lats, color=color, linewidth=2.0)
+            ax.plot(lons, lats, color=color, linewidth=2.0, zorder=10)
 
             # plot ship domain
             if with_domain:
@@ -861,7 +861,7 @@ class HHOS_Base_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 2 == 0:
+        if self.step_cnt % 1 == 0:
             
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:
@@ -1056,7 +1056,7 @@ class HHOS_Base_Env(gym.Env):
                 if hasattr(self, "TSs"):
                     for TS in self.TSs:
                         if "River" in type(self).__name__ and hasattr(TS, "rev_dir"):
-                            col = "darkgoldenrod" if TS.rev_dir else "purple"
+                            col = "darkgoldenrod" if TS.rev_dir else "gray"
                         else:
                             col = "yellow"
                         ax = self._render_ship(ax=ax, vessel=TS, color=col, plot_CR=True if not "River" in type(self).__name__ else False)
@@ -1078,7 +1078,8 @@ class HHOS_Base_Env(gym.Env):
                         # global
                         ax.plot(self.GlobalPath.lon, self.GlobalPath.lat, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")
                         if "River" in type(self).__name__:
-                            ax.plot(self.RevGlobalPath.lon, self.RevGlobalPath.lat, marker='o', color="darkgoldenrod", linewidth=1.0, markersize=3, label="Reversed Global Path")
+                            ax.plot(self.RevGlobalPath.lon, self.RevGlobalPath.lat, marker='o', color="darkgoldenrod", linewidth=1.0, 
+                                    alpha=0.5, markersize=3, label="Reversed Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
@@ -1086,7 +1087,8 @@ class HHOS_Base_Env(gym.Env):
                                 label = "Local Path" + f" ({self.planning_method})"
                             else:
                                 label = "Local Path"
-                            ax.plot(self.LocalPath.lon, self.LocalPath.lat, marker='o', color=loc_path_col, linewidth=1.0, markersize=3, label=label)
+                            ax.plot(self.LocalPath.lon, self.LocalPath.lat, marker='o', color=loc_path_col, linewidth=1.0, 
+                                    alpha=0.5, markersize=3, label=label)
                         ax.legend(loc="lower left")
 
                         # wps of OS
