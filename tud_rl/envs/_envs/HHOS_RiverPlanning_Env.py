@@ -40,7 +40,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
         self.dist_des_rev_path = 200
 
         # depth configuration
-        self.depth_config = {"validation" : False}
+        self.depth_config = {"offset" : 100, "noise" : True}
 
         # weights
         self.w_ye   = w_ye
@@ -190,7 +190,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
         # scenario = 0 means all TS random, no manual configuration
         if self.N_TSs_random:
             assert self.N_TSs_max == 10, "Go for maximum 10 TSs in HHOS planning."
-            self.N_TSs = np.random.choice([5, 6, 7, 8, 9, 10]) # np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
+            self.N_TSs = np.random.choice(self.N_TSs_max + 1) # np.random.choice([0, 1, 2, 3], p=[0.1, 0.3, 0.3, 0.3])
         else:
             self.N_TSs = self.N_TSs_max
 
@@ -223,7 +223,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
 
         # random
         if scenario == 0:
-            speedy = bool(np.random.choice([0, 1], p=[0.9, 0.1]))
+            speedy = bool(np.random.choice([0, 1], p=[0.85, 0.15]))
 
             if speedy: 
                 rev_dir = False
@@ -559,7 +559,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
             'constant', constant_values=np.nan).astype(np.float32)
 
         # ----------------------- LiDAR for depth -----------------------------
-        state_LiDAR = self._get_closeness_from_lidar(self._sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)[0])
+        state_LiDAR = self._get_closeness_from_lidar(self.sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)[0])
 
         # ------------------------- aggregate information ------------------------
         self.state = np.concatenate([state_OS, state_path, state_LiDAR, state_TSs]).astype(np.float32)
@@ -620,8 +620,17 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
                     r_Gaussian_colls.append(-math.exp(-(dx)**2/dx_norm) * math.exp(-(dy)**2/dy_norm))
 
                 # violating traffic rules
+                only_speedys = True
+                for TS_cpy in self.TSs:
+                    if TS_cpy is not TS:
+                        rev_dir = (abs(head_inter(head_OS=head0, head_TS=TS_cpy.eta[2], to_2pi=False)) >= dtr(90.0))
+                        if not rev_dir:
+                            if (TS_cpy._get_V() < self.OS._get_V()) and (ED(N0=N0, E0=E0, N1=TS_cpy.eta[0], E1=TS_cpy.eta[1], sqrt=True) <= sight):
+                                only_speedys = False
+                                break
+
                 if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=self.OS._get_V(), N1=N1, E1=E1, \
-                    head1=head1, v1=TS._get_V()):
+                    head1=head1, v1=TS._get_V(), only_speedys=only_speedys):
                     self.r_rule += pen_traffic_rules
         self.r_coll += min(r_Gaussian_colls)
 

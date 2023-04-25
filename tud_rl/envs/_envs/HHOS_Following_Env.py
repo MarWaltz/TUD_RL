@@ -43,10 +43,10 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.loc_path_upd_freq = 24 # results in a new local path every 2mins with delta t being 5s
 
         # depth configuration
-        self.depth_config = {"validation" : False}
+        self.depth_config = {"offset" : 100, "noise" : True}
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.15
+        self.show_lon_lat = 0.05
 
         # episode length
         self._max_episode_steps = 500

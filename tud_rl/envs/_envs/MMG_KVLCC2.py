@@ -167,7 +167,7 @@ class KVLCC2:
             self.ship_domain_A = 2 * self.Lpp + 0.5 * self.Lpp
             self.ship_domain_B = 2 * self.B + 0.5 * self.B   
             self.ship_domain_C = 2 * self.B + 0.5 * self.Lpp
-            self.ship_domain_D = 4 * self.B + 0.5 * self.B
+            self.ship_domain_D = 2 * self.B + 0.5 * self.B #4 * self.B + 0.5 * self.B
 
         #---------------------------- Dynamic inits ----------------------------------------
         self.m_x = self.m_x_dash * (0.5 * self.rho * (self.Lpp**2) * self.d)
@@ -608,7 +608,6 @@ class KVLCC2:
             nu = np.array([u, 0.0, 0.0])
             return self._mmg_dynamics(nu=nu, rud_angle=0.0, nps=nps, V_w=V_w, beta_w=beta_w, V_c=V_c, beta_c=beta_c, H=H, psi=psi,
                                       beta_wave=beta_wave, eta_wave=eta_wave, T_0_wave=T_0_wave, lambda_wave=lambda_wave)[0]
-
         return newton(func=to_find_root_of, x0=2.0, maxiter=10_000)
 
 

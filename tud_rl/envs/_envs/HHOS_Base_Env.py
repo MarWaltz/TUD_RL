@@ -67,7 +67,7 @@ class HHOS_Base_Env(gym.Env):
         A = 2 * Lpp + 0.5 * Lpp
         B = 2 * width + 0.5 * width
         C = 2 * width + 0.5 * Lpp
-        D = 4 * width + 0.5 * width
+        D = 2 * width + 0.5 * width #4 * width + 0.5 * width
 
         dists = [get_ship_domain(A=A, B=B, C=C, D=D, OS=None, TS=None, ang=rad) for rad in rads]
         self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
@@ -221,14 +221,13 @@ class HHOS_Base_Env(gym.Env):
         self.lat_lims = [np.min(lat)-self.off, np.max(lat)+self.off]
         self.lon_lims = [np.min(lon)-self.off, np.max(lon)+self.off]
 
-    def _sample_river_depth_data(self, validation:bool):
+    def _sample_river_depth_data(self, offset:float, noise:bool):
         """Generates random depth data following Paulig & Okhrin (2023)."""
         path_n = np.zeros_like(self.GlobalPath.north)
         path_e = np.zeros_like(self.GlobalPath.east)
 
         # use an offset since the global path should not lie directly in the center of the river
-        offset = 100
-        nwps   = len(path_n)
+        nwps = len(path_n)
         for i in range(nwps):
             n = self.GlobalPath.north[i]
             e = self.GlobalPath.east[i]
@@ -251,12 +250,12 @@ class HHOS_Base_Env(gym.Env):
         C_npts    = 10     # per side, so 500m total width
         C_pt_dist = 25
 
-        if validation:
-            noise = lambda: 0.0
-            H_max = 35
-        else:
+        if noise:
             noise = lambda: np.random.uniform(-2.0, 2.0)
             H_max = np.clip(float(np.random.exponential(scale=35, size=1)), 20, 100)
+        else:
+            noise = lambda: 0.0
+            H_max = 35
 
         # prep final lists
         depth_n = []
@@ -493,7 +492,7 @@ class HHOS_Base_Env(gym.Env):
                 return True
         return False
 
-    def _sense_LiDAR(self, N0:float, E0:float, head0:float, check_lane_river:bool = False):
+    def sense_LiDAR(self, N0:float, E0:float, head0:float, check_lane_river:bool = False):
         """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
         The first beam is defined in direction of the heading of the OS. Each beam consists of 'n_dots_per_beam' sub-points, which are sequentially considered. 
         Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
@@ -587,7 +586,7 @@ class HHOS_Base_Env(gym.Env):
             return (4*b-3*a) + ang * (a-b)/90.0
 
     def _violates_river_traffic_rules(self, N0:float, E0:float, head0:float, v0:float, N1:float, E1:float, head1:float,\
-        v1:float) -> bool:
+        v1:float, only_speedys:bool) -> bool:
         """Checks whether a situation violates the rules on the Elbe from Lighthouse Tinsdal to Cuxhaven.
         Args:
             N0(float):     north of OS
@@ -597,7 +596,8 @@ class HHOS_Base_Env(gym.Env):
             N1(float):     north of TS
             E1(float):     east of TS
             head1(float):  heading of TS
-            v1(float):     speed of TS"""
+            v1(float):     speed of TS
+            only_speedys(bool): whether only faster TSs are in the proximity of the agent"""
         # preparation
         ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
         rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= dtr(90.0))
@@ -608,12 +608,18 @@ class HHOS_Base_Env(gym.Env):
         # check whether TS is too far away
         if ED_OS_TS > river_enc_range:
             return False
-
-        # normal target ships should be overtaken on their portside
         else:
+            # normal target ships should be overtaken on their portside
             if (not rev_dir) and (v0 > v1):
                 if dtr(90.0) <= bng_rel_TS_pers <= dtr(180.0):
                     return True
+
+            # if there are only speedys around, they should pass the OS on their starboard side
+            else:
+                if only_speedys:
+                    if (not rev_dir) and (v0 < v1):
+                        if dtr(270.0) <= bng_rel_TS_pers <= dtr(360.0):
+                            return True
         return False
 
     def _on_river(self, N0:float, E0:float):
@@ -621,7 +627,7 @@ class HHOS_Base_Env(gym.Env):
         
         Returns:
             bool, True if on river, False if on open sea"""
-        dists, _, _, _ = self._sense_LiDAR(N0=N0, E0=E0, head0=0.0)
+        dists, _, _, _ = self.sense_LiDAR(N0=N0, E0=E0, head0=0.0)
         if all(dists == self.lidar_range):
             return False
         else:
@@ -729,11 +735,11 @@ class HHOS_Base_Env(gym.Env):
         
         if hasattr(self, "WindData"):
             wind = r"$V_{\rm wind}$" + f" [kn]: {mps_to_knots(self.V_w):.2f}, " + r"$\psi_{\rm wind}$" + f" [°]: {rtd(self.beta_w):.2f}"
-            out = out + "\n" + wind
+            out = out + "\n" + wind + ", "
 
         if hasattr(self, "CurrentData"):
             current = r"$V_{\rm current}$" + f" [m/s]: {self.V_c:.2f}, " + r"$\psi_{\rm current}$" + f" [°]: {rtd(self.beta_c):.2f}"
-            out = out + "\n" + current
+            out = out + current
         
         if hasattr(self, "WaveData"):
             if any([pd.isnull(ele) or np.isinf(ele) or ele is None for ele in\
@@ -1155,10 +1161,12 @@ class HHOS_Base_Env(gym.Env):
                             headwidth=2.0, color="purple", scale=10)
 
                 #--------------------- LiDAR sensing ------------------------
-                if self.plot_lidar and self.plot_in_latlon and "River" in type(self).__name__ and hasattr(self, "_sense_LiDAR"):
-                    lidar_lat_lon = self._sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)[1]
+                if self.plot_lidar and self.plot_in_latlon and "River" in type(self).__name__ and hasattr(self, "sense_LiDAR"):
+                    L_dists, lidar_lat_lon, L_n, L_e  = self.sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)
 
-                    for _, latlon in enumerate(lidar_lat_lon):
+                    for i, latlon in enumerate(lidar_lat_lon):
+                        #if L_dists[i] < 150:
+                        #    ax.scatter(latlon[1], latlon[0], color="black", zorder=20)
                         ax.plot([OS_lon, latlon[1]], [OS_lat, latlon[0]], color="goldenrod", alpha=0.4)
 
             #plt.gca().set_aspect('equal')

@@ -52,7 +52,7 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
                                 "phi_min" : 120, "phi_max" : 120, "rad_min" : 2000, "rad_max" : 2000, "build" : "right_curved"}
 
         # depth configuration
-        self.depth_config = {"validation" : True}
+        self.depth_config = {"offset" : 100, "noise" : False}
 
         self._max_episode_steps = 100
 
