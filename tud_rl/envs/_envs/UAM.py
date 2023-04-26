@@ -1,3 +1,4 @@
+import random
 from copy import copy
 from string import ascii_letters
 from typing import List
@@ -61,14 +62,16 @@ class Destination:
         entered_open  = np.zeros(len(planes), dtype=bool)
 
         for i, p in enumerate(planes):
-            if p.D_dest <= self.radius: 
-
-                # close if someone enters             
+            if p.D_dest <= self.radius:            
                 if self._is_open:
                     entered_open[i] = True
-                    self.close()
                 else:
                     entered_close[i] = True
+
+        #  close if someone entered
+        if any(entered_open):
+            self.close()
+
         return entered_close, entered_open
 
     def open(self):
@@ -108,25 +111,20 @@ class UAM(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra.
     Note: If multi_policy is True, each plane is considered an agent. Otherwise, the first plane operates as a single agent."""
     def __init__(self, 
-                 N_agents     :float, 
+                 N_agents_max :int, 
                  multi_policy :bool, 
-                 discrete_acts:bool,
-                 RIAL         :bool,
-                 full_RL      :bool, 
-                 w_coll       :float, 
-                 w_goal       :float):
+                 prio:bool,
+                 full_RL:bool, 
+                 w_coll:float, 
+                 w_goal:float):
         super(UAM, self).__init__()
 
         # setup
-        self.N_agents = N_agents
-        assert N_agents > 1, "Need at least two aircrafts."
+        self.N_agents_max = N_agents_max
+        assert N_agents_max > 1, "Need at least two aircrafts."
 
-        self.multi_policy  = multi_policy
-        self.discrete_acts = discrete_acts
-
-        assert not (RIAL and not discrete_acts), "RIAL for continuous action spaces is not implemented yet."
-        assert not (RIAL and multi_policy), "RIAL in the multi-policy setting, e.g. MADDDPG, is not yet implemented."
-        self.RIAL = RIAL
+        self.multi_policy = multi_policy
+        self.prio = prio
 
         self.acalt = 300 # [m]
         self.actas = 15  # [m/s]
@@ -143,7 +141,6 @@ class UAM(gym.Env):
         # domain params
         self.incident_dist = 100 # [m]
         self.accident_dist = 10  # [m]
-
         self.clock_degs = np.linspace(0.0, 360.0, num=100, endpoint=True)
 
         # destination
@@ -154,39 +151,29 @@ class UAM(gym.Env):
         self.perf = OpenAP(self.actype, self.actas, self.acalt)
 
         # config
-        self.obs_per_TS = 4
-        if self.RIAL:
-            self.obs_per_TS += 1  # always plus one since there is only one communication signal, which has two possible realizations
-
-        self.obs_size = 4 + self.obs_per_TS*(self.N_agents-1)
+        self.OS_obs     = 5 if prio else 4
+        self.obs_per_TS = 5 if prio else 4
+        self.obs_size   = self.OS_obs + self.obs_per_TS*(self.N_agents_max-1)
 
         self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(self.obs_size,  np.inf, dtype=np.float32))
-        if discrete_acts:
-            if self.RIAL:
-                self.action_space = spaces.Discrete(6)
-            else:
-                self.action_space = spaces.Discrete(3)
-        else:
-            self.act_size = 1
-            self.action_space = spaces.Box(low  = np.full(self.act_size, -1.0, dtype=np.float32), 
-                                           high = np.full(self.act_size, +1.0, dtype=np.float32))
+        self.act_size = 1
+        self.action_space = spaces.Box(low  = np.full(self.act_size, -1.0, dtype=np.float32), 
+                                        high = np.full(self.act_size, +1.0, dtype=np.float32))
         self._max_episode_steps = 500
 
         # viz
         self.plot_reward = True
-        self.plot_state  = False
+        self.plot_state  = True
 
-        atts = ["D_TS", "bng_TS", "V_R", "C_T"]
-        if self.RIAL:
-            atts += ["comm"]
+        atts = ["D_TS", "bng_TS", "V_R", "C_T", "next"]
 
         other_names = []
-        for i in range(self.N_agents-1):
+        for i in range(self.N_agents_max-1):
             others = [ele + ascii_letters[i] for ele in atts]
             other_names += others
 
-        self.obs_names = ["bng_goal", "D_goal", "t_close"] + other_names
+        self.obs_names = ["bng_goal", "D_goal", "next", "t_close", "t_open"] + other_names
 
     def reset(self):
         """Resets environment to initial state."""
@@ -200,49 +187,49 @@ class UAM(gym.Env):
         # create some aircrafts
         self.planes:List[Plane] = []
 
-        if self.multi_policy or self.full_RL:
-            self.N_planes = self.N_agents
+        if self.multi_policy:
+            self.N_planes = self.N_agents_max
         else:
-            self.N_planes = np.random.choice(np.arange(2, self.N_agents+1))
+            self.N_planes = np.random.choice([2, 4, 6, 8, 10])
 
         for n in range(self.N_planes):
-            self.planes.append(self._spawn_plane(n))
+            self.planes.append(self._spawn_plane(n, random=bool(random.getrandbits(1))))
+
+        # init live times
+        if self.prio:
+            self.ts_alive = np.array(random.sample(population=list(range(0, 61)), k=self.N_planes))
+            self.ts_alive[0] = 100
 
         # reset dest
         self.dest.reset()
-
-        # init communication signals from last time step
-        if self.RIAL:
-            self.comm_tm1 = [0] * self.N_planes
 
         # init state
         self._set_state()
         self.state_init = self.state
         return self.state
 
-    def _spawn_plane(self, n:int=None):
+    def _spawn_plane(self, n:int=None, random:bool=False):
         """Spawns the n-th plane. Currently, the argument is not in use but might be relevant for some validation scenarios."""
         # sample heading and speed
         hdg = float(np.random.uniform(0.0, 360.0, size=1))
         tas = float(np.random.uniform(self.actas-3.0, self.actas+3.0, size=1))
-        
+
+        if random:
+            qdr  = float(np.random.uniform(0.0, 360.0, size=1))
+            dist = float(np.random.uniform(low=self.dest.radius, high=self.dest.spawn_radius, size=1))
+        else:
+            qdr  = hdg
+            dist = self.dest.spawn_radius
+
         # determine origin
-        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=hdg, dist=meter_to_NM(self.dest.spawn_radius))
+        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(dist))
 
         # consider behavior type
-        if self.multi_policy or self.full_RL:
-            role = "RL"
-        else:
-            if n == 0:
-                role = "RL"
-            else:
-                role = np.random.choice(["RL", "VFG", "RND"], p=[0.5, 0.5, 0.0], size=1)[0]
-        p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)   
+        p = Plane(role="RL", dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(hdg+180)%360, tas=tas)   
 
         # compute initial distance to destination
-        p.D_dest       = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
-        p.D_dest_old   = copy(p.D_dest)
-        p.just_spawned = True
+        p.D_dest     = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
+        p.D_dest_old = copy(p.D_dest)
         return p
 
     def _set_state(self):
@@ -255,13 +242,7 @@ class UAM(gym.Env):
             self.state = self._get_state(0)
 
             if self.step_cnt == 0:
-                self.s_multi_hist = np.zeros((self.history_length, self.N_planes, self.obs_size))
-
-                if self.discrete_acts:
-                    self.a_multi_hist = np.zeros((self.history_length, self.N_planes, 1))
-                else:
-                    self.a_multi_hist = np.zeros((self.history_length, self.N_planes, self.act_size))
-                    
+                self.s_multi_hist = np.zeros((self.history_length, self.N_planes, self.obs_size))                   
                 self.hist_len = 0
                 self.s_multi_old = np.zeros((self.N_planes, self.obs_size))
             else:
@@ -293,19 +274,21 @@ class UAM(gym.Env):
         # select plane of interest
         p = self.planes[i]
 
-        # distance, bearing to goal, time to opening, time since open
+        # distance, bearing to goal, time alive, time to opening, time since open
         abs_bng_goal, d_goal = qdrdist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon) # outputs ABSOLUTE bearing
         bng_goal = angle_to_pi(angle_to_2pi(dtr(abs_bng_goal)) - dtr(p.hdg))
-        s_i = np.array([bng_goal/np.pi,\
-                        NM_to_meter(d_goal)/self.dest.spawn_radius,\
-                        1.0-self.dest.t_nxt_open/self.dest.t_close,\
+        s_i = np.array([bng_goal/np.pi,
+                        NM_to_meter(d_goal)/self.dest.spawn_radius,
+                        1.0-self.dest.t_nxt_open/self.dest.t_close,
                         1.0-self.dest.t_open_since/self.dest.t_close])
+        if self.prio:
+            s_i = np.append(s_i, [1.0 if self.ts_alive[i] == np.max(self.ts_alive) else -1.0])
 
         # information about other planes
         if self.N_planes > 1:
             TS_info = []
             for j, other in enumerate(self.planes):
-                if p is not other:
+                if i != j:
                     # relative speed
                     v_r = other.tas - p.tas
 
@@ -320,10 +303,10 @@ class UAM(gym.Env):
                     # aggregate
                     j_info = [d, bng, v_r, C_T]
 
-                    # possibly add communication signal
-                    if self.RIAL:
-                        j_info.append(self.comm_tm1[j])
-                    
+                    # time alive
+                    if self.prio:
+                        j_info += [1.0 if self.ts_alive[j] == np.max(self.ts_alive) else -1.0]
+
                     TS_info.append(j_info)
 
             # sort array according to distance
@@ -331,99 +314,56 @@ class UAM(gym.Env):
 
             # ghost ship padding not needed since we always demand at least two planes
             # however, we need to pad NA's as usual in single-agent LSTMRecTD3
-            if not self.multi_policy:
-                desired_length = self.obs_per_TS * (self.N_agents-1)
+            if (not self.multi_policy):
+                desired_length = self.obs_per_TS * (self.N_agents_max-1)
                 TS_info = np.pad(TS_info, (0, desired_length - len(TS_info)), 'constant', constant_values=np.nan).astype(np.float32)
 
             s_i = np.concatenate((s_i, TS_info))
         return s_i
-
-    def _a_to_comm(self, a):
-        """Relates a discrete action to a communication signal."""
-        assert a in [0, 1, 2, 3, 4, 5], "Unknown action."
-
-        if a in [0, 1, 2]:
-            return -1.0
-        else:
-            return 1.0
 
     def step(self, a):
         """Arg a:
         In multi-policy scenarios with continuous actions and no communication:
             np.array([N_planes, action_dim])
 
-        In single-policy with continuous actions and no communication:
-            [np.array([action_dim,]), _agent, whether_to_pick_random_in_RL]
-            
-        In single-policy with discrete actions (regardless of with or without communication):
-            [int, _agent, whether_to_pick_random_in_RL]"""
-
+        In single-policy:
+            _agent"""
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.dt
  
-        # fly all planes in multi-agent situation
+        # fly all planes in multi-policy situation
         if self.multi_policy:
-            [p.upd_dynamics(a=a[i], discrete_acts=self.discrete_acts, perf=self.perf, dest=None) for i, p in enumerate(self.planes)]
+            [p.upd_dynamics(a=a[i], discrete_acts=False, perf=self.perf, dest=None) for i, p in enumerate(self.planes)]
 
-        # in single-agent situation, action corresponds to first plane, while the others are either RL or VFG.
+        # in single-policy situation, action corresponds to first plane, while the others are either RL or VFG
         else:
-            cnt_agent   = a[1]
-            rnd_RL_move = a[2]
+            cnt_agent:_Agent = a
 
             # collect states from planes
             states_multi = self._get_state_multi()
 
-            # prepare storage of communication signals
-            if self.RIAL:
-                comm_new = []
-
             for i, p in enumerate(self.planes):
 
-                # fly first agent-plane based on given action
-                if i == 0:
-                    p.upd_dynamics(a=a[0], discrete_acts=self.discrete_acts, perf=self.perf, dest=None)
+                # fly planes depending on whether they are RL-, VFG-, or RND-controlled
+                if p.role == "RL":
 
-                    if self.RIAL:
-                        comm_new.append(self._a_to_comm(a[0]))
+                    # spatial-temporal recurrent
+                    act = cnt_agent.select_action(s        = states_multi[i], 
+                                                  s_hist   = self.s_multi_hist[:, i, :], 
+                                                  a_hist   = None, 
+                                                  hist_len = self.hist_len)
 
-                # fly remaining planes, depending on whether they are RL-, VFG-, or RND-controlled
+                    # move plane
+                    p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=None)
                 else:
-                    if p.role == "RL":
-                        
-                        # do some random moves at the beginning of training
-                        if rnd_RL_move:
-                            if self.discrete_acts:
-                                if self.RIAL:
-                                    act = np.random.randint(low=0, high=6, size=1, dtype=int).item()
-                                else:
-                                    act = np.random.randint(low=0, high=3, size=1, dtype=int).item()
-                            else:
-                                act = np.random.uniform(low=-1.0, high=1.0, size=1)
+                    raise NotImplementedError()
 
-                        # usual epsilon-greedy or noisy action selection
-                        else:
-                            act = cnt_agent.select_action(s        = states_multi[i], 
-                                                          s_hist   = self.s_multi_hist[:, i, :], 
-                                                          a_hist   = self.a_multi_hist[:, i, :], 
-                                                          hist_len = self.hist_len)
-                        p.upd_dynamics(a=act, discrete_acts=self.discrete_acts, perf=self.perf, dest=None)
+        # update live times
+        if self.prio:
+            self.ts_before_respawn = copy(self.ts_alive)
+            self.ts_alive += 1
 
-                        # store comm signal
-                        if self.RIAL:
-                            comm_new.append(self._a_to_comm(act))
-                    else:
-                        # completely random or VFG-guidance based, argument 'discrete_acts' is irrelevant anyways
-                        p.upd_dynamics(a=None, discrete_acts=self.discrete_acts, perf=self.perf, dest=None)
-
-                        # provide artificial zero communication signal
-                        if self.RIAL:
-                            comm_new.append(0)
-
-            # store communication signal
-            if self.RIAL:
-                self.comm_tm1 = comm_new
-            
         # update distances to destination
         for p in self.planes:
             p.D_dest_old = copy(p.D_dest)
@@ -452,9 +392,14 @@ class UAM(gym.Env):
         """Respawns planes when they entered the open destination area or are at the outer simulation radius."""
         for i, p in enumerate(self.planes):
             if (p.D_dest >= self.dest.respawn_radius) or respawn_flags[i]:
-                self.planes[i] = self._spawn_plane(i)
-            else:
-                p.just_spawned = False
+                
+                # spawn a plane
+                self.planes[i] = self._spawn_plane(i, random=False)
+                
+                # reset living time only due to vertiport respawning
+                if self.prio:
+                    if respawn_flags[i]:
+                        self.ts_alive[i] = 0
 
     def _calculate_reward(self, entered_close:np.ndarray, entered_open:np.ndarray):
         """Args:
@@ -463,25 +408,26 @@ class UAM(gym.Env):
         r_coll = np.zeros((self.N_planes, 1), dtype=np.float32)
         r_goal = np.zeros((self.N_planes, 1), dtype=np.float32)
 
+        # ------- individual reward: collision & leaving map & goal-entering/-approaching -------
+        D_matrix = np.ones((len(self.planes), len(self.planes))) * np.inf
         for i, pi in enumerate(self.planes):
-
-            # consider only first reward in single-agent situation
-            if (not self.multi_policy) and (i != 0):
-                continue
-
-            # collision
             for j, pj in enumerate(self.planes):
                 if i != j:
-                    D = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)
+                    D_matrix[i][j] = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)
 
-                    if D <= self.accident_dist:
-                        r_coll[i] -= 10.0
+        for i, pi in enumerate(self.planes):
 
-                    elif D <= self.incident_dist:
-                        r_coll[i] -= 5.0
+            # collision
+            D = float(np.min(D_matrix[i]))
 
-                    else:
-                        r_coll[i] -= 1*np.exp(-D/(2*self.incident_dist))
+            if D <= self.accident_dist:
+                r_coll[i] -= 10.0
+
+            elif D <= self.incident_dist:
+                r_coll[i] -= 5.0
+
+            else:
+                r_coll[i] -= 1*np.exp(-D/(2*self.incident_dist))
 
             # off-map (+5 agains numerical issues)
             if pi.D_dest > (self.dest.spawn_radius + 5.0): 
@@ -493,13 +439,36 @@ class UAM(gym.Env):
 
             # open goal entering
             if entered_open[i]:
-                r_goal[i] += 5.0
 
-            # incentive structure
-            if self.dest.is_open:
-                r_goal[i] -= self.dest.t_open_since/self.dest.t_close
-            else:
-                r_goal[i] += 0.25
+                # check whether only one vehicle entered
+                if sum(entered_open) == 1:
+
+                    if self.prio:
+                        # check whether the vehicle had the longest living time
+                        if self.ts_before_respawn[i] == np.max(self.ts_before_respawn):
+                            r_goal[i] += 5.0
+
+                        # otherwise punish
+                        else:
+                            r_goal[i] -= 5.0
+                    else:
+                        r_goal[i] += 5.0
+
+                # bad if someone entered simultaneously
+                else:
+                    r_goal[i] -= 5.0
+
+            # open goal approaching for the one who should go next
+            if self.prio:
+                if self.dest.was_open and (self.ts_before_respawn[i] == np.max(self.ts_before_respawn)):
+                    r_goal[i] += (pi.D_dest_old - pi.D_dest)/5.0
+
+        # ------------- collective reward: goal status ----------------
+        # incentive structure
+        if self.dest.is_open:
+            r_goal -= 0.5 * self.dest.t_open_since/self.dest.t_close
+        else:
+            r_goal += 0.25
 
         # aggregate reward components
         r = (self.w_coll*r_coll + self.w_goal*r_goal)/self.w
@@ -526,7 +495,6 @@ class UAM(gym.Env):
                     elif D <= self.incident_dist:
                         self.N_incs += 1
     def __str__(self):
-
         return f"Step: {self.step_cnt}, Sim-Time [s]: {int(self.sim_t)}, # Flight Taxis: {self.N_planes}" + "\n" +\
             f"Time-to-open [s]: {int(self.dest.t_nxt_open)}, Time-since-open[s]: {int(self.dest.t_open_since)}" + "\n" +\
                 f"# Episode-Incidents: {self.N_incs}, # Episode-Accidents: {self.N_accs}" + "\n" +\
@@ -581,9 +549,9 @@ class UAM(gym.Env):
                         self.ax2.r_coll[:, self.step_cnt] = self.r_coll.flatten()
                         self.ax2.r_goal[:, self.step_cnt] = self.r_goal.flatten()
                     else:
-                        self.ax2.r[self.step_cnt] = self.r
-                        self.ax2.r_coll[self.step_cnt] = self.r_coll
-                        self.ax2.r_goal[self.step_cnt] = self.r_goal
+                        self.ax2.r[self.step_cnt] = self.r if isinstance(self.r, float) else float(self.r[0])
+                        self.ax2.r_coll[self.step_cnt] = self.r_coll if isinstance(self.r_coll, float) else float(self.r_coll[0])
+                        self.ax2.r_goal[self.step_cnt] = self.r_goal if isinstance(self.r_goal, float) else float(self.r_goal[0])
 
             if self.plot_state:
                 if self.step_cnt == 0:
@@ -621,7 +589,7 @@ class UAM(gym.Env):
                     self.ax3.set_xlabel("Timestep in episode")
                     self.ax3.set_ylabel("State of Agent 0")
                     self.ax3.set_xlim(0, 50*(np.ceil(self.step_cnt/50)+1))
-                    self.ax3.set_ylim(-2, 2)
+                    self.ax3.set_ylim(-2, 5)
 
                 # ---------------- non-animated artists ----------------
                 # spawning area
@@ -720,7 +688,14 @@ class UAM(gym.Env):
                     self.ax1.draw_artist(self.ax1.lns[i])
 
                     # information
-                    s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
+                    s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + \
+                        f"tas: {p.tas:.1f}"
+
+                    if hasattr(self, "ts_alive"):
+                        s += "\n" + f"t alive: {int(self.ts_alive[i])}"
+                        if self.ts_alive[i] == np.max(self.ts_alive):
+                            s += " (Next!)"
+
                     if hasattr(p, "role"):
                         s += "\n" + f"role: {p.role}"
                     self.ax1.txts[i].set_text(s)
@@ -760,4 +735,4 @@ class UAM(gym.Env):
                 if self.plot_state:
                     self.f.canvas.blit(self.ax3.bbox)
                
-            plt.pause(0.005)
+            plt.pause(0.05)
