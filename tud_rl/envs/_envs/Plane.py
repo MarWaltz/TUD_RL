@@ -656,26 +656,6 @@ class Plane:
         # behavior type
         assert role in ["RL", "VFG", "RND"], "Unknown behavior type of the plane."
         self.role = role
-        if role == "VFG":
-            self._VFG_help(init=True)
-
-    def _VFG_help(self, init=True):
-        """Samples path around destination in 'VFG' planes."""
-        if init:
-            # sample distance
-            self.desired_d_dist = np.random.uniform(low=300, high=800, size=1)
-            
-            # construct path
-            self.path = {}
-            self.path["lat"], self.path["lon"] = map(list, zip(*[qdrpos(latd1=10.0, lond1=10.0, qdr=deg, dist=meter_to_NM(self.desired_d_dist))\
-                for deg in np.linspace(start=0.0, stop=360.0, num=100, endpoint=False)]))
-            self.path["n"], self.path["e"], _ = to_utm(lat=np.array(self.path["lat"]), lon=np.array(self.path["lon"]))
-
-        # set waypoints for VFG control
-        self.n, self.e, _ = to_utm(lat=self.lat, lon=self.lon)
-        self.wp1_idx, self.wp1_N, self.wp1_E, self.wp2_idx, self.wp2_N, self.wp2_E =\
-            get_init_two_wp(n_array=self.path["n"], e_array=self.path["e"], a_n=self.n, a_e=self.e, stop_goal=False)
-        #self.wp1_lat, self.wp1_lon = to_latlon(north=self.wp1_N, east=self.wp1_E, number=32)
 
     def upd_dynamics(self, perf:OpenAP, discrete_acts=False, a=None, dest=None):
         #---------- Atmosphere --------------------------------
@@ -684,8 +664,10 @@ class Plane:
         #---------- Fly the Aircraft --------------------------
         if self.role == "RL":
             self.cnt_hdg, self.cnt_tas = self._RL_control(a, discrete_acts)
+
         elif self.role == "VFG":
             self.cnt_hdg, self.cnt_tas = self._VFG_control()
+
         elif self.role == "RND":
             self.cnt_hdg, self.cnt_tas = self._RND_control()
 
@@ -724,12 +706,7 @@ class Plane:
                 return [self.hdg + self.delta_hdg * a[0], self.tas]
 
     def _VFG_control(self):
-        # waypoint updating
-        self._VFG_help(init=False)
-
-        # control
-        _, dc, _, _ = VFG(N1=self.wp1_N, E1=self.wp1_E, N2=self.wp2_N, E2=self.wp2_E, NA=self.n, EA=self.e, K=0.001)
-        return rtd(dc), self.tas
+        return rtd(self.dc), self.tas
 
     def _RND_control(self):
         return self.hdg + float(np.random.uniform(low=-self.delta_hdg, high=self.delta_hdg)), self.tas
