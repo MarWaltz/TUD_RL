@@ -1,3 +1,4 @@
+import random
 from copy import copy
 from string import ascii_letters
 from typing import List, Union
@@ -107,8 +108,8 @@ class Destination:
 
 
 class Path:
-    """Defines a path in the for flight taxis."""
-    def __init__(self, lat=None, lon=None, north=None, east=None, **kwargs) -> None:
+    """Defines a path for flight taxis."""
+    def __init__(self, lat=None, lon=None, north=None, east=None) -> None:
         # checks
         assert not ((lat is None and lon is None) and (north is None and east is None)), "Need some data to construct the path."
 
@@ -135,6 +136,12 @@ class Path:
         else:
             setattr(self, name, data)
 
+    def _reverse(self):
+        """Reverse the path."""
+        self.north = np.flip(self.north)
+        self.east  = np.flip(self.east)
+        self.lat   = np.flip(self.lat)
+        self.lon   = np.flip(self.lon)
 
 class UAM_Modular(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra.
@@ -205,12 +212,19 @@ class UAM_Modular(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
+        # set circle radius of RL-controlled flight taxi
+        self.main_circle = np.random.uniform(low=self.dest.radius+200, high=self.dest.spawn_radius-200, size=1)
+
         # create some aircrafts
         self.planes:List[Plane] = []
 
         self.N_planes = np.random.choice(list(range(2, self.N_agents_max+1)))
         for n in range(self.N_planes):
-            role = "RL" if n == 0 else np.random.choice(["VFG", "RND"], p=[0.75, 0.25])
+            if n == 0:
+                role = "RL" 
+            else:
+                role = np.random.choice(["VFG", "RND"], p=[0.75, 0.25])
+
             self.planes.append(self._spawn_plane(role))
 
         # interface to high-level module including goal decision and path planning
@@ -228,6 +242,36 @@ class UAM_Modular(gym.Env):
         self._set_state()
         self.state_init = self.state
         return self.state
+
+    def _spawn_plane(self, role:str):
+        assert role in ["RL", "VFG", "RND"], "Unknown role."
+
+        # sample speed and bearing
+        tas = float(np.random.uniform(self.actas-5.0, self.actas+5.0, size=1))
+        qdr = float(np.random.uniform(0.0, 360.0, size=1))
+
+        # determine origin
+        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(self.dest.spawn_radius))
+
+        # consider behavior type
+        p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(qdr+180)%360, tas=tas)
+
+        # set UTM coordinates
+        p.n, p.e, _ = to_utm(lat=lat, lon=lon)
+
+        # compute initial distance to destination
+        p.D_dest     = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
+        p.D_dest_old = copy(p.D_dest)
+
+        # set circle distance
+        if role == "RL":
+            p.circle = self.main_circle
+        else:
+            p.circle = self.main_circle + np.random.uniform(low=-200, high=200, size=1)
+
+        # set circle direction
+        p.clockwise = bool(random.getrandbits(1))
+        return p
 
     def _high_level_control(self, planes:List[Plane]) -> List[Plane]:
         """Decides who out of the current flight taxis should fly toward the goal and plans the paths accordingly.
@@ -248,19 +292,25 @@ class UAM_Modular(gym.Env):
         """Planes a path for a given plane."""
         # linear path to goal
         if p.fly_to_goal:
-            ang, dist = qdrdist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon)
-            dist = np.linspace(start=0.0, stop=dist, num=20)
+            ang, _ = qdrdist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon)
+            dist = np.flip(np.linspace(start=0.0, stop=meter_to_NM(self.dest.spawn_radius), num=20))
+            reverse = False
 
         # keep distance at circle
         else:
             ang, _ = qdrdist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon)
             ang = ang % 360
             ang = (-np.arange(361) + ang) % 360
-            dist = meter_to_NM(p.des_dist)
+            dist = meter_to_NM(p.circle)
+            reverse = not p.clockwise
 
         # set path
         lat_path, lon_path = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=ang, dist=dist)
         p.Path = Path(lat=lat_path, lon=lon_path)
+
+        # potentially reverse it
+        if reverse:
+            p.Path._reverse()
         return p
 
     def _init_wps(self, p:Plane) -> Plane:
@@ -289,30 +339,6 @@ class UAM_Modular(gym.Env):
                                N3 = p.wp3_N,
                                E3 = p.wp3_E)
         p.ce = angle_to_pi(p.dc - np.radians(p.hdg))
-        return p
-
-    def _spawn_plane(self, role:str):
-        assert role in ["RL", "VFG", "RND"], "Unknown role."
-
-        # sample speed and bearing
-        tas = float(np.random.uniform(self.actas-3.0, self.actas+3.0, size=1))
-        qdr = float(np.random.uniform(0.0, 360.0, size=1))
-
-        # determine origin
-        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(self.dest.spawn_radius))
-
-        # consider behavior type
-        p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(qdr+180)%360, tas=tas)
-
-        # set UTM coordinates
-        p.n, p.e, _ = to_utm(lat=lat, lon=lon)
-
-        # compute initial distance to destination
-        p.D_dest     = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
-        p.D_dest_old = copy(p.D_dest)
-
-        # set desired distance
-        p.des_dist = float(np.random.uniform(low=self.dest.radius+100, high=self.dest.spawn_radius-100, size=1))
         return p
 
     def _set_state(self):
@@ -357,7 +383,7 @@ class UAM_Modular(gym.Env):
             for j, other in enumerate(self.planes):
                 if i != j:
                     # relative speed
-                    v_r = other.tas - p.tas
+                    v_r = (other.tas - p.tas)/10.0
 
                     # bearing and distance
                     abs_bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
