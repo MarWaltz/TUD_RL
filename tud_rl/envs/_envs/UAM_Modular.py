@@ -4,7 +4,7 @@ from string import ascii_letters
 from typing import List, Union
 
 import gym
-from bluesky.tools.geo import latlondist, qdrdist, qdrpos
+from bluesky.tools.geo import qdrpos
 from gym import spaces
 from matplotlib import pyplot as plt
 from mycolorpy import colorlist as mcp
@@ -12,8 +12,9 @@ from mycolorpy import colorlist as mcp
 from tud_rl.agents.base import _Agent
 from tud_rl.envs._envs.HHOS_Fnc import VFG, get_init_two_wp, to_utm
 from tud_rl.envs._envs.Plane import *
-from tud_rl.envs._envs.VesselFnc import (NM_to_meter, angle_to_2pi,
-                                         angle_to_pi, cpa, dtr, meter_to_NM)
+from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi, xy_from_polar,
+                                         angle_to_pi, bng_abs, bng_rel, cpa,
+                                         dtr, meter_to_NM)
 
 COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + 5 * mcp.gen_color(cmap="tab20b", n=20) 
 
@@ -260,7 +261,7 @@ class UAM_Modular(gym.Env):
         p.n, p.e, _ = to_utm(lat=lat, lon=lon)
 
         # compute initial distance to destination
-        p.D_dest     = latlondist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=lat, lond2=lon)
+        p.D_dest     = ED(N0=self.dest.N, E0=self.dest.E, N1=p.n, E1=p.e)
         p.D_dest_old = copy(p.D_dest)
 
         # set circle distance
@@ -270,7 +271,7 @@ class UAM_Modular(gym.Env):
             p.circle = self.main_circle + np.random.uniform(low=-200, high=200, size=1)
 
         # set circle direction
-        p.clockwise = bool(random.getrandbits(1))
+        p.reverse_circle = bool(random.getrandbits(1))
         return p
 
     def _high_level_control(self, planes:List[Plane]) -> List[Plane]:
@@ -290,23 +291,23 @@ class UAM_Modular(gym.Env):
 
     def _plan_path(self, p:Plane):
         """Planes a path for a given plane."""
+        # get absolute bearing of plane
+        ang = bng_abs(N0=self.dest.N, E0=self.dest.E, N1=p.n, E1=p.e)
+        
         # linear path to goal
         if p.fly_to_goal:
-            ang, _ = qdrdist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon)
-            dist = np.flip(np.linspace(start=0.0, stop=meter_to_NM(self.dest.spawn_radius), num=20))
+            dist = np.flip(np.linspace(start=0.0, stop=self.dest.spawn_radius, num=20))
             reverse = False
 
         # keep distance at circle
         else:
-            ang, _ = qdrdist(latd1=self.dest.lat, lond1=self.dest.lon, latd2=p.lat, lond2=p.lon)
-            ang = ang % 360
-            ang = (-np.arange(361) + ang) % 360
-            dist = meter_to_NM(p.circle)
-            reverse = not p.clockwise
+            ang = (ang + np.linspace(start=0, stop=2*np.pi, num=100)) % (2*np.pi)
+            dist = p.circle
+            reverse = p.reverse_circle
 
         # set path
-        lat_path, lon_path = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=ang, dist=dist)
-        p.Path = Path(lat=lat_path, lon=lon_path)
+        E_add, N_add = xy_from_polar(r=dist, angle=ang)
+        p.Path = Path(east=self.dest.E + E_add, north=self.dest.N + N_add)
 
         # potentially reverse it
         if reverse:
@@ -364,8 +365,9 @@ class UAM_Modular(gym.Env):
     def _get_state_multi(self) -> None:
         """Computes the state in the multi-agent scenario."""
         s = np.zeros((self.N_planes, self.obs_size), dtype=np.float32)
-        for i, _ in enumerate(self.planes):
-            s[i] = self._get_state(i)
+        for i, p in enumerate(self.planes):
+            if p.role == "RL":
+                s[i] = self._get_state(i)
         return s
 
     def _get_state(self, i:int) -> np.ndarray:
@@ -385,18 +387,17 @@ class UAM_Modular(gym.Env):
                     # relative speed
                     v_r = (other.tas - p.tas)/10.0
 
-                    # bearing and distance
-                    abs_bng, d = qdrdist(latd1=p.lat, lond1=p.lon, latd2=other.lat, lond2=other.lon)
-                    bng = angle_to_pi(angle_to_2pi(dtr(abs_bng)) - dtr(p.hdg))/np.pi
-                    d = NM_to_meter(d)/self.dest.spawn_radius
+                    # relative bearing
+                    bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
+
+                    # distance
+                    d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
 
                     # heading intersection
                     C_T = angle_to_pi(np.radians(other.hdg - p.hdg))/np.pi
 
                     # CPA metrics
-                    NOS, EOS, _ = to_utm(lat=p.lat, lon=p.lon)
-                    NTS, ETS, _ = to_utm(lat=other.lat, lon=other.lon)
-                    DCPA, TCPA = cpa(NOS=NOS, EOS=EOS, NTS=NTS, ETS=ETS, chiOS=np.radians(p.hdg), chiTS=np.radians(other.hdg),
+                    DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=np.radians(other.hdg),
                                      VOS=p.tas, VTS=other.tas)
                     DCPA = DCPA / 100.0
                     TCPA = TCPA / 60.0
@@ -456,7 +457,7 @@ class UAM_Modular(gym.Env):
         # update distances to destination
         for p in self.planes:
             p.D_dest_old = copy(p.D_dest)
-            p.D_dest = latlondist(latd1=p.lat, lond1=p.lon, latd2=self.dest.lat, lond2=self.dest.lon)
+            p.D_dest = ED(N0=self.dest.N, E0=self.dest.E, N1=p.n, E1=p.e)
 
         # check destination entries
         _, entered_open = self.dest.step(self.planes)
@@ -496,7 +497,7 @@ class UAM_Modular(gym.Env):
         for i, pi in enumerate(self.planes):
             for j, pj in enumerate(self.planes):
                 if i != j:
-                    D_matrix[i][j] = latlondist(latd1=pi.lat, lond1=pi.lon, latd2=pj.lat, lond2=pj.lon)
+                    D_matrix[i][j] = ED(N0=pi.n, E0=pi.e, N1=pj.n, E1=pj.e)
 
         for i, pi in enumerate(self.planes):
             D = float(np.min(D_matrix[i]))
