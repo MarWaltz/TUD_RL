@@ -6,10 +6,9 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_agents_max: 12
+    N_agents_max: 6
     w_coll: 1
-    w_ye: 0.2
-    w_ce: 0.2
+    w_goal: 1
   info: ''
 agent:
   LSTMRecTD3:
@@ -18,7 +17,7 @@ agent:
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-    num_obs_OS: 2
+    num_obs_OS: 3
     num_obs_TS: 6
 seed: 42
 timesteps: 3_000_000
