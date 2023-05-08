@@ -8,7 +8,7 @@ env:
   env_kwargs:
     N_agents_max: 6
     w_coll: 1
-    w_goal: 1
+    w_goal: 0.5
   info: ''
 agent:
   LSTMRecTD3:

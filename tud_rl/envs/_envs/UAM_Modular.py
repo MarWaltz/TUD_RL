@@ -12,9 +12,9 @@ from mycolorpy import colorlist as mcp
 from tud_rl.agents.base import _Agent
 from tud_rl.envs._envs.HHOS_Fnc import VFG, get_init_two_wp, to_utm
 from tud_rl.envs._envs.Plane import *
-from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi, xy_from_polar,
+from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
                                          angle_to_pi, bng_abs, bng_rel, cpa,
-                                         dtr, meter_to_NM)
+                                         dtr, meter_to_NM, xy_from_polar)
 
 COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + 5 * mcp.gen_color(cmap="tab20b", n=20) 
 
@@ -112,7 +112,6 @@ class Destination:
     def was_open(self):
         return self._was_open
 
-
 class Path:
     """Defines a path for flight taxis."""
     def __init__(self, lat=None, lon=None, north=None, east=None) -> None:
@@ -165,7 +164,7 @@ class UAM_Modular(gym.Env):
         self.actas = 15  # [m/s]
         self.actype = "MAVIC"
 
-        self.VFG_K = 0.01
+        #self.VFG_K = 0.01
 
         self.w_coll = w_coll
         self.w_goal = w_goal
@@ -232,6 +231,10 @@ class UAM_Modular(gym.Env):
         ts_alive = random.sample(population=list(range(0, 61)), k=self.N_planes)
         for i, _ in enumerate(self.planes):
             self.planes[i].t_alive = ts_alive[i]
+        
+        # inject higher chance of flying to the goal for the first plane
+        if bool(random.getrandbits(1)):
+            self.planes[0].t_alive = 100
 
         # interface to high-level module including goal decision
         self._high_level_control()
@@ -447,10 +450,10 @@ class UAM_Modular(gym.Env):
                                               hist_len = self.hist_len)
 
                 # move plane
-                p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=self.dest)
+                p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=None)
 
             else:
-                p.upd_dynamics(perf=self.perf, dest=self.dest)
+                p.upd_dynamics(perf=self.perf, dest=None)
 
         # update life times
         for i, p in enumerate(self.planes):
@@ -485,11 +488,21 @@ class UAM_Modular(gym.Env):
 
     def _handle_respawn(self, entered_open:np.ndarray):
         """Respawns planes when they entered the open destination area."""
-        for i, _ in enumerate(self.planes):
+        for i, p in enumerate(self.planes):
+            # low priority after goal entry
             if entered_open[i]:
                 self.planes[i] = self._spawn_plane(role=self.planes[i].role)
-                self.planes[i].t_alive = 0
+                self.planes[i].t_alive     = 0
                 self.planes[i].fly_to_goal = False
+            
+            # priority unaffected after leaving the map
+            elif p.D_dest >= self.dest.respawn_radius:
+                t_alive     = p.t_alive
+                fly_to_goal = p.fly_to_goal
+                self.planes[i] = self._spawn_plane(role=self.planes[i].role)
+                
+                self.planes[i].t_alive     = t_alive
+                self.planes[i].fly_to_goal = fly_to_goal
 
     def _calculate_reward(self):
         r_coll = np.zeros((self.N_planes, 1), dtype=np.float32)
@@ -514,8 +527,8 @@ class UAM_Modular(gym.Env):
             else:
                 r_coll[i] -= 1*np.exp(-D/(2*self.incident_dist))
 
-            # off-map (+5 agains numerical issues)
-            if pi.D_dest > (self.dest.spawn_radius + 5.0): 
+            # off-map (+1 agains numerical issues)
+            if pi.D_dest > (self.dest.spawn_radius + 1.0): 
                 r_coll[i] -= 5.0
         
         # ------ goal reward ------
