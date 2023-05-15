@@ -7,6 +7,7 @@ import dateutil.parser
 import pytsa
 import torch
 from pytsa import TimePosition
+from pytsa.structs import DataColumns
 
 from tud_rl.common.nets import LSTMRecActor
 from tud_rl.envs._envs.HHOS_Base_Env import *
@@ -18,8 +19,9 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
     """Validation environment for the complete pipeline for planning & low-level control on rivers.
     Runs exlusively on real data."""
     def __init__(self, 
-                 planner_weights : str,
-                 planner_safety_net : bool, 
+                 planner_weights:str,
+                 planner_safety_net:bool, 
+                 base_speed:float,
                  global_path_file:str,
                  depth_data_file:str,
                  current_data_file:str,
@@ -31,6 +33,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
         self.planner_weights    = planner_weights
         self.planner_safety_net = planner_safety_net
+        self.base_speed         = base_speed
         self.global_path_file   = global_path_file
         self.depth_data_file    = depth_data_file
         self.current_data_file  = current_data_file
@@ -51,7 +54,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                 self.t_travel = dateutil.parser.isoparse("2022-01-29T07:00:00.000Z")
 
             # define radius for target ship detection
-            self.search_radius = 1.0 # NM
+            self.search_radius = 5.0 # NM
 
         # construct planner network
         self.lidar_n_beams = 10
@@ -67,11 +70,11 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                                                    w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0)
 
         # update frequency
-        self.loc_path_upd_freq = 24 # results in a new local path every 2mins with delta t being 5s
+        self.loc_path_upd_freq = 6 # results in a new local path every 30s with delta t being 5s
 
         # path characteristics
         self.dist_des_rev_path = 300
-        self.n_wps_loc = 20
+        self.n_wps_loc = 10
 
         # vector field guidance
         self.VFG_K = 0.01  # follower value
@@ -116,7 +119,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
 
         # init OS
-        OS_wp_idx = 20 if self.AIS_data_file is None else 0
+        OS_wp_idx = 20 if self.AIS_data_file is None else 200
         lat_init = self.GlobalPath.lat[OS_wp_idx]
         lon_init = self.GlobalPath.lon[OS_wp_idx]
         N_init = self.GlobalPath.north[OS_wp_idx]
@@ -205,20 +208,27 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         # init state
         self._set_state()
 
-        # viz
+        # ----- viz -----
         TS_info = {}
         for i in range(self.N_TSs_max):
             try:
+                # positions and speed
                 TS = self.TSs[i]
                 TS_info[f"TS{str(i)}_N"] = TS.eta[0]
                 TS_info[f"TS{str(i)}_E"] = TS.eta[1]
                 TS_info[f"TS{str(i)}_head"] = TS.eta[2]
                 TS_info[f"TS{str(i)}_V"] = TS._get_V()
+
+                # distance
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
+                                    OS=self.OS, TS=TS)               
+                TS_info[f"TS{str(i)}_dist"] = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1]) - D
             except:
                 TS_info[f"TS{str(i)}_N"] = None
                 TS_info[f"TS{str(i)}_E"] = None
                 TS_info[f"TS{str(i)}_head"] = None
                 TS_info[f"TS{str(i)}_V"] = None
+                TS_info[f"TS{str(i)}_dist"] = None
 
         self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
             OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
@@ -229,25 +239,32 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
     def _init_AIS_data(self):
         """Initializes the interface to the pytsa-package for working with AIS data."""
-        frame = pytsa.BoundingBox(
+        frame = pytsa.LatLonBoundingBox(
             LATMIN = 52.2, # [°N]
             LATMAX = 56.9, # [°N]
             LONMIN = 6.3,  # [°E]
             LONMAX = 11,  # [°E]
         )
         sourcefile = PathL(self.AIS_data_file)
-        self.AIS_search_agent = pytsa.SearchAgent(datapath=sourcefile, frame=frame, search_radius=self.search_radius)
+
+        def my_filter(df: pd.DataFrame) -> pd.DataFrame:
+            return df[df[DataColumns.MESSAGE_ID].isin([1,2,3])]
+        
+        self.AIS_search_agent = pytsa.SearchAgent(datapath=sourcefile, frame=frame, search_radius=self.search_radius, 
+                                                  n_cells=1, filter=my_filter)
 
         # initialize
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=32)
-        tpos = TimePosition(timestamp=self.t_travel.isoformat(), lat=OS_lat, lon=OS_lon)
-        self.AIS_search_agent.init(tpos.position)
+        tpos = TimePosition(timestamp=self.t_travel, lat=OS_lat, lon=OS_lon)
+        tpos.timestamp = tpos.timestamp.replace(tzinfo=None)
+        self.AIS_search_agent.init(tpos)
 
     def _set_TSs_from_AIS(self):
         """Places the target ships close the OS by reading an AIS-data file."""
         # initialize current time stamp
         OS_lat, OS_lon = to_latlon(north=self.OS.eta[0], east=self.OS.eta[1], number=32)
-        tpos = TimePosition(timestamp=self.t_travel.isoformat(), lat=OS_lat, lon=OS_lon)
+        tpos = TimePosition(timestamp=self.t_travel, lat=OS_lat, lon=OS_lon)
+        tpos.timestamp = tpos.timestamp.replace(tzinfo=None)
         
         # get target ships
         target_ships = self.AIS_search_agent.get_ships(tpos)
@@ -275,7 +292,8 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                             full_ship = False,
                             ship_domain_size = 2)
             TS.nps = TS._get_nps_from_u(TS.nu[0], psi=TS.eta[2])
-            self.TSs.append(TS)          
+            self.TSs.append(TS) 
+        self.N_TSs = len(self.TSs)
 
     def setup_planning_env(self, env:HHOS_RiverPlanning_Env, initial:bool):
         """Prepares the planning env depending on the current status of the following env. Returns the env if initial, else
@@ -302,6 +320,9 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             env.con_ticks = self.con_ticks
             env.con_ticklabels = self.con_ticklabels
             env.clev = self.clev
+
+            # overwrite '_done()' function of planning env
+            env._done = self._done
             return env
         else:
             # step count
@@ -398,16 +419,23 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         TS_info = {}
         for i in range(self.N_TSs_max):
             try:
+                # positions and speed
                 TS = self.TSs[i]
                 TS_info[f"TS{str(i)}_N"] = TS.eta[0]
                 TS_info[f"TS{str(i)}_E"] = TS.eta[1]
                 TS_info[f"TS{str(i)}_head"] = TS.eta[2]
                 TS_info[f"TS{str(i)}_V"] = TS._get_V()
+
+                # distance
+                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
+                                    OS=self.OS, TS=TS)               
+                TS_info[f"TS{str(i)}_dist"] = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1]) - D
             except:
                 TS_info[f"TS{str(i)}_N"] = None
                 TS_info[f"TS{str(i)}_E"] = None
                 TS_info[f"TS{str(i)}_head"] = None
                 TS_info[f"TS{str(i)}_V"] = None
+                TS_info[f"TS{str(i)}_dist"] = None
 
         self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
                 OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
@@ -510,8 +538,12 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         # default: set part of global path as local path
         self._init_local_path()
 
-        # check local plan for conflicts (collisions AND traffic rules)
+        # replan via RL if someone is close
         if self.N_TSs > 0:
+            if np.min([ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=t.eta[0], E1=t.eta[1]) for t in self.TSs]) <= self.sight_river:
+                TSnavData:List[Path] = self._update_local_path_safe(method="RL")
+                self.planning_method = "RL"
+            """
             conflict = self._hasConflict(localPath=copy(self.LocalPath), TSnavData=None, path_from="global")
             if conflict:
                 TSnavData:List[Path] = self._update_local_path_safe(method="RL")
@@ -523,6 +555,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                     if conflict:
                         self._update_local_path_safe(method="APF")
                         self.planning_method = "APF"
+            """
 
     def _update_local_path_safe(self, method:Union[str, None]):
         """Updates the local path based on the RL or the APF planner. Can alternatively be used to solely generate TSNavData.
@@ -650,7 +683,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
         # consider river geometry
         N0, E0, head0 = env.OS.eta
-        dists, _, river_n, river_e = env._sense_LiDAR(N0=N0, E0=E0, head0=head0)
+        dists, _, river_n, river_e = env.sense_LiDAR(N0=N0, E0=E0, head0=head0)
         i = np.where(dists != env.lidar_range)
 
         # computation
@@ -682,7 +715,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             lambda_wave = self.lambda_wave
 
         head0 = self.OS.eta[2]
-        state_env = np.array([self.V_c/1.0,  angle_to_pi(self.beta_c-head0)/(math.pi),      # currents
+        state_env = np.array([self.V_c/0.5,  angle_to_pi(self.beta_c-head0)/(math.pi),      # currents
                               self.V_w/15.0, angle_to_pi(self.beta_w-head0)/(math.pi),      # winds
                               angle_to_pi(beta_wave-head0)/(math.pi), eta_wave/2.0, T_0_wave/7.0, lambda_wave/100.0,    # waves
                               self.H/100.0])    # depth
@@ -705,7 +738,8 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             d = True
 
         # reach end of path
-        elif self.OS.glo_wp3_idx >= (self.GlobalPath.n_wps-1):
+        #elif self.OS.glo_wp3_idx >= (self.GlobalPath.n_wps-1):
+        elif self.OS.glo_wp3_idx >= 420:
             d = True
 
         # artificial done signal
@@ -714,5 +748,10 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
         # viz
         if d:
-            self.plotter.dump(name="Pipeline")
+            s = "calm" if "calm" in self.AIS_data_file else "storm"
+            self.plotter.dump(name=f"Pipeline_{s}_{str(int(self.base_speed))}")
         return d
+
+    #def render(self, data=None):
+    #    if self.step_cnt % 100 == 0:
+    #        print(self.step_cnt)

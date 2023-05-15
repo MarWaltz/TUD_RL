@@ -58,7 +58,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.WindData["lon"] = copy(self.DepthData["lon"])
 
         # sample constants
-        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=20.0)
+        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=15.0)
         angle = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=2*math.pi)
 
         # add noise
@@ -66,7 +66,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=20.0)
+        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=15.0)
         angle = angle % (2*np.pi)
 
         # overwrite other entries
@@ -86,15 +86,15 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.CurrentData["lon"] = copy(self.DepthData["lon"])
 
         # sample constants
-        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=1.0)
+        speed_mps = np.ones_like(self.DepthData["data"]) * np.random.exponential(scale=0.2)
         angle = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=2*math.pi)
 
         # add noise
-        speed_mps += np.random.normal(loc=0.0, scale=0.1, size=speed_mps.shape)
+        speed_mps += np.random.normal(loc=0.0, scale=0.05, size=speed_mps.shape)
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=1.0)
+        speed_mps = np.clip(speed_mps, a_min=0.0, a_max=0.5)
         angle = angle % (2*np.pi)
 
         # overwrite other entries
@@ -112,19 +112,19 @@ class HHOS_Following_Env(HHOS_Base_Env):
         self.WaveData["lon"] = copy(self.DepthData["lon"])
 
         # sample constants
-        height = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.01, high=3.0)
-        length = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=1.0,  high=100.0)
-        period = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.5,  high=7.0)
+        height = np.ones_like(self.DepthData["data"]) * np.random.exponential(scale=0.1)
+        length = np.ones_like(self.DepthData["data"]) * np.random.exponential(scale=20.0)
+        period = np.ones_like(self.DepthData["data"]) * np.random.exponential(scale=1.0)
         angle  = np.ones_like(self.DepthData["data"]) * np.random.uniform(low=0.0, high=2*math.pi)
 
         # add noise
         height += np.random.normal(loc=0.0, scale=0.05, size=height.shape)
-        length += np.random.normal(loc=0.0, scale=5.0, size=length.shape)
+        length += np.random.normal(loc=0.0, scale=1.0, size=length.shape)
         period += np.random.normal(loc=0.0, scale=0.5, size=period.shape)
         angle += dtr(np.random.normal(loc=0.0, scale=5.0, size=angle.shape))
 
         # make sure to stay in right domain
-        height = np.clip(height, a_min=0.01, a_max=3.0)
+        height = np.clip(height, a_min=0.01, a_max=2.0)
         length = np.clip(length, a_min=1.0,  a_max=100.0)
         period = np.clip(period, a_min=0.5,  a_max=7.0)
         angle = angle % (2*np.pi)
@@ -220,16 +220,16 @@ class HHOS_Following_Env(HHOS_Base_Env):
             # set nps to near-convergence
             try:
                 self.OS.nps = self.OS._get_nps_from_u(u           = self.OS.nu[0], 
-                                                    psi         = self.OS.eta[2], 
-                                                    V_c         = self.V_c, 
-                                                    beta_c      = self.beta_c, 
-                                                    V_w         = self.V_w, 
-                                                    beta_w      = self.beta_w, 
-                                                    H           = self.H,
-                                                    beta_wave   = self.beta_wave, 
-                                                    eta_wave    = self.eta_wave, 
-                                                    T_0_wave    = self.T_0_wave, 
-                                                    lambda_wave = self.lambda_wave)
+                                                      psi         = self.OS.eta[2], 
+                                                      V_c         = self.V_c, 
+                                                      beta_c      = self.beta_c, 
+                                                      V_w         = self.V_w, 
+                                                      beta_w      = self.beta_w, 
+                                                      H           = self.H,
+                                                      beta_wave   = self.beta_wave, 
+                                                      eta_wave    = self.eta_wave, 
+                                                      T_0_wave    = self.T_0_wave, 
+                                                      lambda_wave = self.lambda_wave)
                 finish = True
             except:
                 finish = False
@@ -320,7 +320,7 @@ class HHOS_Following_Env(HHOS_Base_Env):
             lambda_wave = self.lambda_wave
 
         head0 = self.OS.eta[2]
-        state_env = np.array([self.V_c/1.0,  angle_to_pi(self.beta_c-head0)/(math.pi),      # currents
+        state_env = np.array([self.V_c/0.5,  angle_to_pi(self.beta_c-head0)/(math.pi),      # currents
                               self.V_w/15.0, angle_to_pi(self.beta_w-head0)/(math.pi),      # winds
                               angle_to_pi(beta_wave-head0)/(math.pi), eta_wave/2.0, T_0_wave/7.0, lambda_wave/100.0,    # waves
                               self.H/100.0])    # depth

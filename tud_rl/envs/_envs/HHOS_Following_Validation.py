@@ -59,7 +59,10 @@ class HHOS_Following_Validation(HHOS_Following_Env):
         if real_data:
             self._max_episode_steps = int(1e7)
         else:
-            self._max_episode_steps = 750
+            if extreme:
+                self._max_episode_steps = 1100
+            else:
+                self._max_episode_steps = 750
 
     def reset(self):
         s = super().reset(OS_wp_idx=0 if self.real_data else 10, real_data=self.real_data)

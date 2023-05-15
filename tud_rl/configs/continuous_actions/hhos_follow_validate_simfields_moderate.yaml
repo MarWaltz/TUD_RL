@@ -12,7 +12,9 @@ env:
     current_data_file:
     wind_data_file:
     wave_data_file:
+    extreme: False
     val_disturbance: waves
+    dump_results: True
   info: MDP
 agent:
   DDPG: {}
@@ -56,8 +58,8 @@ seed: 12
 timesteps: 5_000_000
 epoch_length: 5000
 eval_episodes: 1
-actor_weights:
-critic_weights:
+actor_weights: 8_follow_actor.pth
+critic_weights: 8_follow_critic.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

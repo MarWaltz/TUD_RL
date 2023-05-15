@@ -1,18 +1,20 @@
 ---
 env:
-  name: HHOS-RiverPlanning-v0
-  max_episode_steps: 100
+  name: HHOS-Following-Validation-v0
+  max_episode_steps: 1100
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    N_TSs_max: 10
-    N_TSs_random: true
-    w_ye : 1.75
-    w_ce : 2.5
-    w_coll : 3.0
-    w_rule : 3.0
-    w_comf : 1.0
+    real_data: false
+    global_path_file:
+    depth_data_file:
+    current_data_file:
+    wind_data_file:
+    wave_data_file:
+    extreme: True
+    val_disturbance: waves
+    dump_results: True
   info: MDP
 agent:
   DDPG: {}
@@ -35,8 +37,6 @@ agent:
     pol_upd_delay: 2
     history_length: 2
     use_past_actions: false
-    num_obs_OS: 14
-    num_obs_TS: 7
   SAC:
     lr_temp: 0.0001
     temp_tuning: true
@@ -55,11 +55,11 @@ agent:
     n_qs: 25
     n_critics: 5
 seed: 12
-timesteps: 2_000_000
+timesteps: 5_000_000
 epoch_length: 5000
-eval_episodes: 3
-actor_weights:
-critic_weights:
+eval_episodes: 1
+actor_weights: 8_follow_actor.pth
+critic_weights: 8_follow_critic.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

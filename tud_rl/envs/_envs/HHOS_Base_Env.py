@@ -81,7 +81,7 @@ class HHOS_Base_Env(gym.Env):
         self.plot_current   = False
         self.plot_waves     = False
         self.plot_lidar     = True
-        self.plot_reward    = True
+        self.plot_reward    = False
         self.default_cols   = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
         self.first_init     = True
 
@@ -392,7 +392,9 @@ class HHOS_Base_Env(gym.Env):
                 vessel.glo_wp3_N = path.north[vessel.glo_wp3_idx] 
                 vessel.glo_wp3_E = path.east[vessel.glo_wp3_idx]
             except:
-                raise ValueError("Waypoint setting fails if vessel is not at least two waypoints away from the goal.")
+                vessel.glo_wp3_idx = vessel.glo_wp2_idx
+                vessel.glo_wp3_N = path.north[vessel.glo_wp3_idx] 
+                vessel.glo_wp3_E = path.east[vessel.glo_wp3_idx]
         else:
             path = self.LocalPath
             vessel.loc_wp1_idx, vessel.loc_wp1_N, vessel.loc_wp1_E, vessel.loc_wp2_idx, vessel.loc_wp2_N, \
@@ -402,7 +404,9 @@ class HHOS_Base_Env(gym.Env):
                 vessel.loc_wp3_N = path.north[vessel.loc_wp3_idx] 
                 vessel.loc_wp3_E = path.east[vessel.loc_wp3_idx]
             except:
-                raise ValueError("Waypoint setting fails if vessel is not at least two waypoints away from the goal.")
+                vessel.loc_wp3_idx = vessel.loc_wp2_idx
+                vessel.loc_wp3_N = path.north[vessel.loc_wp3_idx] 
+                vessel.loc_wp3_E = path.east[vessel.loc_wp3_idx]
         return vessel
 
     def _get_COLREG_situation(self, N0:float, E0:float, head0:float, v0:float, chi0:float,
@@ -725,6 +729,8 @@ class HHOS_Base_Env(gym.Env):
         course = self.OS._get_course()
 
         ste = f"Step: {self.step_cnt}"
+        if hasattr(self, "TSs"):
+            ste += f", TSs: {len(self.TSs)}"
         pos = f"Lat [°]: {OS_lat:.4f}, Lon [°]: {OS_lon:.4f}, " + r"$\psi$ [°]: " + f"{rtd(self.OS.eta[2]):.2f}"  + r", $\chi$ [°]: " + f"{rtd(course):.2f}"
         vel = f"u [m/s]: {u:.3f}, v [m/s]: {v:.3f}, r [rad/s]: {r:.3f}"
         out = ste + ", " + pos + "\n" + vel
@@ -867,7 +873,7 @@ class HHOS_Base_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 1 == 0:
+        if self.step_cnt % 2 == 0:
             
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:

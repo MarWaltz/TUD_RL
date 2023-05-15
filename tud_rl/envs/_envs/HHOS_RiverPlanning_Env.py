@@ -328,15 +328,15 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
 
             elif n == 1:
                 d = NM_to_meter(0.7)
-                offset = 50
+                offset = 0 #50
 
             elif n == 2:
                 d = NM_to_meter(1.1)
-                offset = 50
+                offset = 0 #50
 
             elif n == 3:
                 d = NM_to_meter(1.5)
-                offset = 50
+                offset = 0 #50
 
             elif n == 4:
                 d = NM_to_meter(1.9)
@@ -457,15 +457,15 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
 
             # straight
             if TS.eta[2] == 0.0:
-                TS.eta[2] = 0.049958397
+                pass
 
             # right curve
             elif TS.eta[2] < np.pi:
-                TS.eta[2] = [0.79247516, 1.2130557, 1.583511, 1.9536078, 2.240454][n]
+                TS.eta[2] = [0.79247516, 1.1629335, 1.5335073, 1.9039698, 2.240454][n]
 
             # left curve
             else:
-                TS.eta[2] = [5.4907103, 5.170374, 4.799682, 4.4292483, 4.0427313][n]
+                TS.eta[2] = [5.4907103, 5.1202517, 4.749678, 4.3792157, 4.0427313][n]
 
         # predict converged speed of sampled TS
         TS.nps = TS._get_nps_from_u(TS.nu[0], psi=TS.eta[2])
