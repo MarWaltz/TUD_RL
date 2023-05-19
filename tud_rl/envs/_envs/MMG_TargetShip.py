@@ -215,6 +215,38 @@ class Path:
         # lat-lon
         self.lat, self.lon = to_latlon(north=self.north, east=self.east, number=32)
 
+    def move(self, offset:float):
+        """Moves the path based on a constant offset."""
+        north = self.north
+        east  = self.east
+
+        m_north = np.zeros_like(self.north)
+        m_east  = np.zeros_like(self.east)
+
+        for i in range(self.n_wps):
+            n = north[i]
+            e = east[i]
+
+            if i != (self.n_wps-1):
+                n_nxt = north[i+1]
+                e_nxt = east[i+1]
+                ang = angle_to_2pi(bng_abs(N0=n, E0=e, N1=n_nxt, E1=e_nxt) + math.pi/2)
+            else:
+                n_last = north[i-1]
+                e_last = east[i-1]
+                ang = angle_to_2pi(bng_abs(N0=n_last, E0=e_last, N1=n, E1=e) + math.pi/2)
+
+            e_add, n_add = xy_from_polar(r=offset, angle=ang)
+            m_north[i] = n + n_add
+            m_east[i] = e + e_add
+
+        # store
+        self.north = m_north
+        self.east  = m_east
+
+        # lat-lon
+        self.lat, self.lon = to_latlon(north=self.north, east=self.east, number=32)
+
     def wp_dist(self, wp1_idx, wp2_idx):
         """Computes the euclidean distance between two waypoints."""
         if wp1_idx not in range(self.n_wps) or wp2_idx not in range(self.n_wps):
@@ -230,23 +262,50 @@ class Path:
 
         return wp1_rev, wp2_rev
 
-    def construct_local_path(self, wp_idx:int, n_wps_loc:int, v_OS:float=None):
+    def construct_local_path(self, wp_idx:int, n_wps_loc:int, OS_N:float, OS_E:float, v_OS:float=None, smooth:bool=True):
         """Constructs a local path based on a given wp_idx and number of waypoints.
         Args:
             wp_idx(int):       Waypoint index where the local path starts
             n_wps_loc(int):    Length of the constructed path
             v_OS(float):       velocity of OS, assumed constant over the path since we do not consider trajectory following
+            OS_N, OS_E(float): UTM position of the own ship
+            smooth(bool):      Whether we construct a linear (smooth) path from the current position or make a hard reset 
+                               to the global path
         Returns:
             Path"""
         # make sure local path is not longer than global one
         if wp_idx + n_wps_loc >= self.n_wps:
             n_wps_loc = self.n_wps - wp_idx
 
-        # select
-        lat   = self.lat[wp_idx:wp_idx+n_wps_loc]
-        lon   = self.lon[wp_idx:wp_idx+n_wps_loc]
-        north = self.north[wp_idx:wp_idx+n_wps_loc]
-        east  = self.east[wp_idx:wp_idx+n_wps_loc]
+        if smooth:
+            try:
+                # start at own ship position
+                north = np.zeros(n_wps_loc)
+                east  = np.zeros(n_wps_loc)
+                north[0] = OS_N
+                east[0]  = OS_E
+
+                # select point on future global path
+                end_n = self.north[wp_idx+2]
+                end_e = self.east[wp_idx+2]
+
+                # get angle and distance
+                ang = bng_abs(N0=OS_N, E0=OS_E, N1=end_n, E1=end_e)
+                d = ED(N0=OS_N, E0=OS_E, N1=end_n, E1=end_e) / (n_wps_loc-1)
+
+                # fill values
+                for i in range(1, n_wps_loc):
+                    e_add, n_add = xy_from_polar(r=d*i, angle=ang)
+                    north[i] = OS_N + n_add
+                    east[i] = OS_E + e_add
+            except:
+                # fall-back is hard reset
+                north = self.north[wp_idx:wp_idx+n_wps_loc]
+                east  = self.east[wp_idx:wp_idx+n_wps_loc]
+        else:
+            # select
+            north = self.north[wp_idx:wp_idx+n_wps_loc]
+            east  = self.east[wp_idx:wp_idx+n_wps_loc]
 
         # compute heading
         heads = np.zeros_like(north)
@@ -258,12 +317,12 @@ class Path:
 
         # speed
         if v_OS is not None:
-            vs = np.ones_like(lat) * v_OS
+            vs = np.ones_like(north) * v_OS
         else:
             vs = None
 
         # construct while setting course to heading
-        return Path(level="local", lat=lat, lon=lon, n_wps=n_wps_loc, north=north, east=east, heads=heads, chis=heads, vs=vs)
+        return Path(level="local", n_wps=n_wps_loc, north=north, east=east, heads=heads, chis=heads, vs=vs)
 
     def interpolate(self, attribute:str, n_wps_between:int, angle:bool=False):
         """Linearly interpolates a specific attribute to have additional waypoints. 

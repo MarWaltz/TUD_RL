@@ -6,15 +6,14 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: LSTMRecTD3_actor_weights.pth
+    planner_weights: 62_plan_actor.pth
     planner_safety_net: false
+    base_speed: 3.0
+    day: storm
+    time: 06:00
     global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/Path_HHCH.pickle
     depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/DepthData.pickle
-    current_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/CurrentData_calm.pickle
-    wind_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WindData_calm.pickle
-    wave_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WaveData_calm.pickle
-    AIS_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/AIS_2021_07_03-calm.csv
-    N_TSs_max: 50
+    N_TSs_max: 25
   info: MDP
 agent:
   DDPG: {}
@@ -57,9 +56,9 @@ agent:
 seed: 12
 timesteps: 5_000_000
 epoch_length: 5000
-eval_episodes: 10
-actor_weights:
-critic_weights:
+eval_episodes: 1
+actor_weights: 8_follow_actor.pth
+critic_weights: 8_follow_critic.pth
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

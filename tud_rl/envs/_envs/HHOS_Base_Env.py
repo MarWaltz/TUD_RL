@@ -496,7 +496,7 @@ class HHOS_Base_Env(gym.Env):
                 return True
         return False
 
-    def sense_LiDAR(self, N0:float, E0:float, head0:float, check_lane_river:bool = False):
+    def sense_LiDAR(self, N0:float, E0:float, head0:float, check_lane_river:bool = False, check_right_lane_river:bool = False):
         """Generates an observation via LiDAR sensoring. There are 'lidar_n_beams' equally spaced beams originating from the midship of the OS.
         The first beam is defined in direction of the heading of the OS. Each beam consists of 'n_dots_per_beam' sub-points, which are sequentially considered. 
         Returns for each beam the distance at which insufficient water depth has been detected, where the maximum range is 'lidar_range'.
@@ -521,6 +521,9 @@ class HHOS_Base_Env(gym.Env):
 
         if check_lane_river:
             path = self.RevGlobalPath
+
+        if check_right_lane_river:
+            path_right = self.RightGlobalPath
         
         for out_idx, angle in enumerate(self.lidar_beam_angles):
 
@@ -543,15 +546,23 @@ class HHOS_Base_Env(gym.Env):
 
                 if depth_dot <= self.OS.critical_depth:
                     finish = True
+                else:
+                    if check_lane_river:
+                        # compute CTE to reversed lane from that point
+                        _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=path.north, e_array=path.east, a_n=N_dot, a_e=E_dot)
 
-                elif check_lane_river:
-                    # compute CTE to reversed lane from that point
-                    _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=path.north, e_array=path.east, a_n=N_dot, a_e=E_dot)
+                        # switch wps since the path is reversed
+                        if cte(N1=wp2_N, E1=wp2_E, N2=wp1_N, E2=wp1_E, NA=N_dot, EA=E_dot) < 0:
+                            finish = True
 
-                    # switch wps since the path is reversed
-                    if cte(N1=wp2_N, E1=wp2_E, N2=wp1_N, E2=wp1_E, NA=N_dot, EA=E_dot) < 0:
-                        finish = True
-                
+                    if check_right_lane_river:
+                        # compute CTE to reversed lane from that point
+                        _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=path_right.north, e_array=path_right.east, a_n=N_dot, a_e=E_dot)
+
+                        # no need of switching wps here
+                        if cte(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=N_dot, EA=E_dot) > 0:
+                            finish = True
+
                 # breaking condition fulfilled
                 if finish:
                     out_dists[out_idx] = dist
@@ -873,6 +884,12 @@ class HHOS_Base_Env(gym.Env):
             plt.ion()
             plt.show()
 
+        if self.step_cnt % 100 == 0:
+            print(self.step_cnt)
+
+        if self.step_cnt < 2000:
+             return
+
         if self.step_cnt % 2 == 0:
             
             # ------------------------------ reward and action plot --------------------------------
@@ -1092,6 +1109,9 @@ class HHOS_Base_Env(gym.Env):
                         if "River" in type(self).__name__:
                             ax.plot(self.RevGlobalPath.lon, self.RevGlobalPath.lat, marker='o', color="darkgoldenrod", linewidth=1.0, 
                                     alpha=0.5, markersize=3, label="Reversed Global Path")
+                        
+                        if hasattr(self, "RightGlobalPath"):
+                            ax.plot(self.RightGlobalPath.lon, self.RightGlobalPath.lat, marker='o', color="green", linewidth=1.0, alpha=0.5, markersize=3, label="Right Global Path")
 
                         # local
                         if hasattr(self, "LocalPath"):
@@ -1168,7 +1188,11 @@ class HHOS_Base_Env(gym.Env):
 
                 #--------------------- LiDAR sensing ------------------------
                 if self.plot_lidar and self.plot_in_latlon and "River" in type(self).__name__ and hasattr(self, "sense_LiDAR"):
-                    L_dists, lidar_lat_lon, L_n, L_e  = self.sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True)
+                    if hasattr(self, "RightGlobalPath"):
+                        check_right_lane_river = True
+                    else:
+                        check_right_lane_river = False
+                    L_dists, lidar_lat_lon, L_n, L_e  = self.sense_LiDAR(N0=N0, E0=E0, head0=head0, check_lane_river=True, check_right_lane_river=check_right_lane_river)
 
                     for i, latlon in enumerate(lidar_lat_lon):
                         #if L_dists[i] < 150:

@@ -1,3 +1,4 @@
+import functools
 from copy import copy, deepcopy
 from datetime import timedelta
 from pathlib import Path as PathL
@@ -24,34 +25,50 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                  base_speed:float,
                  global_path_file:str,
                  depth_data_file:str,
-                 current_data_file:str,
-                 wind_data_file:str,
-                 wave_data_file:str,
-                 AIS_data_file:str=None,
+                 day:str,
+                 time:str,
                  N_TSs_max:int=0):
         super().__init__()
 
         self.planner_weights    = planner_weights
         self.planner_safety_net = planner_safety_net
-        self.base_speed         = base_speed
+        self.base_speed         = base_speed      
         self.global_path_file   = global_path_file
         self.depth_data_file    = depth_data_file
-        self.current_data_file  = current_data_file
-        self.wind_data_file     = wind_data_file
-        self.wave_data_file     = wave_data_file
-        self.AIS_data_file      = AIS_data_file
+
+        self.day  = day
+        self.time = time
+        assert day in ["calm", "storm", None]
+
+        if day == "calm":
+            self.current_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/CurrentData_calm.pickle"
+            self.wind_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WindData_calm.pickle"
+            self.wave_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WaveData_calm.pickle"
+            self.AIS_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/AIS_2021_07_03-calm.csv"
+
+        elif day == "storm":
+            self.current_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/CurrentData_storm.pickle"
+            self.wind_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WindData_storm.pickle"
+            self.wave_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WaveData_storm.pickle"
+            self.AIS_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/AIS_2022_01_29-storm.csv"
+
+        else:
+            self.current_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/CurrentData_calm.pickle"
+            self.wind_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WindData_calm.pickle"
+            self.wave_data_file = "C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/WaveData_calm.pickle"
+            self.AIS_data_file = None
 
         self.N_TSs     = N_TSs_max
         self.N_TSs_max = N_TSs_max
 
         # AIS data spec
-        if AIS_data_file is not None:
+        if self.AIS_data_file is not None:
 
             # specify start time of the travel
-            if "calm" in AIS_data_file:
-                self.t_travel = dateutil.parser.isoparse("2021-07-03T07:00:00.000Z")
-            elif "storm" in AIS_data_file:
-                self.t_travel = dateutil.parser.isoparse("2022-01-29T07:00:00.000Z")
+            if day == "calm":
+                self.t_travel = dateutil.parser.isoparse(f"2021-07-03T{time}:00.000Z")
+            elif day == "storm":
+                self.t_travel = dateutil.parser.isoparse(f"2022-01-29T{time}:00.000Z")
 
             # define radius for target ship detection
             self.search_radius = 5.0 # NM
@@ -69,12 +86,15 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         self.planning_env = HHOS_RiverPlanning_Env(N_TSs_max=N_TSs_max, N_TSs_random=False, 
                                                    w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0)
 
+        # overwrite LiDAR sensing of planning env
+        self.planning_env.sense_LiDAR = functools.partial(self.planning_env.sense_LiDAR, check_right_lane_river=True)
+
         # update frequency
         self.loc_path_upd_freq = 6 # results in a new local path every 30s with delta t being 5s
 
         # path characteristics
-        self.dist_des_rev_path = 300
-        self.n_wps_loc = 10
+        self.dist_des_rev_path = 200
+        self.n_wps_loc = 7
 
         # vector field guidance
         self.VFG_K = 0.01  # follower value
@@ -104,7 +124,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
     def _init_local_path(self):
         """Generates a local path based on the global one."""
         self.LocalPath = self.GlobalPath.construct_local_path(wp_idx = self.OS.glo_wp1_idx, n_wps_loc = self.n_wps_loc,
-                                                              v_OS = self.OS._get_V())
+                                                              v_OS = self.OS._get_V(), OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], smooth=True)
         self.planning_method = "global"
 
     def reset(self):
@@ -118,8 +138,12 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         self.RevGlobalPath = deepcopy(self.GlobalPath)
         self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
 
+        # add right global path for LiDAR clipping
+        self.RightGlobalPath = deepcopy(self.GlobalPath)
+        self.RightGlobalPath.move(offset=self.dist_des_rev_path)
+
         # init OS
-        OS_wp_idx = 20 if self.AIS_data_file is None else 200
+        OS_wp_idx = 0
         lat_init = self.GlobalPath.lat[OS_wp_idx]
         lon_init = self.GlobalPath.lon[OS_wp_idx]
         N_init = self.GlobalPath.north[OS_wp_idx]
@@ -224,17 +248,13 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                                     OS=self.OS, TS=TS)               
                 TS_info[f"TS{str(i)}_dist"] = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1]) - D
             except:
-                TS_info[f"TS{str(i)}_N"] = None
-                TS_info[f"TS{str(i)}_E"] = None
-                TS_info[f"TS{str(i)}_head"] = None
-                TS_info[f"TS{str(i)}_V"] = None
-                TS_info[f"TS{str(i)}_dist"] = None
+                TS_info[f"TS{str(i)}_N"] = -1000
+                TS_info[f"TS{str(i)}_E"] = -1000
+                TS_info[f"TS{str(i)}_head"] = -1000
+                TS_info[f"TS{str(i)}_V"] = -1000
+                TS_info[f"TS{str(i)}_dist"] = -1000
 
-        self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
-            OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
-                glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
-                    T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
-                        rud_angle=self.OS.rud_angle, nps=self.OS.nps, **TS_info)
+        self.plotter = HHOSPlotter(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error, glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w, T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave, rud_angle=self.OS.rud_angle, nps=self.OS.nps, **TS_info)
         return self.state
 
     def _init_AIS_data(self):
@@ -306,6 +326,8 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             env.GlobalPath = deepcopy(self.GlobalPath)
             if hasattr(self, "RevGlobalPath"):
                 env.RevGlobalPath = deepcopy(self.RevGlobalPath)
+            if hasattr(self, "RightGlobalPath"):
+                env.RightGlobalPath = deepcopy(self.RightGlobalPath)
 
             # environmental disturbances (although not needed for dynamics, only for depth-checking)
             env.DepthData   = deepcopy(self.DepthData)
@@ -339,11 +361,9 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             env.OS.eta[2] = self.OS._get_course()
             env.OS.rud_angle = 0.0
 
-            # global path error
-            env.glo_ye = self.glo_ye
-            env.glo_desired_course = self.glo_desired_course
-            env.glo_course_error = self.glo_course_error
-            env.glo_pi_path = self.glo_pi_path
+            # global path error - careful, we have different VFG parameters!
+            env._set_cte("global")
+            env._set_ce("global")
 
             # set state in planning env and return it
             env._set_state()
@@ -403,6 +423,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         # compute new cross-track error and course error (for local and global path)
         self._set_cte(path_level="global")
         self._set_cte(path_level="local")
+
         self._set_ce(path_level="global")
         self._set_ce(path_level="local")
 
@@ -431,15 +452,24 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                                     OS=self.OS, TS=TS)               
                 TS_info[f"TS{str(i)}_dist"] = ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=TS.eta[0], E1=TS.eta[1]) - D
             except:
-                TS_info[f"TS{str(i)}_N"] = None
-                TS_info[f"TS{str(i)}_E"] = None
-                TS_info[f"TS{str(i)}_head"] = None
-                TS_info[f"TS{str(i)}_V"] = None
-                TS_info[f"TS{str(i)}_dist"] = None
+                TS_info[f"TS{str(i)}_N"] = -1000
+                TS_info[f"TS{str(i)}_E"] = -1000
+                TS_info[f"TS{str(i)}_head"] = -1000
+                TS_info[f"TS{str(i)}_V"] = -1000
+                TS_info[f"TS{str(i)}_dist"] = -1000
+
+        # we have different VFG parameters for follower and planner, thus the desired course changes
+        self.planning_env.OS = deepcopy(self.OS)
+        self.planning_env.OS.nu[0]  = self.OS._get_V()
+        self.planning_env.OS.nu[1:] = 0.0
+        self.planning_env.OS.eta[2] = self.OS._get_course()
+        self.planning_env._set_cte("global")
+        self.planning_env._set_ce("global")
+        glo_course_error = self.planning_env.glo_course_error
 
         self.plotter.store(sim_t=self.sim_t, OS_N=self.OS.eta[0], OS_E=self.OS.eta[1], OS_head=self.OS.eta[2], OS_u=self.OS.nu[0],\
                 OS_v=self.OS.nu[1], OS_r=self.OS.nu[2], loc_ye=self.loc_ye, glo_ye=self.glo_ye, loc_course_error=self.loc_course_error,\
-                    glo_course_error=self.glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
+                    glo_course_error=glo_course_error, V_c=self.V_c, beta_c=self.beta_c, V_w=self.V_w, beta_w=self.beta_w,\
                     T_0_wave=self.T_0_wave, eta_wave=self.eta_wave, beta_wave=self.beta_wave, lambda_wave=self.lambda_wave,\
                          rud_angle=self.OS.rud_angle, nps=self.OS.nps, **TS_info)
         return self.state, self.r, d, {}
@@ -457,82 +487,6 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         assert -1 <= float(a[0]) <= 1, "Unknown action."
         self.OS.rud_angle = np.clip(self.OS.rud_angle + float(a[0])*self.rud_angle_inc, -self.rud_angle_max, self.rud_angle_max)
 
-    def _hasConflict(self, localPath:Path, TSnavData : Union[List[Path], None], path_from:str):
-        """Checks whether a given local path yields a conflict.
-        
-        Args:
-            localPath(Path): path of the OS
-            TSnavData(list): contains Path-objects, one for each TS. If None, the planning_env is used to generate this data.
-            path_from(str):  either 'global' or 'RL'. If 'global', checks for conflicts in the sense of collisions AND traffic rules. 
-                             If 'RL', checks only for collisions.
-        Returns:
-            bool, conflict (True) or no conflict (False)"""
-        assert path_from in ["global", "RL"], "Use either 'global' or 'RL' for conflict checking."
-
-        # interpolate path of OS
-        atts_to_interpolate = ["north", "east", "heads", "chis", "vs"]
-
-        for att in atts_to_interpolate:
-            angle = True if att in ["heads", "chis"] else False
-            localPath.interpolate(attribute=att, n_wps_between=5, angle=angle)
-
-        # update lat and lon from interpolated north and east
-        localPath.lat, localPath.lon = to_latlon(north=localPath.north, east=localPath.east, number=32)
-        
-        # always check for collisions with land
-        for i in range(len(localPath.lat)):
-            if self._depth_at_latlon(lat_q=localPath.lat[i], lon_q=localPath.lon[i]) <= self.OS.critical_depth:
-                return True    
-
-        # create TSnavData if not existent
-        if TSnavData is None:
-            TSnavData = self._update_local_path_safe(method=None)
-        
-        # interpolate paths of TS to make sure to detect collisions
-        for path in TSnavData:
-            for att in atts_to_interpolate:
-                angle = True if att in ["heads", "chis"] else False
-                path.interpolate(attribute=att, n_wps_between=5, angle=angle)
-
-        #----- check for target ship collisions in both methods -----
-        n_TS  = len(TSnavData)
-        n_wps = len(TSnavData[0].north)
-
-        for t in range(n_wps):
-            for i in range(n_TS):
-
-                # quick access
-                N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
-                N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
-
-                # compute ship domain
-                ang = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=head0)
-                D = get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,
-                                    ang=ang, OS=None, TS=None)
-            
-                # check if collision
-                ED_OS_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
-                if ED_OS_TS <= D:
-                    return True
-
-        #----- check for traffic rules only when the path comes from the global path -----
-        if path_from == "global":
-            for t in range(n_wps):
-                for i in range(n_TS):
-
-                    # quick access
-                    N0, E0, head0 = localPath.north[t], localPath.east[t], localPath.heads[t]
-                    v0 = localPath.vs[t]
-                    
-                    N1, E1, head1 = TSnavData[i].north[t], TSnavData[i].east[t], TSnavData[i].heads[t]
-                    v1 = TSnavData[i].vs[t]
-
-                    # check whether the global path violates some rules
-                    if self._violates_river_traffic_rules(N0=N0, E0=E0, head0=head0, v0=v0, N1=N1, E1=E1, 
-                                                          head1=head1, v1=v1):
-                        return True
-        return False
-
     def _update_local_path(self):
         """Updates the local path either by simply using the global path, using the RL-based path planner, or the APF safety net."""
         # default: set part of global path as local path
@@ -541,21 +495,8 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         # replan via RL if someone is close
         if self.N_TSs > 0:
             if np.min([ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=t.eta[0], E1=t.eta[1]) for t in self.TSs]) <= self.sight_river:
-                TSnavData:List[Path] = self._update_local_path_safe(method="RL")
+                self._update_local_path_safe(method="RL")
                 self.planning_method = "RL"
-            """
-            conflict = self._hasConflict(localPath=copy(self.LocalPath), TSnavData=None, path_from="global")
-            if conflict:
-                TSnavData:List[Path] = self._update_local_path_safe(method="RL")
-                self.planning_method = "RL"
-
-                # if we use safety net, check only for collisions
-                if self.planner_safety_net:
-                    conflict = self._hasConflict(localPath=copy(self.LocalPath), TSnavData=TSnavData, path_from="RL")
-                    if conflict:
-                        self._update_local_path_safe(method="APF")
-                        self.planning_method = "APF"
-            """
 
     def _update_local_path_safe(self, method:Union[str, None]):
         """Updates the local path based on the RL or the APF planner. Can alternatively be used to solely generate TSNavData.
@@ -668,30 +609,6 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                 TSnavData.append(Path(level="local", north=TS_ns[i], east=TS_es[i], heads=TS_heads[i], vs=TS_vs[i], chis=TS_chis[i]))
             return TSnavData
 
-    def _get_APF_move(self, env : HHOS_RiverPlanning_Env):
-        """Takes an env as input and returns the du, dh suggested by the APF-method."""
-        raise NotImplementedError()
-        # define goal for attractive forces of APF
-        try:
-            g_idx = env.OS.glo_wp3_idx + 3
-            g_n = env.GlobalPath.north[g_idx]
-            g_e = env.GlobalPath.east[g_idx]
-        except:
-            g_idx = env.OS.glo_wp3_idx
-            g_n = env.GlobalPath.north[g_idx]
-            g_e = env.GlobalPath.east[g_idx]
-
-        # consider river geometry
-        N0, E0, head0 = env.OS.eta
-        dists, _, river_n, river_e = env.sense_LiDAR(N0=N0, E0=E0, head0=head0)
-        i = np.where(dists != env.lidar_range)
-
-        # computation
-        du, dh = apf(OS=env.OS, TSs=env.TSs, G={"x" : g_e, "y" : g_n}, 
-                     river_n=river_n[i], river_e=river_e[i],
-                     du_clip=env.surge_scale, dh_clip=env.d_head_scale)
-        return du, dh
-
     def _set_state(self):
         #--------------------------- OS information ----------------------------
         cmp1 = self.OS.nu / np.array([3.0, 0.2, 0.002])                # u, v, r
@@ -738,7 +655,6 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
             d = True
 
         # reach end of path
-        #elif self.OS.glo_wp3_idx >= (self.GlobalPath.n_wps-1):
         elif self.OS.glo_wp3_idx >= 420:
             d = True
 
@@ -748,8 +664,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
         # viz
         if d:
-            s = "calm" if "calm" in self.AIS_data_file else "storm"
-            self.plotter.dump(name=f"Pipeline_{s}_{str(int(self.base_speed))}")
+            self.plotter.dump(name=f"Pipeline_{self.day}_{str(int(self.base_speed))}_{self.time.replace(':', '_')}")
         return d
 
     #def render(self, data=None):
