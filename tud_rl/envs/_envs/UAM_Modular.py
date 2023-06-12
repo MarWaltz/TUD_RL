@@ -164,8 +164,6 @@ class UAM_Modular(gym.Env):
         self.actas = 15  # [m/s]
         self.actype = "MAVIC"
 
-        #self.VFG_K = 0.01
-
         self.w_coll = w_coll
         self.w_goal = w_goal
         self.w = self.w_coll + self.w_goal
@@ -231,10 +229,11 @@ class UAM_Modular(gym.Env):
         ts_alive = random.sample(population=list(range(0, 61)), k=self.N_planes)
         for i, _ in enumerate(self.planes):
             self.planes[i].t_alive = ts_alive[i]
-        
+
         # inject higher chance of flying to the goal for the first plane
-        if bool(random.getrandbits(1)):
-            self.planes[0].t_alive = 100
+        if not "Validation" in type(self).__name__:
+            if bool(random.getrandbits(1)):
+                self.planes[0].t_alive = 100
 
         # interface to high-level module including goal decision
         self._high_level_control()
@@ -277,7 +276,9 @@ class UAM_Modular(gym.Env):
         qdr = float(np.random.uniform(0.0, 360.0, size=1))
 
         # determine origin
-        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(self.dest.spawn_radius))
+        E_add, N_add = xy_from_polar(r=self.dest.spawn_radius, angle=dtr(qdr))
+        lat, lon = to_latlon(north=self.dest.N+N_add, east=self.dest.E+E_add, number=32)
+        #lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(self.dest.spawn_radius))
 
         # consider behavior type
         p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(qdr+180)%360, tas=tas)
@@ -299,52 +300,11 @@ class UAM_Modular(gym.Env):
             else:
                 self.planes[i].fly_to_goal = False
 
-    """
-    def _plan_path(self, p:Plane):
-        # Plans a path for a given plane.
-        # linear path to goal
-        if p.fly_to_goal:
-            ang  = bng_abs(N0=self.dest.N, E0=self.dest.E, N1=p.n, E1=p.e)
-            dist = np.flip(np.linspace(start=0.0, stop=self.dest.spawn_radius, num=20))
-
-            E_add, N_add = xy_from_polar(r=dist, angle=ang)
-            p.Path = Path(east=self.dest.E + E_add, north=self.dest.N + N_add)
-
-        # spiral-shaped path
-        else:
-            p.Path = self.spiral
-        return p
-
-    def _init_wps(self, p:Plane) -> Plane:
-        #Initializes the waypoints on the path, respectively, based on the position of the p.
-        p.wp1_idx, p.wp1_N, p.wp1_E, p.wp2_idx, p.wp2_N, p.wp2_E = get_init_two_wp(n_array=p.Path.north, 
-                                                                                   e_array=p.Path.east, 
-                                                                                   a_n=p.n, a_e=p.e)
-        try:
-            p.wp3_idx = p.wp2_idx + 1
-            p.wp3_N = p.Path.north[p.wp3_idx] 
-            p.wp3_E = p.Path.east[p.wp3_idx]
-        except:
-            p.wp3_idx = p.wp2_idx
-            p.wp3_N = p.Path.north[p.wp3_idx] 
-            p.wp3_E = p.Path.east[p.wp3_idx]
-        return p
-
-    def _set_path_metrics(self, p:Plane) -> Plane:
-        p.ye, p.dc, _, _ = VFG(N1 = p.wp1_N, 
-                               E1 = p.wp1_E, 
-                               N2 = p.wp2_N, 
-                               E2 = p.wp2_E,
-                               NA = p.n, 
-                               EA = p.e, 
-                               K  = self.VFG_K, 
-                               N3 = p.wp3_N,
-                               E3 = p.wp3_E)
-        p.ce = angle_to_pi(p.dc - np.radians(p.hdg))
-        return p
-    """
-
     def _set_state(self):
+        if len(self.planes) == 0:
+            self.state = None
+            return
+
         # since we use a spatial-temporal recursive approach, we need multi-agent history as well
         self.state = self._get_state(0)
 
@@ -399,10 +359,10 @@ class UAM_Modular(gym.Env):
                     d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
 
                     # heading intersection
-                    C_T = angle_to_pi(np.radians(other.hdg - p.hdg))/np.pi
+                    C_T = angle_to_pi(dtr(other.hdg - p.hdg))/np.pi
 
                     # CPA metrics
-                    DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=np.radians(other.hdg),
+                    DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=dtr(other.hdg),
                                      VOS=p.tas, VTS=other.tas)
                     DCPA = DCPA / 100.0
                     TCPA = TCPA / 60.0
@@ -410,11 +370,14 @@ class UAM_Modular(gym.Env):
                     # aggregate
                     TS_info.append([d, bng, v_r, C_T, DCPA, TCPA])
 
+            # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
+            if len(TS_info) == 0:
+                TS_info.append([1.0, -1.0, -1.0, -1.0, 1.0, -1.0])
+
             # sort array according to distance
             TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0], reverse=True)).astype(np.float32)
 
-            # ghost ship padding not needed since we always demand at least two planes
-            # however, we need to pad NA's as usual in single-agent LSTMRecTD3
+            # pad NA's as usual in single-agent LSTMRecTD3
             desired_length = self.obs_per_TS * (self.N_agents_max-1)
             TS_info = np.pad(TS_info, (0, desired_length - len(TS_info)), 'constant', constant_values=np.nan).astype(np.float32)
 
@@ -477,6 +440,12 @@ class UAM_Modular(gym.Env):
         # respawning
         self._handle_respawn(entered_open)
 
+        # set waypoints, and compute cross-track and course error for VFG vehicles
+        for p in self.planes:
+            if p.role == "VFG":
+                p = self._init_wps(p)
+                p = self._set_path_metrics(p)
+
         # perform high-level control when destination opened again
         if just_opened:
             self._high_level_control()
@@ -484,6 +453,17 @@ class UAM_Modular(gym.Env):
         # compute state and done        
         self._set_state()
         d = self._done()
+
+        # logging
+        if hasattr(self, "logger"):
+            P_info = {}
+            for i, p in enumerate(self.planes):
+                P_info[f"P{id(p)}_n"] = p.n
+                P_info[f"P{id(p)}_e"] = p.e
+                P_info[f"P{id(p)}_hdg"] = p.hdg
+                P_info[f"P{id(p)}_tas"] = p.tas
+                P_info[f"P{id(p)}_goal"] = int(p.fly_to_goal)
+            self.logger.store(sim_t=self.sim_t, **P_info)
         return self.state, float(self.r[0]), d, {}
 
     def _handle_respawn(self, entered_open:np.ndarray):
@@ -525,9 +505,9 @@ class UAM_Modular(gym.Env):
                 r_coll[i] -= 5.0
 
             else:
-                r_coll[i] -= 1*np.exp(-D/(2*self.incident_dist))
+                r_coll[i] -= 2*np.exp(-(D-self.incident_dist)**2/(4*self.incident_dist)**2)
 
-            # off-map (+1 agains numerical issues)
+            # off-map (+1 against numerical issues)
             if pi.D_dest > (self.dest.spawn_radius + 1.0): 
                 r_coll[i] -= 5.0
         
@@ -543,12 +523,43 @@ class UAM_Modular(gym.Env):
                 r_goal[i] = -5.0
 
         # aggregate reward components
-        r = (self.w_coll*r_coll + self.w_goal*r_goal)/self.w
+        if self.w == 0.0:
+            r = np.zeros((self.N_planes, 1), dtype=np.float32)
+        else:
+            r = (self.w_coll*r_coll + self.w_goal*r_goal)/self.w
 
         # store
         self.r = r
         self.r_coll = r_coll
         self.r_goal = r_goal
+
+    def _init_wps(self, p:Plane) -> Plane:
+        """Initializes the waypoints on the path, respectively, based on the position of the plane."""
+        p.wp1_idx, p.wp1_N, p.wp1_E, p.wp2_idx, p.wp2_N, p.wp2_E = get_init_two_wp(n_array=p.Path.north, 
+                                                                                   e_array=p.Path.east, 
+                                                                                   a_n=p.n, a_e=p.e)
+        try:
+            p.wp3_idx = p.wp2_idx + 1
+            p.wp3_N = p.Path.north[p.wp3_idx] 
+            p.wp3_E = p.Path.east[p.wp3_idx]
+        except:
+            p.wp3_idx = p.wp2_idx
+            p.wp3_N = p.Path.north[p.wp3_idx] 
+            p.wp3_E = p.Path.east[p.wp3_idx]
+        return p
+
+    def _set_path_metrics(self, p:Plane) -> Plane:
+        p.ye, p.dc, _, _ = VFG(N1 = p.wp1_N, 
+                               E1 = p.wp1_E, 
+                               N2 = p.wp2_N, 
+                               E2 = p.wp2_E,
+                               NA = p.n, 
+                               EA = p.e, 
+                               K  = self.VFG_K, 
+                               N3 = p.wp3_N,
+                               E3 = p.wp3_E)
+        p.ce = angle_to_pi(p.dc - dtr(p.hdg))
+        return p
 
     def _done(self):
         # artificial done signal
@@ -688,7 +699,7 @@ class UAM_Modular(gym.Env):
                     self.ax1.lns.append(self.ax1.plot([], [], color=COLORS[i], animated=True, zorder=10)[0])
 
                     # planned paths
-                    #self.ax1.paths.append(self.ax1.plot([], [], color=COLORS[i], animated=True, zorder=-50)[0])
+                    self.ax1.paths.append(self.ax1.plot([], [], color=COLORS[i], animated=True, linestyle="dashed", alpha=0.5, zorder=-50)[0])
 
                     # wps
                     #self.ax1.pts1.append(self.ax1.scatter([], [], color=COLORS[i], s=7, animated=True))
@@ -752,9 +763,9 @@ class UAM_Modular(gym.Env):
                     self.ax1.draw_artist(self.ax1.lns[i])
 
                     # planned paths
-                    #if p.fly_to_goal:
-                    #    self.ax1.paths[i].set_data(p.Path.east, p.Path.north)
-                    #    self.ax1.draw_artist(self.ax1.paths[i])
+                    if p.role == "VFG":
+                        self.ax1.paths[i].set_data(p.Path.east, p.Path.north)
+                        self.ax1.draw_artist(self.ax1.paths[i])
 
                     # waypoints
                     #self.ax1.pts1[i].set_offsets(np.array([p.Path.east[p.wp1_idx], p.Path.north[p.wp1_idx]]))

@@ -6,11 +6,11 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    planner_weights: 62_plan_actor.pth
+    planner_weights: 7_plan_actor.pth
     planner_safety_net: false
-    base_speed: 3.0
+    base_speed: 5.0
     day: storm
-    time: 06:00
+    time: 08:00
     global_path_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/Path_HHCH.pickle
     depth_data_file: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/HHOS/validation scenarios/real_data/DepthData.pickle
     N_TSs_max: 25
