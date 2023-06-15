@@ -19,7 +19,7 @@ class MADDPGAgent(BaseAgent):
         super().__init__(c, agent_name)
 
         # attributes and hyperparameters
-        self.N_agents         = getattr(c.Env, "env_kwargs")["N_agents"]
+        self.N_agents         = getattr(c.Env, "env_kwargs")["N_agents_max"]
         self.lr_actor         = c.lr_actor
         self.lr_critic        = c.lr_critic
         self.tau              = c.tau

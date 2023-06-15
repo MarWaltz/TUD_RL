@@ -1,3 +1,5 @@
+import uuid
+
 from tud_rl.envs._envs.UAM_Modular import *
 
 
@@ -25,19 +27,31 @@ class UAMLogger:
 
 class UAM_Modular_Validation(UAM_Modular):
     """Validation scenarios for the Urban Air Mobility agent."""
-    def __init__(self, situation:str, N_agents_max:int, VFG:bool, safe_number:int):
+    def __init__(self, situation:int, sim_study:bool, sim_study_N:int, safe_number:int):
 
-        assert situation in ["random", "equal", "corridor"], "Unknown validation situation."
-        assert not (VFG and N_agents_max != 12), "Go for 12 agents if you want to incorporate VFG."
-
-        self.situation = situation
+        self.situation   = situation
+        self.sim_study   = sim_study
+        self.sim_study_N = sim_study_N
         self.safe_number = safe_number
-        self.VFG = VFG
 
-        if VFG:
-            self.VFG_K = 0.01
+        assert not (not sim_study and sim_study_N is not None), "Specify sim_study = True if you give number of agents for it."
 
-        super().__init__(N_agents_max=N_agents_max, w_coll=0.0, w_goal=0.0)
+        if sim_study:
+            N_agents = sim_study_N
+
+        elif situation == 1:
+            N_agents = 10
+
+        elif situation == 2:
+            N_agents = 12
+
+        elif situation == 3:
+            N_agents = 9
+
+        elif situation == 4:
+            N_agents = 11
+
+        super().__init__(N_agents_max=N_agents, w_coll=0.0, w_goal=0.0, r_goal_norm=1.0)
         self._max_episode_steps = 1000
 
         # viz
@@ -53,12 +67,17 @@ class UAM_Modular_Validation(UAM_Modular):
         self.planes:List[Plane] = []
         self.N_planes = self.N_agents_max
 
-        # scenario-dependent spawning routine
-        for n in range(self.N_planes):
+        # spawn planes
+        for n in range(self.N_agents_max):
             while True:
+
                 # select behavior
-                if self.VFG and n <= 5:
-                    role = "VFG"
+                if self.sim_study:
+                    role = "RL"
+                elif self.situation == 2 and n in [10, 11]:
+                    role = "CUT"
+                elif self.situation == 4 and n in [9, 10]:
+                    role = "CUT"
                 else:
                     role = "RL"
 
@@ -66,11 +85,7 @@ class UAM_Modular_Validation(UAM_Modular):
                 p = self._spawn_plane(n=n, role=role)
 
                 # make sure we don't spawn in a conflict already in random situation
-                if self.situation == "random":
-                    if np.min([np.inf] + [ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e) for other in self.planes]) >= 3.0*self.incident_dist:
-                        self.planes.append(p)
-                        break
-                else:
+                if np.min([np.inf] + [ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e) for other in self.planes]) >= 1.0*self.incident_dist:
                     self.planes.append(p)
                     break
 
@@ -78,11 +93,11 @@ class UAM_Modular_Validation(UAM_Modular):
         ts_alive = random.sample(population=list(range(0, 61)), k=self.N_planes)
         for i, p in enumerate(self.planes):
 
-            # VFG vehicles shouldn't fly to the goal
-            if p.role == "VFG":
-                self.planes[i].t_alive = 0
-            else:
+            # only RL planes should fly to the goal
+            if p.role == "RL":
                 self.planes[i].t_alive = ts_alive[i]
+            else:
+                self.planes[i].t_alive = 0
         
         # interface to high-level module including goal decision
         self._high_level_control()
@@ -101,43 +116,62 @@ class UAM_Modular_Validation(UAM_Modular):
         self._set_state()
         self.state_init = self.state
 
+        # set unique ID's
+        for i, _ in enumerate(self.planes):
+            self.planes[i].id = str(uuid.uuid4()).replace("-","_")
+
         # logging
         P_info = {}
         for i, p in enumerate(self.planes):
-            P_info[f"P{id(p)}_n"] = p.n
-            P_info[f"P{id(p)}_e"] = p.e
-            P_info[f"P{id(p)}_hdg"] = p.hdg
-            P_info[f"P{id(p)}_tas"] = p.tas
-            P_info[f"P{id(p)}_goal"] = int(p.fly_to_goal)
+            P_info[f"P{p.id}_n"] = p.n
+            P_info[f"P{p.id}_e"] = p.e
+            P_info[f"P{p.id}_hdg"] = p.hdg
+            P_info[f"P{p.id}_tas"] = p.tas
+            P_info[f"P{p.id}_goal"] = int(p.fly_to_goal)
         self.logger = UAMLogger(sim_t=self.sim_t, **P_info)
         return self.state
 
-    def _spawn_plane(self, n:int, role:str):
-        assert role in ["RL", "VFG", "RND"], "Unknown role."
-
-        # scenario-dependent
-        if self.situation == "equal":
-            hdg = np.degrees(np.linspace(start=0.0, stop=2*np.pi, num=self.N_agents_max, endpoint=False)[n])
-            qdr = (hdg+180)%360
-            tas = self.actas
-            dist = meter_to_NM(self.dest.spawn_radius)
-
-        elif self.situation == "corridor":
-            assert self.N_agents_max == 9, "Consider 9 flight taxis in corridor setup."
-            hdg = [35., 45., 55., 170., 180., 190., 305., 315., 325.][n]
-            qdr = (hdg+180)%360
-            tas = self.actas
-            dist = meter_to_NM(self.dest.spawn_radius)
-
-        elif self.situation == "random":
-            hdg = np.degrees(np.linspace(start=0.0, stop=2*np.pi, num=self.N_agents_max, endpoint=False)[n])
+    def _spawn_plane(self, role:str, n:int=None, respawn:bool=False):
+        # sim-study setup
+        if self.sim_study:
+            hdg = np.degrees(np.random.uniform(low=0, high=2*np.pi))
             qdr = (hdg + 180) % 360
-            hdg = (hdg + np.random.uniform(low=-45.0, high=45.0)) % 360
+            sgn = 1 if bool(random.getrandbits(1)) else -1
+            hdg = (hdg + sgn * np.random.uniform(low=0.0, high=20.0)) % 360
             tas = self.actas
-            dist = meter_to_NM(self.dest.spawn_radius)
+            dist = self.dest.spawn_radius
+
+        # cutters
+        elif role == "CUT" or respawn:
+            hdg = np.degrees(np.random.uniform(low=0, high=2*np.pi))
+            qdr = (hdg + 180) % 360
+            sgn = 1 if bool(random.getrandbits(1)) else -1
+            hdg = (hdg + sgn * np.random.uniform(low=20.0, high=45.0)) % 360
+            tas = self.actas
+            dist = self.dest.spawn_radius
+
+        # equal
+        elif self.situation in [1, 2]:
+            if self.situation == 1:
+                num = self.N_agents_max
+            else:
+                num = self.N_agents_max - 2
+
+            hdg = np.degrees(np.linspace(start=0.0, stop=2*np.pi, num=num, endpoint=False)[n])
+            qdr = (hdg + 180) % 360
+            tas = self.actas
+            dist = self.dest.spawn_radius
+
+        # corridor
+        elif self.situation in [3, 4]:
+            hdg = [35., 45., 55., 170., 180., 190., 305., 315., 325.][n]
+            qdr = (hdg + 180) % 360
+            tas = self.actas
+            dist = self.dest.spawn_radius
 
         # determine origin
-        lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=dist)
+        E_add, N_add = xy_from_polar(r=dist, angle=dtr(qdr))
+        lat, lon = to_latlon(north=self.dest.N+N_add, east=self.dest.E+E_add, number=32)
 
         # consider behavior type
         p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=hdg, tas=tas)
@@ -146,8 +180,8 @@ class UAM_Modular_Validation(UAM_Modular):
         p.n, p.e, _ = to_utm(lat=lat, lon=lon)
 
         # potentially create circle
-        if role == "VFG":
-            p.circle = np.random.uniform(low=self.dest.restricted_area+200, high=self.dest.spawn_radius-200)
+        #if role == "VFG":
+        #    p.circle = np.random.uniform(low=self.dest.restricted_area+200, high=self.dest.spawn_radius-200)
 
         # compute initial distance to destination
         p.D_dest     = ED(N0=self.dest.N, E0=self.dest.E, N1=p.n, E1=p.e)
@@ -179,12 +213,18 @@ class UAM_Modular_Validation(UAM_Modular):
             
             # priority unaffected after leaving the map
             elif p.D_dest >= self.dest.respawn_radius:
-                t_alive     = p.t_alive
-                fly_to_goal = p.fly_to_goal
-                self.planes[i] = self._spawn_plane(role=self.planes[i].role)
-                
-                self.planes[i].t_alive     = t_alive
-                self.planes[i].fly_to_goal = fly_to_goal
+
+                if p.role == "RL":
+                    self.planes.pop(i)
+                else:
+                    t_alive     = p.t_alive
+                    fly_to_goal = p.fly_to_goal
+                    p_id        = p.id
+                    self.planes[i] = self._spawn_plane(role=self.planes[i].role, respawn=True)
+                    
+                    self.planes[i].t_alive     = t_alive
+                    self.planes[i].fly_to_goal = fly_to_goal
+                    self.planes[i].id          = p_id
 
     def _done(self):
         d = False
@@ -197,13 +237,16 @@ class UAM_Modular_Validation(UAM_Modular):
         elif len(self.planes) == 0:
             d = True
         
-        # only VFG-controlled planes left
-        elif all([p.role == "VFG" for p in self.planes]):
+        # only non-RL-controlled planes left
+        elif all([p.role != "RL" for p in self.planes]):
             d = True
 
         if d:
-            self.logger.dump(name="UAM_" + str(self.situation) + "_" + str(self.N_agents_max) + "_" + str(self.VFG) + "_" + str(self.safe_number))
+            if self.sim_study:
+                self.logger.dump(name="UAM_SimStudy_" + str(self.N_agents_max) + "_" + str(self.safe_number))
+            else:
+                self.logger.dump(name="UAM_ValScene_" + str(self.situation) + "_" + str(self.N_agents_max))
         return d
 
-    #def render(self, mode=None):
-    #    pass
+    def render(self, mode=None):
+        pass

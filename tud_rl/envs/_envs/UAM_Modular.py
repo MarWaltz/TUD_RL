@@ -153,7 +153,8 @@ class UAM_Modular(gym.Env):
     def __init__(self, 
                  N_agents_max :int, 
                  w_coll:float, 
-                 w_goal:float):
+                 w_goal:float,
+                 r_goal_norm:float):
         super(UAM_Modular, self).__init__()
 
         # setup
@@ -166,6 +167,7 @@ class UAM_Modular(gym.Env):
 
         self.w_coll = w_coll
         self.w_goal = w_goal
+        self.r_goal_norm = r_goal_norm
         self.w = self.w_coll + self.w_goal
 
         # domain params
@@ -353,7 +355,10 @@ class UAM_Modular(gym.Env):
                     v_r = (other.tas - p.tas)/20.0
 
                     # relative bearing
-                    bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
+                    try:
+                        bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
+                    except:
+                        pass
 
                     # distance
                     d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
@@ -458,11 +463,11 @@ class UAM_Modular(gym.Env):
         if hasattr(self, "logger"):
             P_info = {}
             for i, p in enumerate(self.planes):
-                P_info[f"P{id(p)}_n"] = p.n
-                P_info[f"P{id(p)}_e"] = p.e
-                P_info[f"P{id(p)}_hdg"] = p.hdg
-                P_info[f"P{id(p)}_tas"] = p.tas
-                P_info[f"P{id(p)}_goal"] = int(p.fly_to_goal)
+                P_info[f"P{p.id}_n"] = p.n
+                P_info[f"P{p.id}_e"] = p.e
+                P_info[f"P{p.id}_hdg"] = p.hdg
+                P_info[f"P{p.id}_tas"] = p.tas
+                P_info[f"P{p.id}_goal"] = int(p.fly_to_goal)
             self.logger.store(sim_t=self.sim_t, **P_info)
         return self.state, float(self.r[0]), d, {}
 
@@ -516,7 +521,7 @@ class UAM_Modular(gym.Env):
             
             # goal-approach reward for the one who should fly toward the goal
             if p.fly_to_goal:
-                r_goal[i] = (p.D_dest_old - p.D_dest)/5.0
+                r_goal[i] = (p.D_dest_old - p.D_dest)/self.r_goal_norm
             
             # punish others for getting into the restricted area
             elif p.D_dest <= self.dest.restricted_area:
@@ -691,23 +696,24 @@ class UAM_Modular(gym.Env):
                 self.ax1.txts  = []
 
                 for i, p in enumerate(self.planes):
+                    color = "black" if p.role == "CUT" else COLORS[i]
 
                     # show aircraft
-                    self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -p.hdg), color=COLORS[i], animated=True))
+                    self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -p.hdg), color=color, animated=True))
 
                     # incident area
-                    self.ax1.lns.append(self.ax1.plot([], [], color=COLORS[i], animated=True, zorder=10)[0])
+                    self.ax1.lns.append(self.ax1.plot([], [], color=color, animated=True, zorder=10)[0])
 
                     # planned paths
-                    self.ax1.paths.append(self.ax1.plot([], [], color=COLORS[i], animated=True, linestyle="dashed", alpha=0.5, zorder=-50)[0])
+                    self.ax1.paths.append(self.ax1.plot([], [], color=color, animated=True, linestyle="dashed", alpha=0.5, zorder=-50)[0])
 
                     # wps
-                    #self.ax1.pts1.append(self.ax1.scatter([], [], color=COLORS[i], s=7, animated=True))
-                    #self.ax1.pts2.append(self.ax1.scatter([], [], color=COLORS[i], s=7, animated=True))
-                    #self.ax1.pts3.append(self.ax1.scatter([], [], color=COLORS[i], s=7, animated=True))
+                    #self.ax1.pts1.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
+                    #self.ax1.pts2.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
+                    #self.ax1.pts3.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
 
                     # information
-                    self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=COLORS[i], fontdict={"size" : 8}, animated=True))
+                    self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=color, fontdict={"size" : 8}, animated=True))
 
                 if self.plot_reward:
                     self.ax2.lns_agg  = []

@@ -83,6 +83,14 @@ gym.register(
     entry_point=loc + "UAM"
 )
 gym.register(
+    id="UAM-Modular-v0",
+    entry_point=loc + "UAM_Modular"
+)
+gym.register(
+    id="UAM-Modular-Validation-v0",
+    entry_point=loc + "UAM_Modular_Validation"
+)
+gym.register(
     id="SimpleComm-v0",
     entry_point=loc + "SimpleComm"
 )
