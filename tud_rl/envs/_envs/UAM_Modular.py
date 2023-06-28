@@ -414,8 +414,6 @@ class UAM_Modular(gym.Env):
                                               s_hist   = self.s_multi_hist[:, i, :], 
                                               a_hist   = None, 
                                               hist_len = self.hist_len)
-                act *= 0.0
-
                 # move plane
                 p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=None)
 
