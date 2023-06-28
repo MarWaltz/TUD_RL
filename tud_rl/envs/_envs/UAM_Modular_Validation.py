@@ -51,7 +51,7 @@ class UAM_Modular_Validation(UAM_Modular):
         elif situation == 4:
             N_agents = 11
 
-        super().__init__(N_agents_max=N_agents, w_coll=0.0, w_goal=0.0, r_goal_norm=1.0)
+        super().__init__(N_agents_max=N_agents, N_cutters_max=0, w_coll=0.0, w_goal=0.0, r_goal_norm=1.0)
         self._max_episode_steps = 1000
 
         # viz
@@ -97,7 +97,7 @@ class UAM_Modular_Validation(UAM_Modular):
             if p.role == "RL":
                 self.planes[i].t_alive = ts_alive[i]
             else:
-                self.planes[i].t_alive = 0
+                self.planes[i].t_alive = -1e10
         
         # interface to high-level module including goal decision
         self._high_level_control()
@@ -130,6 +130,15 @@ class UAM_Modular_Validation(UAM_Modular):
             P_info[f"P{p.id}_goal"] = int(p.fly_to_goal)
         self.logger = UAMLogger(sim_t=self.sim_t, **P_info)
         return self.state
+
+    def _high_level_control(self):
+        """Decides who out of the current flight taxis should fly toward the goal."""
+        idx = np.argmax([p.t_alive for p in self.planes])
+        for i, _ in enumerate(self.planes):
+            if i == idx:
+                self.planes[i].fly_to_goal = 1.0
+            else:
+                self.planes[i].fly_to_goal = -1.0
 
     def _spawn_plane(self, role:str, n:int=None, respawn:bool=False):
         # sim-study setup
@@ -248,5 +257,5 @@ class UAM_Modular_Validation(UAM_Modular):
                 self.logger.dump(name="UAM_ValScene_" + str(self.situation) + "_" + str(self.N_agents_max))
         return d
 
-    def render(self, mode=None):
-        pass
+    #def render(self, mode=None):
+    #    pass

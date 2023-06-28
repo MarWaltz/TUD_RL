@@ -152,17 +152,20 @@ class UAM_Modular(gym.Env):
     """Urban air mobility simulation env based on the BlueSky simulator of Ellerbroek and Hoekstra."""
     def __init__(self, 
                  N_agents_max :int, 
+                 N_cutters_max :int,
                  w_coll:float, 
                  w_goal:float,
                  r_goal_norm:float):
         super(UAM_Modular, self).__init__()
 
         # setup
-        self.N_agents_max = N_agents_max
-        assert N_agents_max > 1, "Need at least two aircrafts."
+        self.N_agents_max  = N_agents_max
+        self.N_cutters_max = N_cutters_max
+        assert N_agents_max > 1, "Please at least two RL-controlled aircrafts."
 
         self.acalt = 300 # [m]
-        self.actas = 15  # [m/s]
+        self.actas = 13  # [m/s]
+        self.delta_tas = 5 # [m/s]
         self.actype = "MAVIC"
 
         self.w_coll = w_coll
@@ -184,16 +187,16 @@ class UAM_Modular(gym.Env):
 
         # config
         self.history_length = 2
-        self.OS_obs     = 3     # bng goal, dist goal, fly to goal
+        self.OS_obs     = 3     # abs bng goal, rel bng goal, dist goal, fly to goal
         self.obs_per_TS = 6     # distance, relative bearing, speed difference, heading intersection, DCPA, TCPA
-        self.obs_size   = self.OS_obs + self.obs_per_TS*(self.N_agents_max-1)
+        self.obs_size   = self.OS_obs + self.obs_per_TS*(self.N_agents_max-1) + self.obs_per_TS*self.N_cutters_max
 
         self.observation_space = spaces.Box(low  = np.full(self.obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(self.obs_size,  np.inf, dtype=np.float32))
         self.act_size = 1
         self.action_space = spaces.Box(low  = np.full(self.act_size, -1.0, dtype=np.float32), 
                                         high = np.full(self.act_size, +1.0, dtype=np.float32))
-        self._max_episode_steps = 200
+        self._max_episode_steps = 250
 
         # viz
         self.plot_reward = True
@@ -201,7 +204,7 @@ class UAM_Modular(gym.Env):
 
         assert not (self.plot_state and self.N_agents_max > 2), "State plotting is only reasonable for two flight taxis."
         if self.plot_state:
-            atts = ["D_TS", "bng_TS", "V_R", "C_T", "DCPA", "TPCA"]
+            atts = ["D_TS", "bng_TS", "V_R", "C_T", "DCPA", "TPCA", "Goal"]
 
             other_names = []
             for i in range(self.N_agents_max-1):
@@ -217,26 +220,18 @@ class UAM_Modular(gym.Env):
 
         # create some aircrafts
         self.planes:List[Plane] = []
-        self.N_planes = np.random.choice(list(range(2, self.N_agents_max+1)))
+        self.N_RL      = np.random.choice(list(range(2, self.N_agents_max+1)))
+        self.N_cutters = np.random.choice(self.N_cutters_max+1)
+        self.N_planes = self.N_RL + self.N_cutters
 
         for n in range(self.N_planes):
-            if n == 0:
+            if n < self.N_RL:
                 role = "RL" 
             else:
-                role = "RL" #np.random.choice(["VFG", "RND"], p=[1.0, 0.0])
+                role = "CUT"
 
             self.planes.append(self._spawn_plane(role))
-
-        # init life times
-        ts_alive = random.sample(population=list(range(0, 61)), k=self.N_planes)
-        for i, _ in enumerate(self.planes):
-            self.planes[i].t_alive = ts_alive[i]
-
-        # inject higher chance of flying to the goal for the first plane
-        if not "Validation" in type(self).__name__:
-            if bool(random.getrandbits(1)):
-                self.planes[0].t_alive = 100
-
+      
         # interface to high-level module including goal decision
         self._high_level_control()
 
@@ -248,42 +243,49 @@ class UAM_Modular(gym.Env):
         self.state_init = self.state
         return self.state
 
-    """
-    def _create_spiral(self, n_levels:int):
-        assert n_levels in [1, 2, 3, 4, 5], "Inappropriate spiral construction."
-        if n_levels == 3:
-            N = 99_999
-        else:
-            N = 100_000
-        inner_range = self.dest.radius + 300
-
-        # spiral
-        dist = list(np.linspace(start=self.dest.spawn_radius, stop=inner_range, num=N))
-        ang  = list(np.linspace(start=0.0, stop=2*np.pi, num=int(N/n_levels))) * n_levels
-
-        # final circle
-        dist += [inner_range] * 10_000
-        ang += list(np.linspace(start=0.0, stop=2*np.pi, num=10_000))
-
-        # create path
-        E_add, N_add = xy_from_polar(r=np.array(dist), angle=np.array(ang))
-        return Path(east=self.dest.E + E_add, north=self.dest.N + N_add)
-    """
-
     def _spawn_plane(self, role:str):
-        assert role in ["RL", "VFG", "RND"], "Unknown role."
+        assert role in ["RL", "VFG", "RND", "CUT"], "Unknown role."
 
-        # sample speed and bearing
-        tas = float(np.random.uniform(self.actas-10.0, self.actas+10.0, size=1))
-        qdr = float(np.random.uniform(0.0, 360.0, size=1))
+        if role == "CUT":
+            p0 = self.planes[0]
 
-        # determine origin
-        E_add, N_add = xy_from_polar(r=self.dest.spawn_radius, angle=dtr(qdr))
-        lat, lon = to_latlon(north=self.dest.N+N_add, east=self.dest.E+E_add, number=32)
-        #lat, lon = qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=qdr, dist=meter_to_NM(self.dest.spawn_radius))
+            while True:
+                # sample time
+                dt = random.uniform(30.0, 60.0)
 
-        # consider behavior type
-        p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=(qdr+180)%360, tas=tas)
+                # linear prediction of p0's path
+                vE, vN = xy_from_polar(r=p0.tas, angle=dtr(p0.hdg))
+                x0_E = p0.e + vE * dt
+                x0_N = p0.n + vN * dt
+
+                # sample angle and speed
+                ang = random.uniform(0.0, 2*np.pi)
+                tas = random.uniform(self.actas - self.delta_tas, self.actas + self.delta_tas)
+                d = dt * tas
+
+                # set position and heading
+                E_add, N_add = xy_from_polar(r=d, angle=ang)
+                lat, lon = to_latlon(north=x0_N + N_add, east=x0_E + E_add, number=32)
+                hdg = (rtd(ang) + 180) % 360
+
+                if ED(N0=x0_N + N_add, E0=x0_E + E_add, N1=self.dest.N, E1=self.dest.E) <= self.dest.respawn_radius:
+                    break
+        else:
+            # sample speed and bearing
+            tas = random.uniform(self.actas - self.delta_tas, self.actas + self.delta_tas)
+            qdr = random.uniform(0.0, 360.0)
+
+            # determine origin
+            E_add, N_add = xy_from_polar(r=self.dest.spawn_radius, angle=dtr(qdr))
+            lat, lon = to_latlon(north=self.dest.N+N_add, east=self.dest.E+E_add, number=32)
+
+            # add noise to heading
+            hdg = (qdr + 180) % 360
+            sgn = 1 if bool(random.getrandbits(1)) else -1
+            hdg = (hdg + sgn * random.uniform(20.0, 45.0)) % 360
+
+        # construct plane
+        p = Plane(role=role, dt=self.dt, actype=self.actype, lat=lat, lon=lon, alt=self.acalt, hdg=hdg, tas=tas)
 
         # set UTM coordinates
         p.n, p.e, _ = to_utm(lat=lat, lon=lon)
@@ -295,12 +297,11 @@ class UAM_Modular(gym.Env):
 
     def _high_level_control(self):
         """Decides who out of the current flight taxis should fly toward the goal."""
-        idx = np.argmax([p.t_alive for p in self.planes])
         for i, _ in enumerate(self.planes):
-            if i == idx:
-                self.planes[i].fly_to_goal = True
+            if i == 0 and self.step_cnt >= 200:
+                self.planes[i].fly_to_goal = 1.0
             else:
-                self.planes[i].fly_to_goal = False
+                self.planes[i].fly_to_goal = -1.0
 
     def _set_state(self):
         if len(self.planes) == 0:
@@ -340,11 +341,11 @@ class UAM_Modular(gym.Env):
         # select plane of interest
         p = self.planes[i]
 
-        # distance, relative bearing to goal, fly to goal
-        bng_goal = bng_rel(N0=p.n, E0=p.e, N1=self.dest.N, E1=self.dest.E, head0=dtr(p.hdg), to_2pi=False)/np.pi
+        # relative bearing to goal, distance, fly to goal
+        rel_bng_goal = bng_rel(N0=p.n, E0=p.e, N1=self.dest.N, E1=self.dest.E, head0=dtr(p.hdg), to_2pi=False)/np.pi
         d_goal   = ED(N0=p.n, E0=p.e, N1=self.dest.N, E1=self.dest.E)/self.dest.spawn_radius
-        task     = 1.0 if p.fly_to_goal else -1.0
-        s_i = np.array([bng_goal, d_goal, task])
+        task     = p.fly_to_goal
+        s_i = np.array([rel_bng_goal, d_goal, task])
 
         # information about other planes
         if self.N_planes > 1:
@@ -352,13 +353,10 @@ class UAM_Modular(gym.Env):
             for j, other in enumerate(self.planes):
                 if i != j:
                     # relative speed
-                    v_r = (other.tas - p.tas)/20.0
+                    v_r = (other.tas - p.tas)/(2*self.delta_tas)
 
                     # relative bearing
-                    try:
-                        bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
-                    except:
-                        pass
+                    bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
 
                     # distance
                     d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
@@ -383,7 +381,7 @@ class UAM_Modular(gym.Env):
             TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0], reverse=True)).astype(np.float32)
 
             # pad NA's as usual in single-agent LSTMRecTD3
-            desired_length = self.obs_per_TS * (self.N_agents_max-1)
+            desired_length = self.obs_per_TS * (self.N_agents_max-1) + self.obs_per_TS * self.N_cutters_max
             TS_info = np.pad(TS_info, (0, desired_length - len(TS_info)), 'constant', constant_values=np.nan).astype(np.float32)
 
             s_i = np.concatenate((s_i, TS_info))
@@ -416,6 +414,7 @@ class UAM_Modular(gym.Env):
                                               s_hist   = self.s_multi_hist[:, i, :], 
                                               a_hist   = None, 
                                               hist_len = self.hist_len)
+                act *= 0.0
 
                 # move plane
                 p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=None)
@@ -424,8 +423,9 @@ class UAM_Modular(gym.Env):
                 p.upd_dynamics(perf=self.perf, dest=None)
 
         # update life times
-        for i, p in enumerate(self.planes):
-            self.planes[i].t_alive = p.t_alive + 1
+        if "Validation" in type(self).__name__:
+            for i, p in enumerate(self.planes):
+                self.planes[i].t_alive = p.t_alive + 1
 
         # update UTM coordinates
         for p in self.planes:
@@ -451,8 +451,11 @@ class UAM_Modular(gym.Env):
                 p = self._init_wps(p)
                 p = self._set_path_metrics(p)
 
-        # perform high-level control when destination opened again
-        if just_opened:
+        # high-level control
+        if "Validation" in type(self).__name__:
+            if just_opened:
+                self._high_level_control()
+        else:
             self._high_level_control()
 
         # compute state and done        
@@ -472,21 +475,11 @@ class UAM_Modular(gym.Env):
         return self.state, float(self.r[0]), d, {}
 
     def _handle_respawn(self, entered_open:np.ndarray):
-        """Respawns planes when they entered the open destination area."""
+        """Respawns planes when they left the map."""
         for i, p in enumerate(self.planes):
-            # low priority after goal entry
-            if entered_open[i]:
-                self.planes[i] = self._spawn_plane(role=self.planes[i].role)
-                self.planes[i].t_alive     = 0
-                self.planes[i].fly_to_goal = False
-            
-            # priority unaffected after leaving the map
-            elif p.D_dest >= self.dest.respawn_radius:
-                t_alive     = p.t_alive
+            if p.D_dest >= self.dest.respawn_radius:
                 fly_to_goal = p.fly_to_goal
                 self.planes[i] = self._spawn_plane(role=self.planes[i].role)
-                
-                self.planes[i].t_alive     = t_alive
                 self.planes[i].fly_to_goal = fly_to_goal
 
     def _calculate_reward(self):
@@ -510,17 +503,18 @@ class UAM_Modular(gym.Env):
                 r_coll[i] -= 5.0
 
             else:
-                r_coll[i] -= 2*np.exp(-(D-self.incident_dist)**2/(4*self.incident_dist)**2)
+                r_coll[i] -= 5*np.exp(-(D-self.incident_dist)**2/(263.6)**2) 
+                # approximately yields reward of -5 at 100m and -0.5 at 500m
 
-            # off-map (+1 against numerical issues)
-            if pi.D_dest > (self.dest.spawn_radius + 1.0): 
+            # off-map (+0.5 against numerical issues)
+            if pi.D_dest > (self.dest.spawn_radius + 0.5): 
                 r_coll[i] -= 5.0
-        
+
         # ------ goal reward ------
         for i, p in enumerate(self.planes):
             
             # goal-approach reward for the one who should fly toward the goal
-            if p.fly_to_goal:
+            if p.fly_to_goal == 1.0:
                 r_goal[i] = (p.D_dest_old - p.D_dest)/self.r_goal_norm
             
             # punish others for getting into the restricted area
@@ -567,6 +561,10 @@ class UAM_Modular(gym.Env):
         return p
 
     def _done(self):
+        # id-0 successfully reached the goal
+        if self.planes[0].D_dest <= self.dest.radius and self.planes[0].fly_to_goal == 1:
+            return True
+
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
             return True
@@ -783,8 +781,9 @@ class UAM_Modular(gym.Env):
 
                     # information
                     s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
-                    s+= "\n" + f"t_alive: {int(p.t_alive)}" 
-                    if p.fly_to_goal:
+                    if hasattr(p, "t_alive"):
+                        s+= "\n" + f"t_alive: {int(p.t_alive)}" 
+                    if p.fly_to_goal == 1.0:
                         s += "\n" + "Go!!!"
                     self.ax1.txts[i].set_text(s)
                     self.ax1.txts[i].set_position((p.e, p.n))
