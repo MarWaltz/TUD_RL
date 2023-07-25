@@ -654,7 +654,7 @@ class Plane:
         self.coslat = np.cos(np.radians(lat))
 
         # behavior type
-        assert role in ["RL", "VFG", "RND"], "Unknown behavior type of the plane."
+        assert role in ["RL", "VFG", "RND", "CUT"], "Unknown behavior type of the plane."
         self.role = role
 
     def upd_dynamics(self, perf:OpenAP, discrete_acts=False, a=None, dest=None):
@@ -670,6 +670,9 @@ class Plane:
 
         elif self.role == "RND":
             self.cnt_hdg, self.cnt_tas = self._RND_control()
+
+        elif self.role == "CUT":
+            self.cnt_hdg, self.cnt_tas = self._CUT_control()
 
         #---------- Performance Update ------------------------
         perf.update(self.tas, self.vs, self.alt, self.ax)
@@ -704,6 +707,9 @@ class Plane:
                 return [self.hdg + self.delta_hdg * a[0], self.tas + self.delta_tas * a[1]]
             else:
                 return [self.hdg + self.delta_hdg * a[0], self.tas]
+
+    def _CUT_control(self):
+        return self.hdg, self.tas
 
     def _VFG_control(self):
         return rtd(self.dc), self.tas

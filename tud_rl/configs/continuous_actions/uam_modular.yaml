@@ -7,10 +7,14 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     N_agents_max: 8
-    N_cutters_max: 2
+    N_agents_min: 3
+    N_cutters_max: 0
+    N_cutters_min: 0
     w_coll: 1
     w_goal: 0.5
+    w_comf: 1.0
     r_goal_norm: 5
+    c: 1.0
   info: ''
 agent:
   LSTMRecTD3:
