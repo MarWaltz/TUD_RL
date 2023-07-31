@@ -1,4 +1,5 @@
 import random
+import uuid
 from copy import copy
 from string import ascii_letters
 from typing import List, Union
@@ -74,10 +75,10 @@ class Destination:
                 else:
                     entered_close[i] = True
 
-        #  close if someone entered
-        if any(entered_open):
-            self.close()
-
+        #  close only if the correct AC entered
+        for i, p in enumerate(planes):
+            if entered_open[i] and p.fly_to_goal == 1.0:
+                self.close()
         return entered_close, entered_open, just_opened
 
     def open(self):
@@ -321,32 +322,31 @@ class UAM_Modular(gym.Env):
             self.state = None
             return
 
-        # since we use a spatial-temporal recursive approach, we need multi-agent history as well
+        # state observation of id0 will be used for learning
         self.state = self._get_state(0)
 
-        if self.step_cnt == 0:
-            self.s_multi_hist = np.zeros((self.history_length, self.N_planes, self.obs_size))                   
-            self.hist_len = 0
-            self.s_multi_old = np.zeros((self.N_planes, self.obs_size))
-        else:
-            # update history, where most recent state component is the old state from last step
-            if self.hist_len == self.history_length:
-                self.s_multi_hist = np.roll(self.s_multi_hist, shift=-1, axis=0)
-                self.s_multi_hist[self.history_length - 1] = self.s_multi_old
-            else:
-                self.s_multi_hist[self.hist_len] = self.s_multi_old
-                self.hist_len += 1
-
-        # overwrite old state
-        self.s_multi_old = self._get_state_multi()
-
-    def _get_state_multi(self) -> None:
-        """Computes the state in the multi-agent scenario."""
-        s = np.zeros((self.N_planes, self.obs_size), dtype=np.float32)
         for i, p in enumerate(self.planes):
-            if p.role == "RL":
-                s[i] = self._get_state(i)
-        return s
+
+            # compute current state
+            if i == 0:
+                p.s = self.state
+            else:
+                p.s = self._get_state(i)
+
+            # update history
+            if not hasattr(p, "s_hist"):
+                p.s_hist = np.zeros((self.history_length, self.obs_size))
+                p.hist_len = 0
+            else:
+                if p.hist_len == self.history_length:
+                    p.s_hist = np.roll(p.s_hist, shift=-1, axis=0)
+                    p.s_hist[self.history_length - 1] = p.s_old
+                else:
+                    p.s_hist[p.hist_len] = p.s_old
+                    p.hist_len += 1
+            
+            # safe old state
+            p.s_old = copy(p.s)
 
     def _get_state(self, i:int) -> np.ndarray:
         """Computes the state from the perspective of the i-th agent of the internal plane array."""
@@ -361,43 +361,42 @@ class UAM_Modular(gym.Env):
         s_i = np.array([rel_bng_goal, d_goal, task])
 
         # information about other planes
-        if self.N_planes > 1:
-            TS_info = []
-            for j, other in enumerate(self.planes):
-                if i != j:
-                    # relative speed
-                    v_r = (other.tas - p.tas)/(2*self.delta_tas)
+        TS_info = []
+        for j, other in enumerate(self.planes):
+            if i != j:
+                # relative speed
+                v_r = (other.tas - p.tas)/(2*self.delta_tas)
 
-                    # relative bearing
-                    bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
+                # relative bearing
+                bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
 
-                    # distance
-                    d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
+                # distance
+                d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
 
-                    # heading intersection
-                    C_T = angle_to_pi(dtr(other.hdg - p.hdg))/np.pi
+                # heading intersection
+                C_T = angle_to_pi(dtr(other.hdg - p.hdg))/np.pi
 
-                    # CPA metrics
-                    DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=dtr(other.hdg),
-                                     VOS=p.tas, VTS=other.tas)
-                    DCPA = DCPA / 100.0
-                    TCPA = TCPA / 60.0
+                # CPA metrics
+                DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=dtr(other.hdg),
+                                    VOS=p.tas, VTS=other.tas)
+                DCPA = DCPA / 100.0
+                TCPA = TCPA / 60.0
 
-                    # aggregate
-                    TS_info.append([d, bng, v_r, C_T, DCPA, TCPA])
+                # aggregate
+                TS_info.append([d, bng, v_r, C_T, DCPA, TCPA])
 
-            # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
-            if len(TS_info) == 0:
-                TS_info.append([1.0, -1.0, -1.0, -1.0, 1.0, -1.0])
+        # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agent
+        if len(TS_info) == 0:
+            TS_info.append([1.0, -1.0, -1.0, -1.0, 1.0, -1.0])
 
-            # sort array according to distance
-            TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0], reverse=True)).astype(np.float32)
+        # sort array according to distance
+        TS_info = np.hstack(sorted(TS_info, key=lambda x: x[0], reverse=True)).astype(np.float32)
 
-            # pad NA's as usual in single-agent LSTMRecTD3
-            desired_length = self.obs_per_TS * (self.N_agents_max-1) + self.obs_per_TS * self.N_cutters_max
-            TS_info = np.pad(TS_info, (0, desired_length - len(TS_info)), 'constant', constant_values=np.nan).astype(np.float32)
+        # pad NA's as usual in single-agent LSTMRecTD3
+        desired_length = self.obs_per_TS * (self.N_agents_max-1) + self.obs_per_TS * self.N_cutters_max
+        TS_info = np.pad(TS_info, (0, desired_length - len(TS_info)), 'constant', constant_values=np.nan).astype(np.float32)
 
-            s_i = np.concatenate((s_i, TS_info))
+        s_i = np.concatenate((s_i, TS_info))
         return s_i
 
     def step(self, a):
@@ -410,23 +409,20 @@ class UAM_Modular(gym.Env):
         # increase step cnt and overall simulation time
         self.step_cnt += 1
         self.sim_t += self.dt
- 
-        # in single-policy situation, action corresponds to first plane, while the others are either RL or VFG
+
+        # single-policy situation
         cnt_agent:_Agent = a
         
-        # collect states from planes
-        states_multi = self._get_state_multi()
-
         for i, p in enumerate(self.planes):
 
             # fly planes depending on whether they are RL-, VFG-, or RND-controlled
             if p.role == "RL":
 
                 # spatial-temporal recurrent
-                act = cnt_agent.select_action(s        = states_multi[i], 
-                                              s_hist   = self.s_multi_hist[:, i, :], 
+                act = cnt_agent.select_action(s        = p.s, 
+                                              s_hist   = p.s_hist, 
                                               a_hist   = None, 
-                                              hist_len = self.hist_len)
+                                              hist_len = p.hist_len)
                 # move plane
                 p.upd_dynamics(a=act, discrete_acts=False, perf=self.perf, dest=None)
 
@@ -436,11 +432,6 @@ class UAM_Modular(gym.Env):
 
             else:
                 p.upd_dynamics(perf=self.perf, dest=None)
-
-        # update life times
-        if "Validation" in type(self).__name__:
-            for i, p in enumerate(self.planes):
-                self.planes[i].t_alive = p.t_alive + 1
 
         # update UTM coordinates
         for p in self.planes:
@@ -460,11 +451,25 @@ class UAM_Modular(gym.Env):
         # respawning
         self._handle_respawn(entered_open)
 
-        # set waypoints, and compute cross-track and course error for VFG vehicles
-        for p in self.planes:
-            if p.role == "VFG":
-                p = self._init_wps(p)
-                p = self._set_path_metrics(p)
+        # possibly spawn additional planes in validation
+        if "Validation" in type(self).__name__:
+            if self.id_counter < self.N_agents_max:
+
+                if self.sim_study:
+                    if self.sim_t % 10 == 0:
+                        p = self._spawn_plane(gate=self.id_counter % 4, noise=True)
+                        p.id = self.unique_ids[self.id_counter]
+                        self.planes.append(p)
+                        self.id_counter += 1
+
+                elif self.situation == 1:
+                    if self.sim_t % 30 == 0:
+                        for _ in range(4):
+                            p = self._spawn_plane(gate=self.id_counter % 4, noise=True)
+                            p.id = self.unique_ids[self.id_counter]
+                            self.planes.append(p)
+                            self.id_counter += 1
+                self.N_planes = len(self.planes)
 
         # high-level control
         if "Validation" in type(self).__name__:
@@ -480,12 +485,23 @@ class UAM_Modular(gym.Env):
         # logging
         if hasattr(self, "logger"):
             P_info = {}
-            for i, p in enumerate(self.planes):
-                P_info[f"P{p.id}_n"] = p.n
-                P_info[f"P{p.id}_e"] = p.e
-                P_info[f"P{p.id}_hdg"] = p.hdg
-                P_info[f"P{p.id}_tas"] = p.tas
-                P_info[f"P{p.id}_goal"] = int(p.fly_to_goal)
+            for id in self.unique_ids:
+                try:
+                    i = np.nonzero([p.id == id for p in self.planes])[0][0]
+                    p = self.planes[i]
+                    n = p.n
+                    e = p.e 
+                    hdg = p.hdg
+                    tas = p.tas
+                    goal = int(p.fly_to_goal)
+                except:
+                    n, e, hdg, tas, goal = None, None, None, None, None
+
+                P_info[f"P{id}_n"] = n
+                P_info[f"P{id}_e"] = e
+                P_info[f"P{id}_hdg"] = hdg
+                P_info[f"P{id}_tas"] = tas
+                P_info[f"P{id}_goal"] = goal
             self.logger.store(sim_t=self.sim_t, **P_info)
         return self.state, float(self.r[0]), d, {}
 
@@ -574,34 +590,6 @@ class UAM_Modular(gym.Env):
         self.r_coll = r_coll
         self.r_goal = r_goal
         self.r_comf = r_comf
-
-    def _init_wps(self, p:Plane) -> Plane:
-        """Initializes the waypoints on the path, respectively, based on the position of the plane."""
-        p.wp1_idx, p.wp1_N, p.wp1_E, p.wp2_idx, p.wp2_N, p.wp2_E = get_init_two_wp(n_array=p.Path.north, 
-                                                                                   e_array=p.Path.east, 
-                                                                                   a_n=p.n, a_e=p.e)
-        try:
-            p.wp3_idx = p.wp2_idx + 1
-            p.wp3_N = p.Path.north[p.wp3_idx] 
-            p.wp3_E = p.Path.east[p.wp3_idx]
-        except:
-            p.wp3_idx = p.wp2_idx
-            p.wp3_N = p.Path.north[p.wp3_idx] 
-            p.wp3_E = p.Path.east[p.wp3_idx]
-        return p
-
-    def _set_path_metrics(self, p:Plane) -> Plane:
-        p.ye, p.dc, _, _ = VFG(N1 = p.wp1_N, 
-                               E1 = p.wp1_E, 
-                               N2 = p.wp2_N, 
-                               E2 = p.wp2_E,
-                               NA = p.n, 
-                               EA = p.e, 
-                               K  = self.VFG_K, 
-                               N3 = p.wp3_N,
-                               E3 = p.wp3_E)
-        p.ce = angle_to_pi(p.dc - dtr(p.hdg))
-        return p
 
     def _done(self):
         # id-0 successfully reached the goal
@@ -738,22 +726,19 @@ class UAM_Modular(gym.Env):
                 self.ax1.pts3  = []
                 self.ax1.txts  = []
 
-                for i, p in enumerate(self.planes):
-                    color = "black" if p.role == "CUT" else COLORS[i]
+                for i in range(self.N_agents_max):
+                    try:
+                        hdg = self.planes[i].hdg
+                    except:
+                        hdg = 0
+
+                    color = COLORS[i]
 
                     # show aircraft
-                    self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -p.hdg), color=color, animated=True))
+                    self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -hdg), color=color, animated=True))
 
                     # incident area
                     self.ax1.lns.append(self.ax1.plot([], [], color=color, animated=True, zorder=10)[0])
-
-                    # planned paths
-                    self.ax1.paths.append(self.ax1.plot([], [], color=color, animated=True, linestyle="dashed", alpha=0.5, zorder=-50)[0])
-
-                    # wps
-                    #self.ax1.pts1.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
-                    #self.ax1.pts2.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
-                    #self.ax1.pts3.append(self.ax1.scatter([], [], color=color, s=7, animated=True))
 
                     # information
                     self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=color, fontdict={"size" : 8}, animated=True))
@@ -813,25 +798,17 @@ class UAM_Modular(gym.Env):
                     self.ax1.lns[i].set_data(es, ns) 
                     self.ax1.draw_artist(self.ax1.lns[i])
 
-                    # planned paths
-                    if p.role == "VFG":
-                        self.ax1.paths[i].set_data(p.Path.east, p.Path.north)
-                        self.ax1.draw_artist(self.ax1.paths[i])
-
-                    # waypoints
-                    #self.ax1.pts1[i].set_offsets(np.array([p.Path.east[p.wp1_idx], p.Path.north[p.wp1_idx]]))
-                    #self.ax1.pts2[i].set_offsets(np.array([p.Path.east[p.wp2_idx], p.Path.north[p.wp2_idx]]))
-                    #self.ax1.pts3[i].set_offsets(np.array([p.Path.east[p.wp3_idx], p.Path.north[p.wp3_idx]]))
-                    #self.ax1.draw_artist(self.ax1.pts1[i])
-                    #self.ax1.draw_artist(self.ax1.pts2[i])
-                    #self.ax1.draw_artist(self.ax1.pts3[i])
-
                     # information
-                    s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
-                    if hasattr(p, "t_alive"):
-                        s+= "\n" + f"t_alive: {int(p.t_alive)}" 
+                    #s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"
+                    #if hasattr(p, "t_alive"):
+                    #    s+= "\n" + f"t_alive: {int(p.t_alive)}" 
+                    #if p.fly_to_goal == 1.0:
+                    #    s += "\n" + "Go!!!"
+                    
                     if p.fly_to_goal == 1.0:
-                        s += "\n" + "Go!!!"
+                        s = "Go!"
+                    else:
+                        s = ""
                     self.ax1.txts[i].set_text(s)
                     self.ax1.txts[i].set_position((p.e, p.n))
                     self.ax1.draw_artist(self.ax1.txts[i])
@@ -861,4 +838,4 @@ class UAM_Modular(gym.Env):
                 if self.plot_state:
                     self.f.canvas.blit(self.ax3.bbox)
                
-            plt.pause(0.05)
+            plt.pause(0.01)
