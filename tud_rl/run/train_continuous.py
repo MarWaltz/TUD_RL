@@ -1,4 +1,5 @@
 import csv
+import pickle
 import random
 import shutil
 import time
@@ -14,8 +15,6 @@ from tud_rl.agents.base import _Agent
 from tud_rl.common.configparser import ConfigFile
 from tud_rl.common.logging_func import EpochLogger
 from tud_rl.common.logging_plot import plot_from_progress
-from tud_rl.common.open_scenario_eval import Imazu_eval
-from tud_rl.common.river_scenario_eval import scenario_eval
 from tud_rl.wrappers import get_wrapper
 
 
@@ -52,7 +51,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
                 a = agent.select_action(s)
 
             # perform step
-            if c.Env.name == "UAM-v0" and agent.name == "LSTMRecTD3":
+            if "UAM" in c.Env.name and agent.name == "LSTMRecTD3":
                 s2, r, d, _ = test_env.step(agent)
             else:
                 s2, r, d, _ = test_env.step(a)
@@ -130,6 +129,12 @@ def train(c: ConfigFile, agent_name: str):
     agent_ = getattr(agents, agent_name_red)  # get agent class by name
     agent: _Agent = agent_(c, agent_name)  # instantiate agent
 
+    # possibly load replay buffer for continued training
+    if hasattr(c, "prior_buffer"):
+        if c.prior_buffer is not None:
+            with open(c.prior_buffer, "rb") as f:
+                agent.replay_buffer = pickle.load(f)
+
     # initialize logging
     agent.logger = EpochLogger(alg_str    = agent.name,
                                seed       = c.seed,
@@ -146,7 +151,7 @@ def train(c: ConfigFile, agent_name: str):
         shutil.copy2(src="tud_rl/envs/_envs/" + entry_point + ".py", dst=agent.logger.output_dir)
     except:
         logger.warning(
-            f"Could not find {'tud_rl/envs/_envs/' + entry_point + '.py'}. Make sure that the file name matches the class name. Skipping..."
+            f"Could not find the env file. Make sure that the file name matches the class name. Skipping..."
         )
 
     # LSTM: init history
@@ -180,7 +185,7 @@ def train(c: ConfigFile, agent_name: str):
                 a = agent.select_action(s)
 
         # perform step
-        if c.Env.name == "UAM-v0" and agent.name == "LSTMRecTD3":
+        if "UAM" in c.Env.name and agent.name == "LSTMRecTD3":
             s2, r, d, _ = env.step(agent)
         else:
             s2, r, d, _ = env.step(a)
@@ -292,12 +297,6 @@ def train(c: ConfigFile, agent_name: str):
             # save weights
             save_weights(agent, eval_ret)
 
-            # HHOS specialty: scenario checks
-            if c.Env.name == "HHOS-PathPlanning-v0" and agent.name == "LSTMRecTD3_a":
-                scenario_eval(agent.logger.output_dir)
-
-            elif c.Env.name == "HHOS-PathPlanning-v0" and agent.name == "LSTMRecTD3_b":
-                Imazu_eval(agent.logger.output_dir)
 
 def save_weights(agent: _Agent, eval_ret) -> None:
 
@@ -330,3 +329,7 @@ def save_weights(agent: _Agent, eval_ret) -> None:
     if best_weights:
         torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_best_weights.pth")
         torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_best_weights.pth")
+
+    # stores the replay buffer
+    with open(f"{agent.logger.output_dir}/buffer.pickle", "wb") as handle:
+        pickle.dump(agent.replay_buffer, handle)

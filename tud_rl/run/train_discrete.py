@@ -1,4 +1,5 @@
 import csv
+import pickle
 import random
 import shutil
 import time
@@ -125,6 +126,12 @@ def train(c: ConfigFile, agent_name: str):
     agent_ = getattr(agents, agent_name_red)  # get agent class by name
     agent: _Agent = agent_(c, agent_name)  # instantiate agent
 
+    # possibly load replay buffer for continued training
+    if hasattr(c, "prior_buffer"):
+        if c.prior_buffer is not None:
+            with open(c.prior_buffer, "rb") as f:
+                agent.replay_buffer = pickle.load(f)
+
     # initialize logging
     agent.logger = EpochLogger(alg_str    = agent.name,
                                seed       = c.seed,
@@ -141,7 +148,7 @@ def train(c: ConfigFile, agent_name: str):
         shutil.copy2(src="tud_rl/envs/_envs/" + entry_point + ".py", dst=agent.logger.output_dir)
     except:
         logger.warning(
-            f"Could not find {'tud_rl/envs/_envs/' + entry_point + '.py'}. Make sure that the file name matches the class name. Skipping..."
+            f"Could not find the env file. Make sure that the file name matches the class name. Skipping..."
         )
 
     # LSTM: init history
@@ -315,3 +322,7 @@ def save_weights(agent: _Agent, eval_ret) -> None:
         if best_weights:
             torch.save(agent.actor.state_dict(), f"{agent.logger.output_dir}/{agent.name}_actor_best_weights.pth")
             torch.save(agent.critic.state_dict(), f"{agent.logger.output_dir}/{agent.name}_critic_best_weights.pth")
+
+    # stores the replay buffer
+    with open(f"{agent.logger.output_dir}/buffer.pickle", "wb") as handle:
+        pickle.dump(agent.replay_buffer, handle)

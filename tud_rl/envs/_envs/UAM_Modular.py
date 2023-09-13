@@ -779,6 +779,10 @@ class UAM_Modular(gym.Env):
         ns, es, _ = to_utm(lat=np.array(lats), lon=np.array(lons))
         self.ax1.plot(es, ns, color="black", alpha=0.3)
 
+        # vertiport text
+        self.ax1.text(x=0.4625, y=0.48, s="Vertiport", fontdict={"size" : 12}, transform = self.ax1.transAxes)
+        self.ax1.text(x=0.4475, y=0.45, s="VTOL Zone", fontdict={"size" : 12}, transform = self.ax1.transAxes)
+
         # ---------- animated artists: initial drawing ---------
         # step info
         self.ax1.info_txt = self.ax1.text(x=0.05, y=0.925, s="", fontdict={"size" : 14}, animated=True,
@@ -814,7 +818,7 @@ class UAM_Modular(gym.Env):
             self.ax1.lns.append(self.ax1.plot([], [], color=color, animated=True, zorder=10)[0])
 
             # information
-            self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=color, fontdict={"size" : 8}, animated=True))
+            self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=color, fontdict={"size" : 12}, animated=True))
 
         if self.plot_reward:
             self.ax2.lns_agg  = []
@@ -844,7 +848,7 @@ class UAM_Modular(gym.Env):
 
     def update_video(self):
         # Capture the current figure as an image
-        img = Image.frombytes('RGB', self.f.canvas.get_width_height(), self.f.canvas.tostring_rgb())
+        img = Image.frombytes("RGB", self.f.canvas.get_width_height(), self.f.canvas.tostring_rgb())
         frame = np.array(img)
 
         # Convert RGB to BGR (required for OpenCV)
@@ -892,11 +896,11 @@ class UAM_Modular(gym.Env):
             #    s += "\n" + "Go!!!"
             
             if p.fly_to_goal == 1.0:
-                s = "Go!"
+                s = "Enter!"
             else:
                 s = ""
             self.ax1.txts[i].set_text(s)
-            self.ax1.txts[i].set_position((p.e, p.n))
+            self.ax1.txts[i].set_position((p.e + 50, p.n))
             self.ax1.draw_artist(self.ax1.txts[i])
 
         # reward

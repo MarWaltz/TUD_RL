@@ -1,15 +1,21 @@
 ---
 env:
-  name: UAM-Modular-Validation-v0
-  max_episode_steps: 2000
+  name: UAM-Modular-v0
+  max_episode_steps: 250
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    situation: 1
-    sim_study: False
-    sim_study_N: 
-    safe_number: 77
+    N_agents_max: 25
+    N_agents_min: 25
+    N_cutters_max: 0
+    N_cutters_min: 0
+    w_coll: 1
+    w_goal: 0.5
+    w_comf: 1.0
+    r_goal_norm: 5
+    c: 1.0
+    curriculum: false
   info: ''
 agent:
   LSTMRecTD3:
@@ -21,9 +27,9 @@ agent:
     num_obs_OS: 3
     num_obs_TS: 6
 seed: 42
-timesteps: 3_000_000
+timesteps: 2_000_000
 epoch_length: 5000
-eval_episodes: 1
+eval_episodes: 5
 actor_weights:
 critic_weights:
 gamma: 0.99

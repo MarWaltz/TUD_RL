@@ -62,12 +62,15 @@ class ConfigFile:
             file = json.load(json_file)
 
         for key in [
-            "seed", "timesteps", "epoch_length",
+            "seed", "timesteps", "epoch_length", "prior_buffer",
             "eval_episodes", "eps_decay_steps", "tgt_update_freq",
             "buffer_length", "act_start_step",
             "upd_start_step", "upd_every", "batch_size"
         ]:
-            file[key] = int(file[key])
+            try:
+                file[key] = int(file[key])
+            except:
+                pass
 
         file["env"]["max_episode_steps"] = int(file["env"]["max_episode_steps"])
 

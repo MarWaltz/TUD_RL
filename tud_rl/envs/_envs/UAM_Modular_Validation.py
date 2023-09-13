@@ -47,7 +47,7 @@ class UAM_Modular_Validation(UAM_Modular):
             N_agents_max = 3 * 4 # 3 waves of 4 aircraft
 
         super().__init__(N_agents_max=N_agents_max, N_cutters_max=0, w_coll=0.0, w_goal=0.0, w_comf=0.0, r_goal_norm=1.0, c=1.0)
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 100_000 if sim_study else 2000
 
         # viz
         self.plot_reward = False
@@ -77,7 +77,10 @@ class UAM_Modular_Validation(UAM_Modular):
         for _ in range(self.N_planes):
 
             # create plane
-            gate = len(self.planes) % 4
+            if self.sim_study:
+                gate = np.random.choice(4)
+            else:
+                gate = len(self.planes) % 4
             p = self._spawn_plane(gate=gate, noise=noise)
 
             # assign unique id
@@ -183,11 +186,16 @@ class UAM_Modular_Validation(UAM_Modular):
             d = True
 
         if d:
+            # Release the video writer
+            if hasattr(self, "video_writer"):
+                self.video_writer.release()
+
+            # Dump episode details
             if self.sim_study:
                 self.logger.dump(name="UAM_SimStudy_" + str(self.N_agents_max) + "_" + str(self.safe_number))
             else:
                 self.logger.dump(name="UAM_ValScene_" + str(self.situation) + "_" + str(self.N_agents_max))
         return d
 
-    #def render(self, mode=None):
-    #    pass
+    def render(self, mode=None):
+        super().render(mode=mode)
