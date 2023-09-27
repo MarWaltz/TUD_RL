@@ -59,7 +59,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
                                         high = np.full(1,  1.0, dtype=np.float32))
 
         # how many longitude/latitude degrees to show for the visualization
-        self.show_lon_lat = 0.05
+        self.show_lon_lat = 0.02
 
         # control scale and episode length
         self.d_head_scale = dtr(10.0)
@@ -529,7 +529,7 @@ class HHOS_RiverPlanning_Env(HHOS_Base_Env):
                 v_rel = (v1-v0)/v_norm
 
                 # encounter situation
-                TS_encounter = -1.0 if (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= 90.0) else 1.0
+                TS_encounter = -1.0 if (abs(head_inter(head_OS=head0, head_TS=head1, to_2pi=False)) >= np.pi/2) else 1.0
 
                 # collision risk metrics
                 d_cpa, t_cpa, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=N1, ETS=E1, chiOS=chi0,
