@@ -439,7 +439,7 @@ class Dune_Env(gym.Env):
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs], dtype=np.float32)
 
-    def heading_control(self, a : int):
+    def _heading_control(self, a : int):
         """Controls the heading of the vessel."""
         assert isinstance(a, int) and a in range(3), "Unknown action."
 
@@ -457,7 +457,7 @@ class Dune_Env(gym.Env):
         Returns new_state, r, done, {}."""
 
         # perform control action
-        self.OS._control(a)
+        self._heading_control(a)
 
         # update agent dynamics
         self.OS._upd_dynamics()
@@ -597,18 +597,18 @@ class Dune_Env(gym.Env):
         # COLREG 1: Head-on
         if abs(rtd(angle_to_pi(bng_OS))) <= 22.5 and abs(rtd(angle_to_pi(bng_TS))) <= 22.5:
             return 1
-        
-        # COLREG 2: Starboard crossing
-        if 0 <= rtd(bng_OS) <= 112.5 and -112.5 <= rtd(angle_to_pi(bng_TS)) <= 10:
-            return 5
 
-        # COLREG 3: Portside crossing
+        # COLREG 3: Overtaking
+        if 112.5 <= rtd(bng_TS) <= 247.5 and abs(rtd(angle_to_pi(bng_OS))) <= 45 and V_rel > V_TS:
+            return 3
+
+        # COLREG 4: Portside crossing
         if 0 <= rtd(bng_TS) <= 112.5 and -112.5 <= rtd(angle_to_pi(bng_OS)) <= 10:
             return 4
 
-        # COLREG 4: Overtaking
-        if 112.5 <= rtd(bng_TS) <= 247.5 and abs(rtd(angle_to_pi(bng_OS))) <= 45 and V_rel > V_TS:
-            return 3
+        # COLREG 5: Starboard crossing
+        if 0 <= rtd(bng_OS) <= 112.5 and -112.5 <= rtd(angle_to_pi(bng_TS)) <= 10:
+            return 5
 
         # COLREG 0: nothing
         return 0
@@ -656,7 +656,7 @@ class Dune_Env(gym.Env):
                      chiOS=self.OS._get_course(), chiTS=TS._get_course(), VOS=self.OS._get_V(), VTS=TS._get_V()) >= 0.0:
 
                     # steer to the right in Head-on and starboard crossing situations
-                    if self.TS_COLREGs_old[TS_idx] in [1, 2] and a == 2:
+                    if self.TS_COLREGs_old[TS_idx] in [1, 5] and a == 2:
                         r_COLREG -= 1.0
 
         # --------------------------------- 5. Comfort penalty --------------------------------
@@ -726,21 +726,21 @@ class Dune_Env(gym.Env):
 
                 # check whether figure has been initialized
                 if len(plt.get_fignums()) == 0:
-                    #self.fig = plt.figure(figsize=(10, 7))
-                    #self.gs  = self.fig.add_gridspec(2, 2)
-                    #self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
-                    #self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
-                    #self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
-                    #self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
+                    self.fig = plt.figure(figsize=(10, 7))
+                    self.gs  = self.fig.add_gridspec(2, 2)
+                    self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
+                    self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
+                    self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
+                    self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
 
-                    self.fig2 = plt.figure(figsize=(10,7))
-                    self.fig2_ax = self.fig2.add_subplot(111)
+                    #self.fig2 = plt.figure(figsize=(10,7))
+                    #self.fig2_ax = self.fig2.add_subplot(111)
 
                     plt.ion()
                     plt.show()
                 
                 # ------------------------------ ship movement --------------------------------
-                for ax in [self.fig2_ax]:
+                for ax in [self.ax0]:
                     # clear prior axes, set limits and add labels and title
                     ax.clear()
                     ax.set_xlim(0, self.E_max)
@@ -822,11 +822,11 @@ class Dune_Env(gym.Env):
 
                         # collision risk                        
                         CR = self._get_CR(OS=self.OS, TS=TS)
-                        ax.text(E + 800, N-600, f"CR: {np.round(CR, 4)}", fontsize=7,
+                        ax.text(E + 15, N-10, f"CR: {np.round(CR, 4)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
 
                         # compute CPA measures
-                        DCPA_TS, TCPA_TS, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1], \
+                        _, _, NOS_tcpa, EOS_tcpa, NTS_tcpa, ETS_tcpa = cpa(NOS=N0, EOS=E0, NTS=TS.eta[0], ETS=TS.eta[1], \
                             chiOS=chiOS, chiTS=chiTS, VOS=VOS, VTS=VTS, get_positions=True)
 
                         # check whether OS will be in front of TS when TCPA = 0
@@ -852,7 +852,7 @@ class Dune_Env(gym.Env):
 
 
                 # ------------------------------ reward plot --------------------------------
-                if False:
+                if True:
                     if self.step_cnt == 0:
                         self.ax1.clear()
                         self.ax1.old_time = 0
