@@ -1,0 +1,50 @@
+---
+env:
+  name: AIS-Env-v0
+  max_episode_steps: 1500
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    AIS_path: C:/Users/Martin Waltz/Desktop/Forschung/RL/Obstacle Avoidance/Code for Revision/traj_10days_utm.pickle
+    supervised_path:
+    N_TSs_max: 3
+    N_TSs_random: true
+    pdf_traj: false
+  info: ''
+agent:
+  LSTMSAC:
+    history_length: 10
+    use_past_actions: false
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 10
+    use_past_actions: false
+seed: 42
+timesteps: 10_000_000
+epoch_length: 5000
+eval_episodes: 5
+actor_weights:
+critic_weights:
+prior_buffer:
+gamma: 0.99
+tau: 0.001
+net_struc_actor:
+net_struc_critic:
+optimizer: Adam
+loss: MSELoss
+lr_actor: 0.0001
+lr_critic: 0.0001
+buffer_length: 1_000_000
+grad_rescale: false
+grad_clip: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu
