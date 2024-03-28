@@ -43,48 +43,42 @@ class CPANet(nn.Module):
         return x
 
 class AIS_Ship:
-    def __init__(self, data : dict) -> None:
+    def __init__(self, data : dict, sit : int, ttpt : float) -> None:
+        assert sit in [0, 1], "Unknown situation."
+        assert ttpt > 0, "Need positive time to turning point."
+        
         # Step size, already considered in the trajectories
         self.dt = 5
 
-        # Select traj
-        while True:
-            tr = data[random.randrange(0, len(data))]
-            tr_len = len(tr["ts"])
+        # Select trajectory
+        tr = data[random.randrange(0, len(data))]
+        self.e_traj = tr["e"]
+        self.n_traj = tr["n"]
 
-            # Should cover at least 90 min (90 min * (60 s / min) / (5 s) = 1080)
-            if tr_len > 1080:
+        # Add some noise
+        self._add_noise_to_traj()
 
-                # Select random part of the traj, not always from the beginning
-                t_start = random.randrange(0, tr_len-1080)
-                self.e_traj = tr["e"][t_start:]
-                self.n_traj = tr["n"][t_start:]
-                break
+        # Find turning point
+        i_turn = self._find_turning_point()
 
-        # Careful: We start at the 21th point!
-        self.ptr = 20
+        # Init position according to ttpt
+        n = ttpt // self.dt
 
-        # Compute speed since we need it for spawning
-        ve = (self.e_traj[self.ptr+1] - self.e_traj[self.ptr]) / self.dt
-        vn = (self.n_traj[self.ptr+1] - self.n_traj[self.ptr]) / self.dt
-        self.v = np.sqrt(ve**2 + vn**2)
+        if sit == 0:
+            self.ptr = int(i_turn - n)
+        else:
+            self.ptr = int(i_turn + n)
 
-    def place_on_map(self, E_init : float, N_init : float, head_init : float) -> None:
-        """Places vessel correctly by ensuring the trajectory has the correct origin and initial heading."""
-        # Rotate traj to match initial heading
-        data_head = bng_abs(N0=self.n_traj[self.ptr], E0=self.e_traj[self.ptr], N1=self.n_traj[self.ptr+1], E1=self.e_traj[self.ptr+1])
-        rot_angle = head_init-data_head
-        self.e_traj, self.n_traj = rotate_point(x=self.e_traj, y=self.n_traj, cx=self.e_traj[self.ptr], cy=self.n_traj[self.ptr],
-                                                angle=-rot_angle)
-
-        # Shift traj to match initial position
-        self.e_traj = self.e_traj - self.e_traj[self.ptr] + E_init
-        self.n_traj = self.n_traj - self.n_traj[self.ptr] + N_init
-        
-        # Init dynamics
         self.e = self.e_traj[self.ptr]
         self.n = self.n_traj[self.ptr]
-        self.head = head_init
+
+        # Compute speed
+        self.ve = (self.e_traj[self.ptr+1] - self.e_traj[self.ptr]) / self.dt
+        self.vn = (self.n_traj[self.ptr+1] - self.n_traj[self.ptr]) / self.dt
+        self.v = np.sqrt(self.ve**2 + self.vn**2)
+
+        # Compute heading
+        self.head = bng_abs(N0=self.n_traj[self.ptr], E0=self.e_traj[self.ptr], N1=self.n_traj[self.ptr+1], E1=self.e_traj[self.ptr+1])
 
     def update_dynamics(self) -> None:
         # Increment ptr if it does not exceed the traj lenght (-1 for Python index and -1 for heading computation)
@@ -97,9 +91,18 @@ class AIS_Ship:
             self.head = bng_abs(N0=self.n_traj[self.ptr-1], E0=self.e_traj[self.ptr-1], N1=self.n, E1=self.e)
 
             # Update speed
-            ve = (self.e - self.e_traj[self.ptr-1]) / self.dt
-            vn = (self.n - self.n_traj[self.ptr-1]) / self.dt
-            self.v = np.sqrt(ve**2 + vn**2)
+            self.ve = (self.e - self.e_traj[self.ptr-1]) / self.dt
+            self.vn = (self.n - self.n_traj[self.ptr-1]) / self.dt
+            self.v = np.sqrt(self.ve**2 + self.vn**2)
+
+    def _find_turning_point(self) -> int:
+        """Finds the turning point in form of an index of the trajectory. Ignores 'north' for the moment."""
+        return np.argmin(np.abs(np.diff(self.e_traj)))
+
+    def _add_noise_to_traj(self) -> None:
+        """Adds some Gaussian white noise to the trajectory to increase diversity."""
+        self.e_traj += np.random.randn(len(self.e_traj)) * 0.1
+        self.n_traj += np.random.randn(len(self.n_traj)) * 0.1
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ env:
     supervised_path:
     N_TSs: 1
     pdf_traj: false
-    cpa: true
+    cpa: false
   info: ''
 agent:
   LSTMSAC:
