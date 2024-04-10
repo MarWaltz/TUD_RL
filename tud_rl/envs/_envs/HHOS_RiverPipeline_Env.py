@@ -87,7 +87,7 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
                                                    w_ye=0.0, w_ce=0.0, w_coll=0.0, w_rule=0.0, w_comf=0.0)
 
         # overwrite LiDAR sensing of planning env
-        self.planning_env.sense_LiDAR = functools.partial(self.planning_env.sense_LiDAR, check_right_lane_river=True)
+        #self.planning_env.sense_LiDAR = functools.partial(self.planning_env.sense_LiDAR, check_right_lane_river=True)
 
         # update frequency
         self.loc_path_upd_freq = 6 # results in a new local path every 30s with delta t being 5s
@@ -139,8 +139,8 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         self.RevGlobalPath.reverse(offset=self.dist_des_rev_path)
 
         # add right global path for LiDAR clipping
-        self.RightGlobalPath = deepcopy(self.GlobalPath)
-        self.RightGlobalPath.move(offset=self.dist_des_rev_path)
+        #self.RightGlobalPath = deepcopy(self.GlobalPath)
+        #self.RightGlobalPath.move(offset=self.dist_des_rev_path)
 
         # init OS
         OS_wp_idx = 0
@@ -291,12 +291,16 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
 
         self.TSs = []
         for ship in target_ships:
-            lat, lon, head, spd = ship.observe()
+            n, e, head, spd, *_ = ship.observe_at_query()
+
+            # skip data issue cases
+            if any([np.isnan(ele) for ele in [n, e, head, spd]]):
+                continue
 
             # transformations
-            n, e, _ = to_utm(lat=lat, lon=lon)
             head = dtr(head)
-            spd = knots_to_mps(spd)
+            head = angle_to_2pi(head)
+            spd = np.clip(knots_to_mps(spd), a_min=0.01, a_max=None)
 
             # init ship
             TS = TargetShip(N_init    = n,
@@ -495,7 +499,10 @@ class HHOS_RiverPipeline_Env(HHOS_Base_Env):
         # replan via RL if someone is close
         if self.N_TSs > 0:
             if np.min([ED(N0=self.OS.eta[0], E0=self.OS.eta[1], N1=t.eta[0], E1=t.eta[1]) for t in self.TSs]) <= self.sight_river:
-                self._update_local_path_safe(method="RL")
+                try:
+                    self._update_local_path_safe(method="RL")
+                except:
+                    self._update_local_path_safe(method="RL")
                 self.planning_method = "RL"
 
     def _update_local_path_safe(self, method:Union[str, None]):

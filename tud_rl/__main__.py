@@ -41,6 +41,14 @@ parser.add_argument(
     "-cw", "--critic_weights", type=str, default=None,
     help="Weights (critic) for visualization in continuous action spaces. Example: `critic_weights.pth`.")
 
+# OA START
+parser.add_argument(
+    "-od", "--output_dir", type=str, default=None)
+
+parser.add_argument(
+    "-pb", "--prior_buffer", type=str, default=None)
+# OA END
+
 args = parser.parse_args()
 
 agent_name = args.agent_name
@@ -70,6 +78,14 @@ if args.actor_weights is not None:
 
 if args.critic_weights is not None:
     config.overwrite(critic_weights=args.critic_weights)
+
+# OA START
+if args.output_dir is not None:
+    config.overwrite(output_dir=args.output_dir)
+
+if args.prior_buffer is not None:
+    config.overwrite(prior_buffer=args.prior_buffer)
+# OA END
 
 # handle maximum episode steps
 config.max_episode_handler()

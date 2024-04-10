@@ -166,7 +166,7 @@ def scenario_eval(dir):
     for j in range(NCOLS):
         
         # data loading
-        with open(f"HHOS_Validate_Plan_river_straight_{j+1}.pkl", "rb") as f:
+        with open(f"Plan_river_straight_{j+1}.pkl", "rb") as f:
             x = pickle.load(f)
 
         # go to minutes

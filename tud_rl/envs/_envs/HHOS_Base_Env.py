@@ -80,7 +80,7 @@ class HHOS_Base_Env(gym.Env):
         self.plot_wind      = False
         self.plot_current   = False
         self.plot_waves     = False
-        self.plot_lidar     = True
+        self.plot_lidar     = False
         self.plot_reward    = False
         self.default_cols   = plt.rcParams["axes.prop_cycle"].by_key()["color"][1:]
         self.first_init     = True
@@ -884,13 +884,7 @@ class HHOS_Base_Env(gym.Env):
             plt.ion()
             plt.show()
 
-        if self.step_cnt % 100 == 0:
-            print(self.step_cnt)
-
-        if self.step_cnt < 2000:
-             return
-
-        if self.step_cnt % 2 == 0:
+        if self.step_cnt % 1 == 0:
             
             # ------------------------------ reward and action plot --------------------------------
             if self.plot_reward:
@@ -1061,6 +1055,7 @@ class HHOS_Base_Env(gym.Env):
                     if self.step_cnt == 0 and self.first_init:
                         cbar = self.f.colorbar(con, ticks=self.con_ticks, ax=ax)
                         cbar.ax.set_yticklabels(self.con_ticklabels)
+                        cbar.ax.set_ylabel("Water depth [m]", rotation=270)
                         self.first_init = False
 
                 #--------------- wind plot ---------------------
@@ -1079,7 +1074,7 @@ class HHOS_Base_Env(gym.Env):
 
                 #------------------ set ships ------------------------
                 # OS
-                ax = self._render_ship(ax=ax, vessel=self.OS, color="red", plot_CR=False, with_domain=True)
+                ax = self._render_ship(ax=ax, vessel=self.OS, color="red", plot_CR=False, with_domain=False)
 
                 # TSs
                 if hasattr(self, "TSs"):
@@ -1124,7 +1119,7 @@ class HHOS_Base_Env(gym.Env):
                         ax.legend(loc="lower left")
 
                         # wps of OS
-                        self._render_wps(ax=ax, vessel=self.OS, path_level="global", color="springgreen")
+                        #self._render_wps(ax=ax, vessel=self.OS, path_level="global", color="springgreen")
 
                         # cross-track error
                         if self.glo_ye < 0:
@@ -1132,7 +1127,7 @@ class HHOS_Base_Env(gym.Env):
                         else:
                             dE, dN = xy_from_polar(r=self.glo_ye, angle=angle_to_2pi(self.glo_pi_path - dtr(90.0)))
                         yte_lat, yte_lon = to_latlon(north=self.OS.eta[0]+dN, east=self.OS.eta[1]+dE, number=32)
-                        ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="purple")
+                        #ax.plot([OS_lon, yte_lon], [OS_lat, yte_lat], color="purple")
                     else:
                         # global
                         ax.plot(self.GlobalPath.east, self.GlobalPath.north, marker='o', color="purple", linewidth=1.0, markersize=3, label="Global Path")

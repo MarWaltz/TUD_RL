@@ -7,8 +7,11 @@ import pandas as pd
 import utm
 
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
-from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
-                                         bng_abs, bng_rel, cpa, rtd)
+from tud_rl.envs._envs.VesselFnc import (ED, NM_to_meter, angle_to_2pi,
+                                         angle_to_pi, bng_abs, bng_rel, cpa,
+                                         dtr, get_theta, head_inter,
+                                         meter_to_NM, norm, polar_from_xy, rtd,
+                                         tcpa, xy_from_polar)
 
 
 def to_latlon(north, east, number):
@@ -546,10 +549,478 @@ class HHOSPlotter:
                 info[att] = getattr(self, att)
                 delattr(self, att)
         if len(info) > 0:
-            with open(f"HHOS_Validate_{name}_info.pkl", "wb") as f:
+            with open(f"{name}_info.pkl", "wb") as f:
                 pickle.dump(info, f)
 
         # df creation and storage
         df = pd.DataFrame(vars(self))
         df.replace(to_replace=[None], value=0.0, inplace=True) # clear None
-        df.to_pickle(f"HHOS_Validate_{name}.pkl")
+        df.to_pickle(f"{name}.pkl")
+
+class PID_controller:
+    """A basic PID control function for rudder angle control of vessels."""
+    def __init__(self, Kp:float, Kd:float, Ki:float) -> None:
+        self.Kp = Kp
+        self.Kd = Kd
+        self.Ki = Ki
+        self.integrator_sum = 0.0
+
+    def control(self, rud_angle0, rud_angle_inc, rud_angle_max, course_error, r):
+        # update integral
+        self.integrator_sum += course_error
+
+        # compute new rudder angle
+        rud_angle_new = self.Kp * course_error + self.Kd * r + self.Ki * self.integrator_sum
+
+        # don't deviate too much from prior one
+        rud_angle_new = np.clip(rud_angle_new, rud_angle0-rud_angle_inc, rud_angle0+rud_angle_inc)
+
+        # clip it to the allowed domain
+        return np.clip(rud_angle_new, -rud_angle_max, rud_angle_max)
+
+    def reset(self):
+        self.integrator_sum = 0.0
+
+
+class APF_planner_riverOut:
+    """
+    Specifies an APF planner for rivers. 
+    The attractive & repulsive forces build on Liu et al. (2023, Physical Communication)
+    and the elliptical condition for the repulsive forces on Wang et al. (2019, Energies,
+    https://doi.org/10.3390/en12122342).
+    """
+    def __init__(self, 
+                 dh_clip:float,
+                 d_star:float,
+                 d_l:float,
+                 k_a1:float, 
+                 k_a2:float,
+                 ell_A:float,      # long end in m
+                 ell_A_rev:float,  # long end in m
+                 ell_A_sta:float,  # long end in m
+                 ell_B:float,      # short end in m
+                 ell_B_rev:float,  # short end in m
+                 ell_B_sta:float,  # short end in m
+                 rho_s:float,
+                 k_r1:float,
+                 k_r1_rev:float,
+                 k_r1_spd:float,
+                 k_r2:float,
+                 k_r2_rev:float,
+                 k_r2_spd:float,
+                 k_s:float) -> None:
+        self.dh_clip = dh_clip
+
+        # attractive forces params
+        self.d_star  = d_star
+        self.d_l     = d_l
+        self.k_a1    = k_a1
+        self.k_a2    = k_a2
+
+        # repulsive forces params
+        self.ell_A     = ell_A
+        self.ell_A_rev = ell_A_rev
+        self.ell_A_sta = ell_A_sta
+        self.ell_B     = ell_B
+        self.ell_B_rev = ell_B_rev
+        self.ell_B_sta = ell_B_sta
+
+        self.rho_s     = rho_s
+        self.k_r1      = k_r1
+        self.k_r1_rev  = k_r1_rev
+        self.k_r1_spd  = k_r1_spd
+        self.k_r2      = k_r2
+        self.k_r2_rev  = k_r2_rev
+        self.k_r2_spd  = k_r2_spd
+        self.k_s       = k_s
+
+    def _d_from_ellip(self, ang, rev_dir):
+        if rev_dir is None:
+            A = self.ell_A_sta
+            B = self.ell_B_sta
+        elif rev_dir:
+            A = self.ell_A_rev
+            B = self.ell_B_rev
+        else:
+            A = self.ell_A
+            B = self.ell_B
+        return math.sqrt(1/(math.cos(ang)**2/A**2 + math.sin(ang)**2/B**2))
+
+    def plan(self,
+             N0:float, E0:float, head0:float, vN0:float, vE0:float,
+             N_goal:float, E_goal:float, N_start:float, E_start:float,
+             N1:List[float], E1:List[float], head1:List[float], vN1:List[float], vE1:List[float],
+             L_dist:List[float], L_n:List[float], L_e:List[float]) -> float:
+
+        # calculate in NM and knots
+        N0 = meter_to_NM(N0)
+        E0 = meter_to_NM(E0)
+
+        N_goal  = meter_to_NM(N_goal)
+        E_goal  = meter_to_NM(E_goal)
+        N_start = meter_to_NM(N_start)
+        E_start = meter_to_NM(E_start)
+
+        N1 = [meter_to_NM(n) for n in N1]
+        E1 = [meter_to_NM(e) for e in E1]
+        L_dist = [meter_to_NM(d) for d in L_dist]
+        L_n = [meter_to_NM(n) for n in L_n]
+        L_e = [meter_to_NM(e) for e in L_e]
+
+        vN0 = mps_to_knots(vN0)
+        vE0 = mps_to_knots(vE0)
+        v0  = math.sqrt(vN0**2 + vE0**2)
+        vN1 = [mps_to_knots(v) for v in vN1]
+        vE1 = [mps_to_knots(v) for v in vE1]
+        v1 = [math.sqrt(vn**2 + ve**2) for (vn, ve) in zip(vN1, vE1)]
+
+        # compute vectorized
+        p_OS = np.array([E0, N0])
+        v_OS = np.array([vE0, vN0])
+        p_G  = np.array([E_goal, N_goal])
+
+        # unit vector from OS to goal
+        dg = norm(p_G-p_OS)
+        n_sg = (p_G-p_OS)/dg
+
+        # ------------- attractive forces ------------
+        # attractive force to goal
+        F_att_E = 0.0
+        F_att_N = 0.0
+
+        if dg < self.d_star:
+            F = dg
+        else:
+            F = self.d_star
+
+        print(f"F_att1: {F* self.k_a1}")
+
+        E_add, N_add = F * self.k_a1 * n_sg
+        F_att_E += E_add
+        F_att_N += N_add
+
+        # attractive force to planned path
+        CTE = cte(N1=N_start, E1=E_start, N2=N_goal, E2=E_goal, NA=N0, EA=E0)
+        
+        if abs(CTE) > self.d_l:
+
+            # compute point on planned path G
+            ATE = ate(N1=N_start, E1=E_start, N2=N_goal, E2=E_goal, NA=N0, EA=E0)
+            angle = bng_abs(N0=N_start, E0=E_start, N1=N_goal, E1=E_goal)
+            E_add, N_add = xy_from_polar(r=ATE, angle=angle)
+            G_E = E_start + E_add
+            G_N = N_start + N_add
+            
+            # unit vector in direction of G
+            G_path = np.array([G_E, G_N])
+            n_SG = (G_path-p_OS)/norm(G_path-p_OS)
+
+            # add force towards G
+            F = abs(CTE)
+            print(f"F_att2: {F * self.k_a2}")
+            
+            E_add, N_add = F * self.k_a2 * n_SG
+            F_att_E += E_add
+            F_att_N += N_add
+
+        # ------------- repulsive forces ------------
+        F_rep_E = 0.0
+        F_rep_N = 0.0
+
+        for i in range(len(N1)):
+
+            # quick access
+            p_TS = np.array([E1[i], N1[i]])
+            v_TS = np.array([vE1[i], vN1[i]])
+
+            # compute some metrics
+            d = norm(p_TS-p_OS)
+            V_UR = v_OS - v_TS
+            V_UR_norm = norm(V_UR)
+
+            n_so = (p_TS-p_OS)/d  # unit vector from OS to TS (ship to obstacle)
+            n_os = -n_so          # unit vector from TS to OS (obstacle to ship)
+
+            # ------------ dynamic obstacles ----------------
+            if not np.isclose(v1[i], 0.0):
+
+                # perpendicular vectors for starboard or portside CA
+                r, angle = polar_from_xy(x=n_so[0], y=n_so[1])
+                e, n = xy_from_polar(r=r, angle=angle_to_2pi(angle + dtr(90.0)))
+                n_so_right = np.array([e, n])
+
+                e, n = xy_from_polar(r=r, angle=angle_to_2pi(angle - dtr(90.0)))
+                n_so_left = np.array([e, n])
+
+                # --- get rho_0 based on ellipse ---
+                # check whether TS has reversed direction
+                rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1[i], to_2pi=False)) >= dtr(90.0))
+
+                # we need relative bearing from perspective of the target ship
+                ang = bng_rel(N0=N1[i], E0=E1[i], N1=N0, E1=E0, head0=head1[i])
+                rho_0 = meter_to_NM(self._d_from_ellip(ang=ang, rev_dir=rev_dir))
+
+                if (d <= rho_0) and np.dot(V_UR, n_so) > 0:
+
+                    if rev_dir:
+                        k_r1 = self.k_r1_rev
+                        k_r2 = self.k_r2_rev
+                    elif v1[i] > v0:
+                        k_r1 = self.k_r1_spd
+                        k_r2 = self.k_r2_spd
+                    else:
+                        k_r1 = self.k_r1
+                        k_r2 = self.k_r2
+
+                    # distance-based force from the target ship to the own ship 
+                    F1 = (1/d - 1/rho_0) * dg**2 / d**2
+                    E_add, N_add = F1 * k_r1 * n_os
+                    F_rep_E += E_add
+                    F_rep_N += N_add
+
+                    # distance-based force from the ship to the goal
+                    F2 = (1/d - 1/rho_0)**2 * dg
+                    E_add, N_add = F2 * k_r1 * n_sg
+                    F_rep_E += E_add
+                    F_rep_N += N_add
+
+                    # relative velocity-based force to steer starboard/portside with relation to the target ship
+                    theta = get_theta(p_OS=p_OS, v_OS=v_OS, p_TS=p_TS, v_TS=v_TS)
+                    F3 = V_UR_norm * np.sin(theta)
+
+                    #TCPA = tcpa(NOS=N0, EOS=E0, NTS=N1[i], ETS=E1[i], chiOS=head0, chiTS=head1[i],
+                    #            VOS=v0, VTS=v1[i])
+                    #if TCPA > 0:
+                    #    k_r2 = self.k_r2
+                    #else:
+                    #    k_r2 = 0.0
+
+                    if rev_dir:
+                        n_so_perp = n_so_right
+                    else:
+                        n_so_perp = n_so_left
+
+                    E_add, N_add = F3 * k_r2 * n_so_perp
+                    F_rep_E += E_add
+                    F_rep_N += N_add
+
+                    # fixed force from the target ship to the own ship
+                    F4 = 1.0
+                    E_add, N_add = F4 * k_r2 * n_os
+                    F_rep_E += E_add
+                    F_rep_N += N_add
+
+                    print(f"F1: {F1 * k_r1}, F2: {F2 * k_r1}, F3: {F3 * k_r2}, F4: {F4 * k_r2} \n")
+                    print("----------------")
+
+            # ------------ static obstacles ----------------
+            else:
+                # we need relative bearing from perspective of the static obstacle
+                ang = bng_rel(N0=N1[i], E0=E1[i], N1=N0, E1=E0, head0=head1[i])
+                rho_0 = meter_to_NM(self._d_from_ellip(ang=ang, rev_dir=None))
+
+                # assume circle shaped obstacle
+                if d <= rho_0:
+
+                    # distance-based force from the obstacle to the own ship 
+                    F1 = (1/d - 1/rho_0) / d**2
+                    E_add, N_add = F1 * self.k_s * n_os
+                    F_rep_E += E_add
+                    F_rep_N += N_add
+
+        # aggregate
+        F_x = F_att_E + F_rep_E
+        F_y = F_att_N + F_rep_N
+
+        # translate into Δheading
+        dh = angle_to_pi(math.atan2(F_x, F_y) - head0)
+        return np.clip(dh, -self.dh_clip, self.dh_clip)
+
+
+class APF_planner_river:
+    """
+    Specifies an APF planner for rivers. 
+    The attractive & repulsive forces build on Liu et al. (2023, Physical Communication)
+    and the elliptical condition for the repulsive forces on Wang et al. (2019, Energies,
+    https://doi.org/10.3390/en12122342).
+    """
+    def __init__(self, 
+                 dh_clip:float,
+                 d_star:float,
+                 d_l:float,
+                 k_a1:float, 
+                 k_a2:float,
+                 ell_A:float,      # long end in m
+                 ell_B:float,      # short end in m
+                 k_r1:float,
+                 k_r2:float) -> None:
+        self.dh_clip = dh_clip
+
+        # attractive forces params
+        self.d_star  = d_star
+        self.d_l     = d_l
+        self.k_a1    = k_a1
+        self.k_a2    = k_a2
+
+        # repulsive forces params
+        self.ell_A     = ell_A
+        self.ell_B     = ell_B
+        self.rho_obs   = max(ell_A, ell_B)
+        self.k_r1      = k_r1
+        self.k_r2      = k_r2
+
+    def _d_from_ellip(self, ang):
+        A = self.ell_A
+        B = self.ell_B
+        return math.sqrt(1/(math.cos(ang)**2/A**2 + math.sin(ang)**2/B**2))
+
+    def plan(self,
+             N0:float, E0:float, head0:float, vN0:float, vE0:float, chiOS:float,
+             N_goal:float, E_goal:float, N_start:float, E_start:float,
+             N1:List[float], E1:List[float], head1:List[float], vN1:List[float], vE1:List[float],
+             chiTSs:List[float], L_dist:List[float], L_n:List[float], L_e:List[float]) -> float:
+        # compute tcpas
+        tcpas = []
+        for i in range(len(N1)):
+            tcpas.append(tcpa(NOS=N0, EOS=E0, NTS=N1[i], ETS=E1[i], chiOS=chiOS, chiTS=chiTSs[i],
+                              VOS=math.sqrt(vN0**2 + vE0**2), VTS=math.sqrt(vN1[i]**2 + vE1[i]**2)))
+
+        # calculate in NM and knots
+        N0 = meter_to_NM(N0)
+        E0 = meter_to_NM(E0)
+
+        N_goal  = meter_to_NM(N_goal)
+        E_goal  = meter_to_NM(E_goal)
+        N_start = meter_to_NM(N_start)
+        E_start = meter_to_NM(E_start)
+
+        N1 = [meter_to_NM(n) for n in N1]
+        E1 = [meter_to_NM(e) for e in E1]
+        L_dist = [meter_to_NM(d) for d in L_dist]
+        L_n = [meter_to_NM(n) for n in L_n]
+        L_e = [meter_to_NM(e) for e in L_e]
+
+        vN0 = mps_to_knots(vN0)
+        vE0 = mps_to_knots(vE0)
+        v0  = math.sqrt(vN0**2 + vE0**2)
+        vN1 = [mps_to_knots(v) for v in vN1]
+        vE1 = [mps_to_knots(v) for v in vE1]
+        v1 = [math.sqrt(vn**2 + ve**2) for (vn, ve) in zip(vN1, vE1)]
+
+        # compute vectorized
+        p_OS = np.array([E0, N0])
+        v_OS = np.array([vE0, vN0])
+        p_G  = np.array([E_goal, N_goal])
+
+        # unit vector from OS to goal
+        dg = norm(p_G-p_OS)
+        n_sg = (p_G-p_OS)/dg
+
+        # ------------- attractive forces ------------
+        # attractive force to goal
+        F_att_E = 0.0
+        F_att_N = 0.0
+
+        if dg < self.d_star:
+            F = dg
+        else:
+            F = self.d_star
+
+        print(f"F_att1: {F* self.k_a1}")
+
+        E_add, N_add = F * self.k_a1 * n_sg
+        F_att_E += E_add
+        F_att_N += N_add
+
+        # attractive force to planned path
+        CTE = cte(N1=N_start, E1=E_start, N2=N_goal, E2=E_goal, NA=N0, EA=E0)
+        
+        if abs(CTE) > self.d_l:
+
+            # compute point on planned path G
+            ATE = ate(N1=N_start, E1=E_start, N2=N_goal, E2=E_goal, NA=N0, EA=E0)
+            angle = bng_abs(N0=N_start, E0=E_start, N1=N_goal, E1=E_goal)
+            E_add, N_add = xy_from_polar(r=ATE, angle=angle)
+            G_E = E_start + E_add
+            G_N = N_start + N_add
+            
+            # unit vector in direction of G
+            G_path = np.array([G_E, G_N])
+            n_SG = (G_path-p_OS)/norm(G_path-p_OS)
+
+            # add force towards G
+            F = abs(CTE)
+            print(f"F_att2: {F * self.k_a2}")
+            
+            E_add, N_add = F * self.k_a2 * n_SG
+            F_att_E += E_add
+            F_att_N += N_add
+
+        # ------------- repulsive forces ------------
+        F_rep_E = 0.0
+        F_rep_N = 0.0
+
+        for i in range(len(N1)):
+
+            # ignore past vessels!
+            if tcpas[i] < 0:
+                continue
+
+            # quick access
+            p_TS = np.array([E1[i], N1[i]])
+
+            # compute some metrics
+            d = norm(p_TS-p_OS)
+            n_so = (p_TS-p_OS)/d  # unit vector from OS to TS (ship to obstacle)
+            n_os = -n_so          # unit vector from TS to OS (obstacle to ship)
+
+            # ------------ dynamic obstacles ----------------
+            # perpendicular vectors for starboard or portside CA
+            r, angle = polar_from_xy(x=n_so[0], y=n_so[1])
+            e, n = xy_from_polar(r=r, angle=angle_to_2pi(angle + dtr(90.0)))
+            n_so_right = np.array([e, n])
+
+            e, n = xy_from_polar(r=r, angle=angle_to_2pi(angle - dtr(90.0)))
+            n_so_left = np.array([e, n])
+
+            # --- get d_ell based on ellipse ---
+            # we need relative bearing from perspective of the target ship
+            ang = bng_rel(N0=N1[i], E0=E1[i], N1=N0, E1=E0, head0=head1[i])
+            d_ell = self._d_from_ellip(ang=ang)
+
+            if (d <= d_ell):
+
+                k_r1 = self.k_r1
+                k_r2 = self.k_r2
+
+                # F_rep1: distance-based force from the target ship to the own ship 
+                F1 = (1/d - 1/self.rho_obs) / d**2
+                E_add, N_add = F1 * k_r1 * n_os
+                F_rep_E += E_add
+                F_rep_N += N_add
+
+                # F_rep2: constant force to steer starboard/portside with relation to the target ship
+                F2 = 1
+
+                # check whether TS has reversed direction
+                rev_dir = (abs(head_inter(head_OS=head0, head_TS=head1[i], to_2pi=False)) >= dtr(90.0))
+
+                if rev_dir:
+                    n_so_perp = np.array([0., 0.]) # n_so_right
+                else:
+                    n_so_perp = n_so_left
+
+                E_add, N_add = F2 * k_r2 * n_so_perp
+                F_rep_E += E_add
+                F_rep_N += N_add
+
+                print(f"F1: {F1 * k_r1}, F2: {F2 * k_r2}\n")
+                print("----------------")
+
+        # aggregate
+        F_x = F_att_E + F_rep_E
+        F_y = F_att_N + F_rep_N
+
+        # translate into Δheading
+        dh = angle_to_pi(math.atan2(F_x, F_y) - head0)
+        return np.clip(dh, -self.dh_clip, self.dh_clip)

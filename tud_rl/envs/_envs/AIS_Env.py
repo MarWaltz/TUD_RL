@@ -1,7 +1,8 @@
 import math
 import pickle
-from copy import deepcopy
 import random
+from copy import deepcopy
+
 import gym
 import matplotlib.patches as patches
 import numpy as np
@@ -13,13 +14,9 @@ from tud_rl.envs._envs.AIS_Helper import AIS_Ship, CPANet
 from tud_rl.envs._envs.HHOS_Fnc import cte, get_init_two_wp
 from tud_rl.envs._envs.MMG_KVLCC2 import KVLCC2
 from tud_rl.envs._envs.MMG_TargetShip import Path
-from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, angle_to_pi,
-                                         bng_abs, bng_rel, cpa, dtr,
-                                         head_inter, polar_from_xy,
-                                         project_vector, rtd, tcpa,
-                                         xy_from_polar)
-from tud_rl.envs._envs.VesselPlots import (TrajPlotter, get_rect, plot_jet,
-                                           rotate_point)
+from tud_rl.envs._envs.VesselFnc import (ED, angle_to_2pi, bng_rel, cpa, dtr,
+                                         head_inter, rtd, xy_from_polar)
+from tud_rl.envs._envs.VesselPlots import TrajPlotter, get_rect, plot_jet
 
 
 class AIS_Env(gym.Env):
@@ -49,14 +46,21 @@ class AIS_Env(gym.Env):
         self.supervised_path = supervised_path
 
         if supervised_path is not None:
-            self.forecast_window = 200 # forecast window
-            self.n_obs_est   = 20      # number of points used for iterative 'n_forecasts'-step ahead forecasts
-            self.n_forecasts = 5       # number of points to predict per forward pass
+            self.forecast_window = 200  # forecast window
+            self.n_obs_est   = 50      # number of points used for iterative 'n_forecasts'-step ahead forecasts
+            self.n_forecasts = 10       # number of points to predict per forward pass
+            self.data_norm = 10.        # normalization factor of data during SL phase
+            self.diff = True            # whether to forecast positions or differences in positions
 
             assert self.forecast_window % self.n_forecasts == 0, "The number of points you want to estimate is not a multiple of the single-step forecasts."
 
             self.CPA_net = CPANet(n_forecasts=self.n_forecasts)
             self.CPA_net.load_state_dict(torch.load(supervised_path))
+
+            # Evaluation mode and no gradient comp
+            self.CPA_net.eval()
+            for p in self.CPA_net.parameters():
+                p.requires_grad = False
 
         self.num_obs_OS = 2                               # number of observations for the OS
         
@@ -81,7 +85,7 @@ class AIS_Env(gym.Env):
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
         self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
                                        high = np.full(1,  1.0, dtype=np.float32))
-        self.dhead = dtr(0.5) # dtr(5.0)
+        self.dhead = 1.2 * dtr(0.5) # dtr(0.5)
 
         # Custom inits
         self._max_episode_steps = 75
@@ -95,13 +99,12 @@ class AIS_Env(gym.Env):
 
         # sample situation: 0 - TS goes curve, 1 - TS goes linear
         self.sit = random.getrandbits(1)
-        #self.sit = 1
 
         if self.sit == 0:
-            self.ttpt = 240 + np.random.random() * 60 # time until TS is at turning point (time to turning point)
+            self.ttpt = 120 + np.random.random() * 60 # time until TS is at turning point (time to turning point) # 240 initially
             self.ttc  = 210 + np.random.random() * 60 # time to collision for OS spawning
         else:
-            self.ttpt = 300 + np.random.random() * 60 # time passed since TS was at turning point (time to turning point)
+            self.ttpt = 180 + np.random.random() * 60 # time passed since TS was at turning point (time to turning point)
             self.ttc  = 240 + np.random.random() * 60 # time to collision for OS spawning
 
         # init TSs
@@ -141,11 +144,6 @@ class AIS_Env(gym.Env):
         # 3. Set values
         self.OS.eta = np.array([N_OS, E_OS, OS_head])
 
-        # add some noise
-        self.OS.eta[0] += np.random.randn() * 1.0
-        self.OS.eta[1] += np.random.randn() * 1.0
-        self.OS.eta[2] += dtr(np.random.uniform(-5, 5))
-
         # create path
         ve, vn = xy_from_polar(r=self.OS.nu[0], angle=self.OS.eta[2])
         path_n = self.OS.eta[0] + np.arange(1000) * self.delta_t * vn
@@ -157,6 +155,11 @@ class AIS_Env(gym.Env):
 
         self.path_two = deepcopy(self.path)
         self.path_two.move(self.path_width_right)
+
+        # add some noise
+        self.OS.eta[0] += np.random.randn() * 1.0
+        self.OS.eta[1] += np.random.randn() * 1.0
+        self.OS.eta[2] += dtr(np.random.uniform(-3, -3)) #-3,0
 
         # update cte
         _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=self.path.north, e_array=self.path.east, 
@@ -194,20 +197,37 @@ class AIS_Env(gym.Env):
 
         for _ in range(n_steps):        
 
-            # Take last 'n_obs_est' elements for prediction
-            n_diff = torch.tensor(np.diff(n_for_est[-self.n_obs_est:]), dtype=torch.float32)
-            e_diff = torch.tensor(np.diff(e_for_est[-self.n_obs_est:]), dtype=torch.float32)
+            if self.diff:
+                # Take last 'n_obs_est' elements for prediction
+                n_diff = torch.tensor(np.diff(n_for_est[-self.n_obs_est:]), dtype=torch.float32) / self.data_norm
+                e_diff = torch.tensor(np.diff(e_for_est[-self.n_obs_est:]), dtype=torch.float32) / self.data_norm
 
-            n_diff = torch.reshape(n_diff, (1, self.n_obs_est-1, 1))
-            e_diff = torch.reshape(e_diff, (1, self.n_obs_est-1, 1))
+                n_diff = torch.reshape(n_diff, (1, self.n_obs_est-1, 1))
+                e_diff = torch.reshape(e_diff, (1, self.n_obs_est-1, 1))
 
-            # Forward pass
-            est = self.CPA_net(e_diff, n_diff)
-            e_add = est[0][:self.n_forecasts].detach().numpy()
-            n_add = est[0][self.n_forecasts:].detach().numpy()
-            
-            new_e = e_for_est[-1] + np.cumsum(e_add)
-            new_n = n_for_est[-1] + np.cumsum(n_add)
+                # Add absolute position
+                pos = torch.reshape(torch.tensor([e_for_est[-1], n_for_est[-1]], dtype=torch.float32) / (100. * self.data_norm), shape=(1, 2))
+
+                # Forward pass
+                est = self.CPA_net(e_diff, n_diff, pos)
+                e_add = est[0][:self.n_forecasts].detach().numpy() * self.data_norm
+                n_add = est[0][self.n_forecasts:].detach().numpy() * self.data_norm
+                
+                new_e = e_for_est[-1] + np.cumsum(e_add)
+                new_n = n_for_est[-1] + np.cumsum(n_add)
+
+            else:
+                # Take last 'n_obs_est' elements for prediction
+                n_in = torch.tensor(n_for_est[-self.n_obs_est:], dtype=torch.float32)
+                e_in = torch.tensor(e_for_est[-self.n_obs_est:], dtype=torch.float32)
+
+                n_in = torch.reshape(n_in, (1, self.n_obs_est, 1))
+                e_in = torch.reshape(e_in, (1, self.n_obs_est, 1))
+
+                # Forward pass
+                est = self.CPA_net(e_in, n_in)
+                new_e = est[0][:self.n_forecasts].detach().numpy() * self.data_norm
+                new_n = est[0][self.n_forecasts:].detach().numpy() * self.data_norm
 
             # Append estimates
             n_predicted = np.concatenate((n_predicted, new_n))
@@ -225,7 +245,7 @@ class AIS_Env(gym.Env):
         """Updates the DCPA and TCPA using the corresponding neural network, 
         which has been trained separately."""
         # Only every 10th step for computation time
-        if not hasattr(TS, "tcpa") or self.step_cnt % 10 == 0:
+        if not hasattr(TS, "tcpa") or self.step_cnt % 2 == 0:
 
             ptr = TS.ptr
 
@@ -237,13 +257,16 @@ class AIS_Env(gym.Env):
             n_future, e_future = self._iterative_forecasts(n_for_est=n_base.copy(), e_for_est=e_base.copy())
 
             # 'Predict' past
-            n_past, e_past = self._iterative_forecasts(n_for_est=np.flip(n_base.copy()), e_for_est=np.flip(e_base.copy()))
-            n_past = np.flip(n_past)
-            e_past = np.flip(e_past)
+            #n_past, e_past = self._iterative_forecasts(n_for_est=np.flip(n_base.copy()), e_for_est=np.flip(e_base.copy()))
+            #n_past = np.flip(n_past)
+            #e_past = np.flip(e_past)
 
             # Stack it together
-            n_TS = np.concatenate((n_past, n_base, n_future))
-            e_TS = np.concatenate((e_past, e_base, e_future))
+            #n_TS = np.concatenate((n_past, n_base, n_future))
+            #e_TS = np.concatenate((e_past, e_base, e_future))
+            n_TS = np.concatenate((n_base, n_future))
+            e_TS = np.concatenate((e_base, e_future))
+
             TS.n_traj_pred = n_TS
             TS.e_traj_pred = e_TS
 
@@ -254,8 +277,11 @@ class AIS_Env(gym.Env):
             #n_OS_future = np.arange(1, self.forecast_window+1)
             #n_OS_base   = np.arange(-self.n_obs_est+1,1)
             #n_OS_past   = np.arange(-self.forecast_window - self.n_obs_est+1, -self.n_obs_est+1)
-            n_OS_full = n_OS + vOS_n * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
-            e_OS_full = e_OS + vOS_e * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
+            #n_OS_full = n_OS + vOS_n * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
+            #e_OS_full = e_OS + vOS_e * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
+            
+            n_OS_full = n_OS + vOS_n * np.arange(-self.n_obs_est + 1, self.forecast_window+1) * self.delta_t
+            e_OS_full = e_OS + vOS_e * np.arange(-self.n_obs_est + 1, self.forecast_window+1) * self.delta_t
 
             # Compute dcpa and tcpa
             dist = np.sqrt((n_OS_full - n_TS)**2 + (e_OS_full - e_TS)**2)
@@ -272,8 +298,10 @@ class AIS_Env(gym.Env):
 
     def _update_dcpa_tcpa_real_traj(self, TS : AIS_Ship) -> None:
         """Updates the DCPA and TCPA by accessing the true future trajectory."""
+        #raise NotImplementedError()
+
         # Only every 10th step for computation time
-        if not hasattr(TS, "tcpa") or self.step_cnt % 1 == 0:
+        if not hasattr(TS, "tcpa_real") or self.step_cnt % 1 == 0:
             l = len(TS.e_traj)
             #future_pts = l - (TS.ptr + 1)
             #future = np.arange(1, future_pts + 1)
@@ -289,10 +317,10 @@ class AIS_Env(gym.Env):
             # Compute dcpa and tcpa
             dist = np.sqrt((n_OS_full - TS.n_traj)**2 + (e_OS_full - TS.e_traj)**2)
 
-            TS.dcpa = max([0, np.min(dist)])
-            TS.tcpa = self.delta_t * (np.argmin(dist) - TS.ptr)
+            TS.dcpa_real = max([0, np.min(dist)])
+            TS.tcpa_real = self.delta_t * (np.argmin(dist) - TS.ptr)
         else: 
-            TS.tcpa -= self.delta_t
+            TS.tcpa_real -= self.delta_t
 
     def _set_state(self):
         """State consists of (all from agent's perspective): 
@@ -322,7 +350,7 @@ class AIS_Env(gym.Env):
             headTS = TS.head
 
             # Distance
-            ED_OS_TS_norm = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / self.E_max
+            ED_OS_TS_norm = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / 3000.
 
             # Relative bearing
             bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0, to_2pi=False) / (math.pi)
@@ -340,8 +368,10 @@ class AIS_Env(gym.Env):
                 else:
                     self._update_dcpa_tcpa_real_traj(TS)
 
+                #self._update_dcpa_tcpa_real_traj(TS)
+
                 # Normalize
-                dcpa = TS.dcpa / 100.0
+                dcpa = (TS.dcpa - self.coll_dist) / 100.0
                 tcpa = TS.tcpa / 60.0
 
                 # store it
@@ -372,10 +402,16 @@ class AIS_Env(gym.Env):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
         #self.render()
-
+        
         # perform control action
         a = float(a)
         self._heading_control(a)
+
+        #if self.state[-2] < 0:
+        #    a = 1.0
+        #else:
+        #    a = -0.05
+        #self._heading_control(a)
 
         # update agent dynamics
         self.OS._upd_dynamics()
@@ -426,8 +462,6 @@ class AIS_Env(gym.Env):
         """Returns boolean flag whether episode is over."""
 
         d = False
-        N0 = self.OS.eta[0]
-        E0 = self.OS.eta[1]
 
         # artificial done signal
         if self.step_cnt >= self._max_episode_steps:
@@ -540,9 +574,17 @@ class AIS_Env(gym.Env):
                         #            horizontalalignment='center', verticalalignment='center', color=col)
 
                         try:
-                            ax.text(E + 10, N - 100, f"TCPA: {np.round(TS.tcpa, 2)}", fontsize=7,
+                            #ax.text(E + 10, N - 100, f"TCPA_real: {np.round(TS.tcpa_real, 2)}", fontsize=7,
+                            #        horizontalalignment='center', verticalalignment='center', color=col)
+                            ax.text(E + 10, N - 300, f"DCPA_real: {np.round(TS.dcpa_real - self.coll_dist, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
-                            ax.text(E + 10, N - 200, f"DCPA: {np.round(TS.dcpa, 2)}", fontsize=7,
+                        except:
+                            pass
+
+                        try:
+                            #ax.text(E + 10, N - 500, f"TCPA_est: {np.round(TS.tcpa, 2)}", fontsize=7,
+                            #        horizontalalignment='center', verticalalignment='center', color=col)
+                            ax.text(E + 10, N - 700, f"DCPA_est: {np.round(TS.dcpa - self.coll_dist, 2)}", fontsize=7,
                                     horizontalalignment='center', verticalalignment='center', color=col)
                         except:
                             pass

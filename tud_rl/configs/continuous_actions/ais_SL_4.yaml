@@ -1,0 +1,50 @@
+---
+env:
+  name: AIS-Env-v0
+  max_episode_steps: 75
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    AIS_path: C:/Users/Martin Waltz/Desktop/trajs_Ebeltoft/Ebeltoft.dict
+    supervised_path: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/TUD_RL/cpa_weights_10_1200.pth
+    N_TSs: 1
+    pdf_traj: false
+    cpa: true
+  info: ''
+agent:
+  LSTMSAC:
+    history_length: 4
+    use_past_actions: false
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 4
+    use_past_actions: false
+seed: 42
+timesteps: 1_000_000
+epoch_length: 5000
+eval_episodes: 50
+actor_weights:
+critic_weights:
+prior_buffer:
+gamma: 0.99
+tau: 0.001
+net_struc_actor:
+net_struc_critic:
+optimizer: Adam
+loss: MSELoss
+lr_actor: 0.0001
+lr_critic: 0.0001
+buffer_length: 1_000_000
+grad_rescale: false
+grad_clip: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu

@@ -31,6 +31,7 @@ epoch_length: 5000
 eval_episodes: 5
 actor_weights:
 critic_weights:
+prior_buffer:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:

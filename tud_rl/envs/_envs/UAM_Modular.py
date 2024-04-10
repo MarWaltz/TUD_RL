@@ -89,7 +89,7 @@ class Destination:
         self._t_open_since = 0
         self._t_nxt_open = 0
         self._is_open = True
-        self.color = "green"
+        self.color = "seagreen"
     
     def close(self):
         self._t_open_since = 0
@@ -221,9 +221,9 @@ class UAM_Modular(gym.Env):
         self._max_episode_steps = 250
 
         # viz
-        self.plot_reward = True
+        self.plot_reward = False
         self.plot_state  = False
-        self.prod_video  = True
+        self.prod_video  = False
 
         assert not (self.plot_state and self.N_agents_max > 2), "State plotting is only reasonable for two flight taxis."
         if self.plot_state:
@@ -482,10 +482,29 @@ class UAM_Modular(gym.Env):
 
                 if self.sim_study:
                     if self.sim_t % 15 == 0:
-                        p = self._spawn_plane(gate=np.random.choice(4), noise=True)
-                        p.id = self.unique_ids[self.id_counter]
-                        self.planes.append(p)
-                        self.id_counter += 1
+
+                        if self.entry_check:
+                            available_gates = [0, 1, 2, 3]
+
+                            while True:
+                                gate = np.random.choice(available_gates)
+                                if self._gate_is_free(gate=self.gates[gate]):
+                                    break
+                                else:
+                                    available_gates = [g for g in available_gates if g != gate]
+
+                                    # all gates occupied, no entrance at all
+                                    if len(available_gates) == 0:
+                                        gate = None
+                                        break
+                        else:
+                            gate = np.random.choice(4)
+
+                        if gate is not None:
+                            p = self._spawn_plane(gate=gate, noise=True)
+                            p.id = self.unique_ids[self.id_counter]
+                            self.planes.append(p)
+                            self.id_counter += 1
 
                 elif self.situation == 1:
                     if self.sim_t % 30 == 0:
@@ -777,7 +796,7 @@ class UAM_Modular(gym.Env):
         lats, lons = map(list, zip(*[qdrpos(latd1=self.dest.lat, lond1=self.dest.lon, qdr=deg, dist=meter_to_NM(self.dest.respawn_radius))\
             for deg in self.clock_degs]))
         ns, es, _ = to_utm(lat=np.array(lats), lon=np.array(lons))
-        self.ax1.plot(es, ns, color="black", alpha=0.3)
+        self.ax1.plot(es, ns, color="black", alpha=0.0)
 
         # vertiport text
         self.ax1.text(x=0.4625, y=0.48, s="Vertiport", fontdict={"size" : 12}, transform = self.ax1.transAxes)
@@ -809,7 +828,7 @@ class UAM_Modular(gym.Env):
             except:
                 hdg = 0
 
-            color = COLORS[i]
+            color = "dimgrey"
 
             # show aircraft
             self.ax1.scs.append(self.ax1.scatter([], [], marker=(3, 0, -hdg), color=color, animated=True))
@@ -879,13 +898,23 @@ class UAM_Modular(gym.Env):
 
             # show aircraft
             self.ax1.scs[i].set_offsets(np.array([p.e, p.n]))
+
+            if p.fly_to_goal == 1.0:
+                self.ax1.scs[i].set_color("seagreen")
+            else:
+                self.ax1.scs[i].set_color("dimgrey")
             self.ax1.draw_artist(self.ax1.scs[i])
 
             # incident area
             lats, lons = map(list, zip(*[qdrpos(latd1=p.lat, lond1=p.lon, qdr=deg, dist=meter_to_NM(self.incident_dist/2))\
                 for deg in self.clock_degs]))
             ns, es, _ = to_utm(lat=np.array(lats), lon=np.array(lons))
-            self.ax1.lns[i].set_data(es, ns) 
+            self.ax1.lns[i].set_data(es, ns)
+
+            if p.fly_to_goal == 1.0:
+                self.ax1.lns[i].set_color("seagreen")
+            else:
+                self.ax1.lns[i].set_color("dimgrey")
             self.ax1.draw_artist(self.ax1.lns[i])
 
             # information
@@ -896,7 +925,7 @@ class UAM_Modular(gym.Env):
             #    s += "\n" + "Go!!!"
             
             if p.fly_to_goal == 1.0:
-                s = "Enter!"
+                s = "" #"Enter!"
             else:
                 s = ""
             self.ax1.txts[i].set_text(s)

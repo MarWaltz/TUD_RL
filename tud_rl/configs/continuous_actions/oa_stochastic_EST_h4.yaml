@@ -6,11 +6,14 @@ env:
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    POMDP_type: RV
+    setting: EST
     frame_stack: 1
-    n_vessels: 12
+    n_vessels: 10
     max_temporal_dist: 300
-  info: RV
+    min_channel_width: 100
+    amplitude_factor: 1
+    obst_traj: stochastic
+  info: EST
 agent:
   DDPG: {}
   TD3:
@@ -24,14 +27,14 @@ agent:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
-    history_length: 2
+    history_length: 4
     use_past_actions: false
   SAC:
     lr_temp: 0.0001
     temp_tuning: true
     init_temp: 0.2
   LSTMSAC:
-    history_length: 2
+    history_length: 4
     use_past_actions: false
     lr_temp: 0.0001
     temp_tuning: true
@@ -43,31 +46,23 @@ agent:
     top_qs_to_drop: 10
     n_qs: 25
     n_critics: 5
-seed: 12
-timesteps: 15000000
-epoch_length: 5000
-eval_episodes: 10
-actor_weights:
-critic_weights:
+seed: 1
+timesteps: 1_500_000
+epoch_length: 10_000
+eval_episodes: 1
+actor_weights: 
+critic_weights: 
+output_dir:
+prior_buffer:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
-- - 256
-  - relu
-- - 256
-  - relu
-- tanh
 net_struc_critic:
-- - 256
-  - relu
-- - 256
-  - relu
-- identity
 optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001
 lr_critic: 0.0001
-buffer_length: 100000
+buffer_length: 1_000_000
 grad_clip: false
 grad_rescale: false
 act_start_step: 5000
@@ -75,4 +70,3 @@ upd_start_step: 5000
 upd_every: 1
 batch_size: 32
 device: cpu
-

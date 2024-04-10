@@ -27,7 +27,7 @@ agent:
     num_obs_OS: 3
     num_obs_TS: 6
 seed: 42
-timesteps: 2_000_000
+timesteps: 1_000_000
 epoch_length: 5000
 eval_episodes: 5
 actor_weights:

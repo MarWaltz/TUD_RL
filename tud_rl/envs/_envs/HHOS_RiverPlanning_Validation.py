@@ -110,5 +110,5 @@ class HHOS_RiverPlanning_Validation(HHOS_RiverPlanning_Env):
             self.plotter.dump(name="Plan_river_" + self.river_curve + "_" + str(self.scenario))
         return d
 
-    def render(self, data=None):
-        pass
+    #def render(self, data=None):
+    #    pass

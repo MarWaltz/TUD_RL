@@ -17,14 +17,13 @@ from tud_rl.configs.discrete_actions import __path__ as discr_path
 
 # ---------------- User Settings -----------------------------
 # ------------------------------------------------------------
-
 TASK        = "train"           # ["train", "viz"]
-CONFIG_FILE = "breakout.yaml"     # configuration file as `.yaml` or `.json`
-SEED        = 42                # set a seed different to the one specified in your config
-AGENT_NAME  = "DQN"             # agent to train/viz
+CONFIG_FILE = "ais_SL_10.yaml"     # configuration file as `.yaml` or `.json`
+SEED        = 1               # set a seed different to the one specified in your config
+AGENT_NAME  = "LSTMTD3"             # agent to train/viz
 DQN_WEIGHTS = None              # path to file for weight initialization (discrete actions)
-ACTOR_WEIGHTS = None             # path to file for weight initialization (continuous actions)
-CRITIC_WEIGHTS = None           # path to file for weight initialization (continuous actions)
+ACTOR_WEIGHTS = None         # path to file for weight initialization (continuous actions)
+CRITIC_WEIGHTS = None      # path to file for weight initialization (continuous actions)
 
 # ------------------------------------------------------------
 # ------------------------------------------------------------

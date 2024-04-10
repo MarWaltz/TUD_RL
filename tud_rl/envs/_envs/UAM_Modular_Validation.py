@@ -3,6 +3,28 @@ import uuid
 from tud_rl.envs._envs.UAM_Modular import *
 
 
+class Gate:
+    def __init__(self, destination:Destination, direction:str) -> None:
+        assert direction in ["N", "E", "S", "W"], "Unknown direction."
+
+        r = destination.spawn_radius
+        N = destination.N
+        E = destination.E
+
+        if direction == "N":
+            self.N = N + r
+            self.E = E
+        elif direction == "E":
+            self.N = N
+            self.E = E + r
+        elif direction == "S":
+            self.N = N - r
+            self.E = E
+        else:
+            self.N = N
+            self.E = E - r
+
+
 class UAMLogger:
     """Implements trajectory storing to enable validation plotting for the urban air mobility project."""
     def __init__(self, **kwargs) -> None:
@@ -30,12 +52,15 @@ class UAMLogger:
 
 class UAM_Modular_Validation(UAM_Modular):
     """Validation scenarios for the Urban Air Mobility agent."""
-    def __init__(self, situation:int, sim_study:bool, sim_study_N:int, safe_number:int):
+    def __init__(self, situation:int, sim_study:bool, sim_study_N:int, safe_number:int, entry_check:bool):
 
         self.situation   = situation
         self.sim_study   = sim_study
         self.sim_study_N = sim_study_N
         self.safe_number = safe_number
+        self.entry_check = entry_check
+
+        assert not (not sim_study and entry_check), "Entry check only in sim-study possible."
 
         assert not (not sim_study and sim_study_N is not None), "Specify sim_study = True if you give number of agents for it."
         assert situation == 1, "We have only situation 1 at the moment."
@@ -48,6 +73,13 @@ class UAM_Modular_Validation(UAM_Modular):
 
         super().__init__(N_agents_max=N_agents_max, N_cutters_max=0, w_coll=0.0, w_goal=0.0, w_comf=0.0, r_goal_norm=1.0, c=1.0)
         self._max_episode_steps = 100_000 if sim_study else 2000
+
+        # gates
+        gate_N = Gate(destination=self.dest, direction="N")
+        gate_E = Gate(destination=self.dest, direction="E")
+        gate_S = Gate(destination=self.dest, direction="S")
+        gate_W = Gate(destination=self.dest, direction="W")
+        self.gates = [gate_N, gate_E, gate_S, gate_W]
 
         # viz
         self.plot_reward = False
@@ -119,6 +151,12 @@ class UAM_Modular_Validation(UAM_Modular):
             P_info[f"P{id}_goal"] = goal
         self.logger = UAMLogger(sim_t=self.sim_t, **P_info)
         return self.state
+
+    def _gate_is_free(self, gate:Gate):
+        for p in self.planes:
+            if ED(N0=p.n, E0=p.e, N1=gate.N, E1=gate.E) < 300:
+                return False
+        return True
 
     def _high_level_control(self):
         """Decides who out of the current flight taxis should fly toward the goal."""
@@ -198,4 +236,5 @@ class UAM_Modular_Validation(UAM_Modular):
         return d
 
     def render(self, mode=None):
+        pass
         super().render(mode=mode)

@@ -1,0 +1,52 @@
+---
+env:
+  name: UAM-Modular-v0
+  max_episode_steps: 250
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    N_agents_max: 25
+    N_agents_min: 25
+    N_cutters_max: 0
+    N_cutters_min: 0
+    w_coll: 0.75
+    w_goal: 0.5
+    w_comf: 0.5
+    r_goal_norm: 10
+    c: 1.0
+    curriculum: false
+  info: ''
+agent:
+  LSTMRecTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 2
+    use_past_actions: false
+    num_obs_OS: 3
+    num_obs_TS: 6
+seed: 42
+timesteps: 1_000_000
+epoch_length: 5000
+eval_episodes: 5
+actor_weights:
+critic_weights:
+output_dir: 5_cnt
+prior_buffer: LSTMRecTD3_UAM-Modular-v0__2024-02-02_5/buffer.pickle
+gamma: 0.99
+tau: 0.001
+net_struc_actor:
+net_struc_critic:
+optimizer: Adam
+loss: MSELoss
+lr_actor: 0.0001
+lr_critic: 0.0001
+buffer_length: 500_000
+grad_rescale: false
+grad_clip: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu

@@ -16,8 +16,8 @@ def rotate_point(x, y, cx, cy, angle):
     tempY = y - cy
 
     # apply rotation
-    rotatedX = tempX * math.cos(angle) - tempY * math.sin(angle)
-    rotatedY = tempX * math.sin(angle) + tempY * math.cos(angle)
+    rotatedX = tempX * np.cos(angle) - tempY * np.sin(angle)
+    rotatedY = tempX * np.sin(angle) + tempY * np.cos(angle)
 
     # translate back
     return rotatedX + cx, rotatedY + cy
@@ -138,10 +138,14 @@ class TrajPlotter:
 
         self.TS_spawn_steps = [[0] for _ in range(N_TSs)]
 
-        for TS_idx, TS in enumerate(TSs):             
-            self.TS_traj_N[TS_idx].append(TS.eta[0])
-            self.TS_traj_E[TS_idx].append(TS.eta[1])
-            self.TS_traj_h[TS_idx].append(TS.eta[2])
+        for TS_idx, TS in enumerate(TSs):
+            if type(TS).__name__ == "AIS_Ship":
+                n, e, head = TS.n, TS.e, TS.head
+            else:
+                n, e, head = TS.eta         
+            self.TS_traj_N[TS_idx].append(n)
+            self.TS_traj_E[TS_idx].append(e)
+            self.TS_traj_h[TS_idx].append(head)
 
     def step(self, OS, TSs, respawn_flags, step_cnt):
 
@@ -155,8 +159,14 @@ class TrajPlotter:
 
             # check whether we had a collision
             for TS in TSs:
+                if type(TS).__name__ == "AIS_Ship":
+                    n, e, head = TS.n, TS.e, TS.head
+                else:
+                    n, e, head = TS.eta  
+
                 D = get_ship_domain(A=OS.ship_domain_A, B=OS.ship_domain_B, C=OS.ship_domain_C, D=OS.ship_domain_D, OS=OS, TS=TS)
-                if ED(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], sqrt=True) <= D:
+                
+                if ED(N0=OS.eta[0], E0=OS.eta[1], N1=n, E1=e, sqrt=True) <= D:
                     self.OS_col_N.append(OS.eta[0])
                     self.OS_col_E.append(OS.eta[1])
                     break
@@ -168,9 +178,13 @@ class TrajPlotter:
 
             # TS update
             for TS_idx, TS in enumerate(TSs):
-                self.TS_traj_N[TS_idx].append(TS.eta[0])
-                self.TS_traj_E[TS_idx].append(TS.eta[1])
-                self.TS_traj_h[TS_idx].append(TS.eta[2])
+                if type(TS).__name__ == "AIS_Ship":
+                    n, e, head = TS.n, TS.e, TS.head
+                else:
+                    n, e, head = TS.eta  
+                self.TS_traj_N[TS_idx].append(n)
+                self.TS_traj_E[TS_idx].append(e)
+                self.TS_traj_h[TS_idx].append(head)
 
     def plot_traj_fnc(self, 
                       E_max,
@@ -207,15 +221,15 @@ class TrajPlotter:
 
         # E-axis
         ax.set_xlim(0, E_max)
-        ax.set_xticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
-        ax.set_xticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
-        ax.set_xlabel("East [NM]", fontsize=8)
+        #ax.set_xticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+        #ax.set_xticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+        ax.set_xlabel("East [m]", fontsize=8)
 
         # N-axis
         ax.set_ylim(0, N_max)
-        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
-        ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
-        ax.set_ylabel("North [NM]", fontsize=8)
+        #ax.set_yticks([NM_to_meter(nm) for nm in range(15) if nm % 2 == 1])
+        #ax.set_yticklabels([nm - 7 for nm in range(15) if nm % 2 == 1])
+        ax.set_ylabel("North [m]", fontsize=8)
 
         if not star:
             ax.scatter(goal["E"], goal["N"])
@@ -334,10 +348,13 @@ class TrajPlotter:
 
             if not star:
                 if not world:
-                    xlab_boxs = [19, 20, 21, 22]
+                    #xlab_boxs = [19, 20, 21, 22]
+                    #xlab_boxs = [5, 6, 7, 8]
+                    xlab_boxs = [5, 6, 14, 18]
                 else:
-                    xlab_boxs = [21, 22, 23, 24]
+                    xlab_boxs = [21, 22, 23, 24]                    
                 ylab_boxs = [1, 5, 9, 13, 17, 21]
+                #ylab_boxs = [10, 18]
 
                 #if all([ele is not None for ele in [r_dist, r_head, r_coll, r_COLREG, r_comf]]):
                     #ax.text(NM_to_meter(0.5), NM_to_meter(11.5), r"$r_{\rm dist}$: " + format(r_dist, '.2f'), fontdict={"fontsize" : 7})
@@ -347,7 +364,7 @@ class TrajPlotter:
                     #ax.text(NM_to_meter(0.5), NM_to_meter(7.5),  r"$r_{\rm comf}$: " + format(r_comf, '.2f'), fontdict={"fontsize" : 7})
                     #ax.text(NM_to_meter(0.5), NM_to_meter(6.2),  r"$\sum r$: " + format(r_dist + r_head + r_coll + r_COLREG + r_comf, '.2f'), fontdict={"fontsize" : 7})
                 
-                ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
+                #ax.text(NM_to_meter(0.5), NM_to_meter(12.5), f"Case {sit}", fontdict={"fontsize" : 7})
 
                 if sit not in xlab_boxs:
                     ax.tick_params(axis='x', labelsize=8, which='both', bottom=False, top=False, labelbottom=False)
@@ -374,14 +391,14 @@ class TrajPlotter:
         # Time axis
         T_min = math.ceil(self.step_to_minute(2000))
         ax.set_xlim(0, T_min)
-        ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
-        ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
+        #ax.set_xticks([t for t in range(T_min) if (t + 1) % 15 == 1])
+        #ax.set_xticklabels([t for t in range(T_min) if (t + 1) % 15 == 1])
         ax.set_xlabel("Time [min]", fontsize=8)
 
         # N-axis
         ax.set_ylim(-1000, N_max + 750)
-        ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
-        ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
+        #ax.set_yticks([NM_to_meter(nm) for nm in range(15) if (nm + 1) % 2 == 1])
+        #ax.set_yticklabels([nm for nm in range(15) if (nm + 1) % 2 == 1])
         ax.set_ylabel("Distance [NM]", fontsize=8)
 
         # horizontal line at zero distance
@@ -411,15 +428,17 @@ class TrajPlotter:
                 bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N1, E1=E1, head0=self.OS_traj_h[t])
 
                 # compute ship domain
-                D = get_ship_domain(A=ship_domain_A, B=ship_domain_B, C=ship_domain_C, D=ship_domain_D, OS=None, TS=None, ang=bng_rel_TS)
+                #D = get_ship_domain(A=ship_domain_A, B=ship_domain_B, C=ship_domain_C, D=ship_domain_D, OS=None, TS=None, ang=bng_rel_TS)
 
                 # get euclidean distance between OS and TS
                 ED_TS = ED(N0=N0, E0=E0, N1=N1, E1=E1, sqrt=True)
 
-                TS_dists.append(ED_TS - D)
-
+                #TS_dists.append(ED_TS - D)
+                TS_dists.append(ED_TS - 30)
+                
                 # catch collisions
-                if ED_TS - D <= 0:
+                #if ED_TS - D <= 0:
+                if ED_TS - 30 <= 0:
                     TS_coll_t.append(t)
 
             # plot
@@ -470,10 +489,11 @@ class TrajPlotter:
         # plot
         ax.plot(self.step_to_minute(np.arange(len(self.OS_traj_rud_angle))), [rtd(ang) for ang in self.OS_traj_rud_angle], color="black", linewidth=0.75)
 
-        ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
+        #ax.text(self.step_to_minute(100), 17.5, f"Case {sit}", fontdict={"fontsize" : 7})
 
         if not world:
-            xlab_boxs = [19, 20, 21, 22]
+            #xlab_boxs = [19, 20, 21, 22]
+            xlab_boxs = [5, 6, 14, 18]
         else:
             xlab_boxs = [21, 22, 23, 24]
 

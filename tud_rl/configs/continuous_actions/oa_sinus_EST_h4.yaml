@@ -1,0 +1,72 @@
+---
+env:
+  name: ObstacleAvoidance-v0
+  max_episode_steps: 500
+  state_type: feature
+  wrappers: []
+  wrapper_kwargs: {}
+  env_kwargs:
+    setting: EST
+    frame_stack: 1
+    n_vessels: 10
+    max_temporal_dist: 300
+    min_channel_width: 100
+    amplitude_factor: 1
+    obst_traj: sinus
+  info: EST
+agent:
+  DDPG: {}
+  TD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+  LSTMDDPG:
+    history_length: 2
+    use_past_actions: false
+  LSTMTD3:
+    tgt_noise: 0.2
+    tgt_noise_clip: 0.5
+    pol_upd_delay: 2
+    history_length: 4
+    use_past_actions: false
+  SAC:
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  LSTMSAC:
+    history_length: 4
+    use_past_actions: false
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+  TQC:
+    lr_temp: 0.0001
+    temp_tuning: true
+    init_temp: 0.2
+    top_qs_to_drop: 10
+    n_qs: 25
+    n_critics: 5
+seed: 1
+timesteps: 1_500_000
+epoch_length: 10_000
+eval_episodes: 1
+actor_weights: 
+critic_weights: 
+output_dir:
+prior_buffer:
+gamma: 0.99
+tau: 0.001
+net_struc_actor:
+net_struc_critic:
+optimizer: Adam
+loss: MSELoss
+lr_actor: 0.0001
+lr_critic: 0.0001
+buffer_length: 1_000_000
+grad_clip: false
+grad_rescale: false
+act_start_step: 5000
+upd_start_step: 5000
+upd_every: 1
+batch_size: 32
+device: cpu

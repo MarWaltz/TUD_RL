@@ -68,7 +68,7 @@ class Dune_Env(gym.Env):
         self.spawn_mode = spawn_mode
 
         # states/observations
-        assert state_design in ["maxRisk", "RecDQN"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
+        assert state_design in ["maxRisk", "RecDQN", "vec"], "Unknown state design for FossenEnv. Should be 'maxRisk' or 'RecDQN'."
         self.state_design = state_design
 
         self.goal_reach_dist = 50                    # euclidean distance (in m) at which goal is considered as reached
@@ -87,6 +87,9 @@ class Dune_Env(gym.Env):
 
         elif state_design == "maxRisk":
             obs_size = self.num_obs_OS + self.num_obs_TS
+
+        elif state_design == "vec":
+            obs_size = self.num_obs_OS + 3 * self.num_obs_TS
 
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
@@ -327,6 +330,26 @@ class Dune_Env(gym.Env):
         for TS in self.TSs:
             self.TS_COLREGs.append(self._get_COLREG_situation(OS=self.OS, TS=TS))
 
+    def _get_ghost_ship_list(self) -> list:
+        """Returns a list of states characterizing a zero risk 'ghost' ship."""
+        # ED
+        ED_ghost = 1.0
+
+        # relative bearing
+        bng_rel_ghost = -1.0
+
+        # heading intersection angle
+        C_ghost = -1.0
+
+        # speed
+        V_ghost = 0.0
+
+        # COLREG mode
+        sigma_ghost = 0
+
+        # collision risk
+        CR_ghost = 0.0
+        return [ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, CR_ghost]
 
     def _set_state(self):
         """State consists of (all from agent's perspective): 
@@ -393,26 +416,7 @@ class Dune_Env(gym.Env):
 
         # no TS is in sight: pad a 'ghost ship' to avoid confusion for the agents
         if len(state_TSs) == 0:
-
-            # ED
-            ED_ghost = 1.0
-
-            # relative bearing
-            bng_rel_ghost = -1.0
-
-            # heading intersection angle
-            C_ghost = -1.0
-
-            # speed
-            V_ghost = 0.0
-
-            # COLREG mode
-            sigma_ghost = 0
-
-            # collision risk
-            CR_ghost = 0.0
-
-            state_TSs.append([ED_ghost, bng_rel_ghost, C_ghost, V_ghost, sigma_ghost, CR_ghost])
+            state_TSs.append(self._get_ghost_ship_list())
 
         # sort according to collision risk (ascending, larger CR is more dangerous)
         state_TSs = sorted(state_TSs, key=lambda x: x[-1])
@@ -435,6 +439,15 @@ class Dune_Env(gym.Env):
 
             # select only highest risk TS
             state_TSs = np.array(state_TSs[-1])
+
+        elif self.state_design == "vec":
+            
+            # add further ghost ships until full length is complete
+            while len(state_TSs) < 3:
+                state_TSs.append(self._get_ghost_ship_list())
+
+            # flatten
+            state_TSs = np.array(state_TSs).flatten(order="C")
 
         #------------------------------- combine state ------------------------------
         self.state = np.concatenate([state_OS, state_goal, state_TSs], dtype=np.float32)
@@ -733,14 +746,14 @@ class Dune_Env(gym.Env):
                     self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
                     self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
 
-                    #self.fig2 = plt.figure(figsize=(10,7))
-                    #self.fig2_ax = self.fig2.add_subplot(111)
+                    self.fig2 = plt.figure(figsize=(10,7))
+                    self.fig2_ax = self.fig2.add_subplot(111)
 
                     plt.ion()
                     plt.show()
                 
                 # ------------------------------ ship movement --------------------------------
-                for ax in [self.ax0]:
+                for ax in [self.ax0, self.fig2_ax]:
                     # clear prior axes, set limits and add labels and title
                     ax.clear()
                     ax.set_xlim(0, self.E_max)

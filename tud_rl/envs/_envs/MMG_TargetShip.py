@@ -45,8 +45,13 @@ class TargetShip(KVLCC2):
     def _is_opposing(self, other_vessel : KVLCC2):
         """Checks whether the other vessel is opposing to the target ship."""
         dist = ED(N0=other_vessel.eta[0], E0=other_vessel.eta[1], N1=self.eta[0], E1=self.eta[1])
-        if (other_vessel.rev_dir == self.rev_dir) or (dist > 10*max([other_vessel.Lpp, self.Lpp])):
-            return False
+
+        try:
+            if (other_vessel.rev_dir == self.rev_dir) or (dist > 10*max([other_vessel.Lpp, self.Lpp])):
+                return False
+        except:
+            if (other_vessel.goes_n == self.goes_n) or (dist > 10*max([other_vessel.Lpp, self.Lpp])):
+                return False
 
         DCPA, TCPA = cpa(NOS=self.eta[0], EOS=self.eta[1], NTS=other_vessel.eta[0], ETS=other_vessel.eta[1],\
              chiOS=self._get_course(), chiTS=other_vessel._get_course(), VOS=self._get_V(), VTS=other_vessel._get_V())
@@ -68,20 +73,27 @@ class TargetShip(KVLCC2):
 
     def river_control(self, other_vessels : List[KVLCC2], VFG_K : float):
         """Defines a deterministic rule-based controller for target ships on rivers."""
-        # rare case that we move from open sea back to river
-        if not hasattr(self, "rev_dir") or any([not hasattr(vess, "rev_dir") for vess in other_vessels]):
-            return
-
         # easy access
-        ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
-                                            E1 = self.glo_wp1_E, 
-                                            N2 = self.glo_wp2_N, 
-                                            E2 = self.glo_wp2_E,
-                                            NA = self.eta[0], 
-                                            EA = self.eta[1], 
-                                            K  = VFG_K, 
-                                            N3 = self.glo_wp3_N, 
-                                            E3 = self.glo_wp3_E)
+        try:
+            ye, dc, _, smoothed_path_ang = VFG(N1 = self.glo_wp1_N, 
+                                               E1 = self.glo_wp1_E, 
+                                               N2 = self.glo_wp2_N, 
+                                               E2 = self.glo_wp2_E,
+                                               NA = self.eta[0], 
+                                               EA = self.eta[1], 
+                                               K  = VFG_K, 
+                                               N3 = self.glo_wp3_N, 
+                                               E3 = self.glo_wp3_E)
+        except:
+            ye, dc, _, smoothed_path_ang = VFG(N1 = self.wp1_N, 
+                                               E1 = self.wp1_E, 
+                                               N2 = self.wp2_N, 
+                                               E2 = self.wp2_E,
+                                               NA = self.eta[0], 
+                                               EA = self.eta[1], 
+                                               K  = VFG_K, 
+                                               N3 = self.wp3_N, 
+                                               E3 = self.wp3_E)
 
         # non-cooperative vessels only run VFG
         if self.non_cooperative:

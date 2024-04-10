@@ -1,37 +1,39 @@
 ---
 env:
-  name: AIS-Env-v0
-  max_episode_steps: 75
+  name: UAM-Modular-v0
+  max_episode_steps: 250
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
-    AIS_path: C:/Users/Martin Waltz/Desktop/trajs_Ebeltoft/Ebeltoft_curve_sorted.dict
-    supervised_path:
-    N_TSs: 1
-    pdf_traj: false
-    cpa: false
+    N_agents_max: 25
+    N_agents_min: 25
+    N_cutters_max: 0
+    N_cutters_min: 0
+    w_coll: 0.75
+    w_goal: 0.5
+    w_comf: 0.5
+    r_goal_norm: 10
+    c: 1.0
+    curriculum: false
   info: ''
 agent:
-  LSTMSAC:
-    history_length: 10
-    use_past_actions: false
-    lr_temp: 0.0001
-    temp_tuning: true
-    init_temp: 0.2
-  LSTMTD3:
+  LSTMRecTD3:
     tgt_noise: 0.2
     tgt_noise_clip: 0.5
     pol_upd_delay: 2
-    history_length: 10
+    history_length: 2
     use_past_actions: false
+    num_obs_OS: 3
+    num_obs_TS: 6
 seed: 42
-timesteps: 10_000_000
+timesteps: 1_000_000
 epoch_length: 5000
 eval_episodes: 5
 actor_weights:
 critic_weights:
-prior_buffer:
+output_dir: 2_cnt
+prior_buffer: LSTMRecTD3_UAM-Modular-v0__2024-02-02_2/buffer.pickle
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
@@ -40,7 +42,7 @@ optimizer: Adam
 loss: MSELoss
 lr_actor: 0.0001
 lr_critic: 0.0001
-buffer_length: 1_000_000
+buffer_length: 500_000
 grad_rescale: false
 grad_clip: false
 act_start_step: 5000

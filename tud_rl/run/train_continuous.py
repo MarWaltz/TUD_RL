@@ -51,7 +51,7 @@ def evaluate_policy(test_env: gym.Env, agent: _Agent, c: ConfigFile):
                 a = agent.select_action(s)
 
             # perform step
-            if "UAM" in c.Env.name and agent.name == "LSTMRecTD3":
+            if (("Crazyfly" in c.Env.name) or ("UAM" in c.Env.name)) and agent.name == "LSTMRecTD3":
                 s2, r, d, _ = test_env.step(agent)
             else:
                 s2, r, d, _ = test_env.step(a)
@@ -185,7 +185,7 @@ def train(c: ConfigFile, agent_name: str):
                 a = agent.select_action(s)
 
         # perform step
-        if "UAM" in c.Env.name and agent.name == "LSTMRecTD3":
+        if (("Crazyfly" in c.Env.name) or ("UAM" in c.Env.name)) and agent.name == "LSTMRecTD3":
             s2, r, d, _ = env.step(agent)
         else:
             s2, r, d, _ = env.step(a)
@@ -266,7 +266,7 @@ def train(c: ConfigFile, agent_name: str):
             agent.logger.log_tabular("Epoch", epoch)
             agent.logger.log_tabular("Timestep", total_steps)
             agent.logger.log_tabular("Runtime_in_h", (time.time() - start_time) / 3600)
-
+            
             if agent.is_multi:
                 for i in range(agent.N_agents):
                     agent.logger.log_tabular(f"Epi_Ret_{i}", with_min_and_max=True)
@@ -286,6 +286,9 @@ def train(c: ConfigFile, agent_name: str):
                 agent.logger.log_tabular("Actor_ExtMemory", with_min_and_max=False)
                 agent.logger.log_tabular("Critic_CurFE", with_min_and_max=False)
                 agent.logger.log_tabular("Critic_ExtMemory", with_min_and_max=False)
+
+            if hasattr(agent, "temperature"):
+                agent.logger.log_tabular("Temperature", agent.temperature.detach().cpu().numpy().item())
 
             agent.logger.dump_tabular()
 

@@ -41,7 +41,7 @@ def visualize_policy(env: gym.Env, agent: _Agent, c: ConfigFile):
                 a = agent.select_action(s)
 
             # perform step
-            if c.Env.name == "UAM-v0" and agent.name == "LSTMRecTD3":
+            if (("Crazyfly" in c.Env.name) or ("UAM" in c.Env.name)) and agent.name == "LSTMRecTD3":
                 s2, r, d, _ = env.step(agent)
             
             elif c.Env.name == "HHOS-OpenPlanning-Validation-v0" and "full_RL" in c.Env.env_kwargs:

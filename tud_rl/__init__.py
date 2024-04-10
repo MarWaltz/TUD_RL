@@ -94,6 +94,23 @@ gym.register(
     id="SimpleComm-v0",
     entry_point=loc + "SimpleComm"
 )
+gym.register(
+    id="CrazyflySimple-v0",
+    entry_point=loc + "CrazyflySimple"
+)
+gym.register(
+    id="Dune-v0",
+    entry_point=loc + "Dune_Env"
+)
+gym.register(
+    id="Dune-Imazu-v0",
+    entry_point=loc + "Dune_Imazu"
+)
+gym.register(
+    id="AIS-Env-v0",
+    entry_point=loc + "AIS_Env"
+)
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)

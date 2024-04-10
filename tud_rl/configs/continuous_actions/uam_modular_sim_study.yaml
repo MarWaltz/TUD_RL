@@ -1,7 +1,7 @@
 ---
 env:
   name: UAM-Modular-Validation-v0
-  max_episode_steps: 300
+  max_episode_steps: 100_000
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
@@ -10,6 +10,7 @@ env:
     sim_study: True
     sim_study_N: 30
     safe_number: 0
+    entry_check: False
   info: ''
 agent:
   LSTMRecTD3:

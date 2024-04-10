@@ -10,6 +10,7 @@ env:
     sim_study: False
     sim_study_N: 
     safe_number: 77
+    entry_check: False
   info: ''
 agent:
   LSTMRecTD3:

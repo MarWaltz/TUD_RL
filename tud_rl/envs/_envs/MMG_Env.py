@@ -103,7 +103,7 @@ class MMG_Env(gym.Env):
         self.nonlinear_r_coll = nonlinear_r_coll
 
         # custom inits
-        self._max_episode_steps = 1500
+        self._max_episode_steps = 100_000 #1500
         self.r = 0
         self.r_dist   = 0
         self.r_head   = 0
@@ -855,16 +855,16 @@ class MMG_Env(gym.Env):
         # plot every nth timestep (except we only want trajectory)
         if not self.pdf_traj:
 
-            if self.step_cnt % 2 == 0: 
+            if self.step_cnt % 1 == 0: 
 
                 # check whether figure has been initialized
                 if len(plt.get_fignums()) == 0:
-                    self.fig = plt.figure(figsize=(10, 7))
-                    self.gs  = self.fig.add_gridspec(2, 2)
-                    self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
-                    self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
-                    self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
-                    self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
+                    #self.fig = plt.figure(figsize=(10, 7))
+                    #self.gs  = self.fig.add_gridspec(2, 2)
+                    #self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
+                    #self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
+                    #self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
+                    #self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
 
                     self.fig2 = plt.figure(figsize=(10,7))
                     self.fig2_ax = self.fig2.add_subplot(111)
@@ -901,6 +901,14 @@ class MMG_Env(gym.Env):
                                     linewidth=1, edgecolor='black', facecolor='none')
                     ax.add_patch(rect)
                     
+                    # VO costs
+                    #if self.OS.costs is not None:
+                    #    l = 2000
+                    #    colors = np.where(self.OS.costs == np.inf, "red", "green")
+                    #    for n in range(len(self.OS.heads)):
+                    #        E_add, N_add = xy_from_polar(r=l, angle=self.OS.heads[n])
+                    #        ax.plot((E0, E0 + E_add), (N0, N0 + N_add), color=colors[n])
+
                     # step information
                     ax.text(0.05 * self.E_max, 0.9 * self.N_max, self.__str__(), fontsize=8)
 
@@ -993,35 +1001,36 @@ class MMG_Env(gym.Env):
 
 
                 # ------------------------------ reward plot --------------------------------
-                if self.step_cnt == 0:
-                    self.ax1.clear()
-                    self.ax1.old_time = 0
-                    self.ax1.old_r_dist = 0
-                    self.ax1.old_r_head = 0
-                    self.ax1.old_r_coll = 0
-                    self.ax1.old_r_COLREG = 0
-                    self.ax1.old_r_comf = 0
+                if False:
+                    if self.step_cnt == 0:
+                        self.ax1.clear()
+                        self.ax1.old_time = 0
+                        self.ax1.old_r_dist = 0
+                        self.ax1.old_r_head = 0
+                        self.ax1.old_r_coll = 0
+                        self.ax1.old_r_COLREG = 0
+                        self.ax1.old_r_comf = 0
 
-                self.ax1.set_xlim(0, self._max_episode_steps)
-                #self.ax1.set_ylim(-1.25, 0.1)
-                self.ax1.set_xlabel("Timestep in episode")
-                self.ax1.set_ylabel("Reward")
+                    self.ax1.set_xlim(0, self._max_episode_steps)
+                    #self.ax1.set_ylim(-1.25, 0.1)
+                    self.ax1.set_xlabel("Timestep in episode")
+                    self.ax1.set_ylabel("Reward")
 
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "grey", label="Heading")
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "red", label="Collision")
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
-                self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
-                
-                if self.step_cnt == 0:
-                    self.ax1.legend()
+                    self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_dist, self.r_dist], color = "black", label="Distance")
+                    self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_head, self.r_head], color = "grey", label="Heading")
+                    self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_coll, self.r_coll], color = "red", label="Collision")
+                    self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_COLREG, self.r_COLREG], color = "darkorange", label="COLREG")
+                    self.ax1.plot([self.ax1.old_time, self.step_cnt], [self.ax1.old_r_comf, self.r_comf], color = "darkcyan", label="Comfort")
+                    
+                    if self.step_cnt == 0:
+                        self.ax1.legend()
 
-                self.ax1.old_time = self.step_cnt
-                self.ax1.old_r_dist = self.r_dist
-                self.ax1.old_r_head = self.r_head
-                self.ax1.old_r_coll = self.r_coll
-                self.ax1.old_r_COLREG = self.r_COLREG
-                self.ax1.old_r_comf = self.r_comf
+                    self.ax1.old_time = self.step_cnt
+                    self.ax1.old_r_dist = self.r_dist
+                    self.ax1.old_r_head = self.r_head
+                    self.ax1.old_r_coll = self.r_coll
+                    self.ax1.old_r_COLREG = self.r_COLREG
+                    self.ax1.old_r_comf = self.r_comf
 
 
                 # ------------------------------ state plot --------------------------------
@@ -1049,25 +1058,26 @@ class MMG_Env(gym.Env):
                     self.ax2.old_state = self.state
 
                 # ------------------------------ action plot --------------------------------
-                if self.step_cnt == 0:
-                    self.ax3.clear()
-                    self.ax3_twin = self.ax3.twinx()
-                    #self.ax3_twin.clear()
-                    self.ax3.old_time = 0
-                    self.ax3.old_action = 0
-                    self.ax3.old_rud_angle = 0
-                    self.ax3.old_tau_cnt_r = 0
+                if False:
+                    if self.step_cnt == 0:
+                        self.ax3.clear()
+                        self.ax3_twin = self.ax3.twinx()
+                        #self.ax3_twin.clear()
+                        self.ax3.old_time = 0
+                        self.ax3.old_action = 0
+                        self.ax3.old_rud_angle = 0
+                        self.ax3.old_tau_cnt_r = 0
 
-                self.ax3.set_xlim(0, self._max_episode_steps)
-                self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
-                self.ax3.set_yticks(range(self.action_space.n))
-                self.ax3.set_yticklabels(range(self.action_space.n))
-                self.ax3.set_xlabel("Timestep in episode")
-                self.ax3.set_ylabel("Action (discrete)")
+                    self.ax3.set_xlim(0, self._max_episode_steps)
+                    self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
+                    self.ax3.set_yticks(range(self.action_space.n))
+                    self.ax3.set_yticklabels(range(self.action_space.n))
+                    self.ax3.set_xlabel("Timestep in episode")
+                    self.ax3.set_ylabel("Action (discrete)")
 
-                self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
-                
-                self.ax3.old_time = self.step_cnt
-                self.ax3.old_action = self.OS.action
+                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
+                    
+                    self.ax3.old_time = self.step_cnt
+                    self.ax3.old_action = self.OS.action
 
                 plt.pause(0.001)

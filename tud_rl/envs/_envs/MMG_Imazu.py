@@ -61,8 +61,8 @@ class MMG_Imazu(MMG_Env):
         rads  = np.linspace(0.0, 2*math.pi, 100)
         dists = [get_ship_domain(A=self.OS.ship_domain_A, B=self.OS.ship_domain_B, C=self.OS.ship_domain_C, D=self.OS.ship_domain_D,\
             OS=None, TS=None, ang=rad) for rad in rads]
-        self.domain_plot_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
-        self.domain_plot_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
+        self.domain_xs = [dist * math.sin(rad) for dist, rad in zip(dists, rads)]
+        self.domain_ys = [dist * math.cos(rad) for dist, rad in zip(dists, rads)]
 
         self.outer_domain_plot_xs = [(dist + self.CR_rec_dist) * math.sin(rad) for dist, rad in zip(dists, rads)]
         self.outer_domain_plot_ys = [(dist + self.CR_rec_dist) * math.cos(rad) for dist, rad in zip(dists, rads)]

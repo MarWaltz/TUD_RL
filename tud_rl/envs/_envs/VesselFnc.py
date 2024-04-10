@@ -4,11 +4,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mycolorpy import colorlist as mcp
 
+
 COLREG_NAMES  = {0 : "Null", 
                  1 : "Head-on", 
                  2 : "Starb. cross.", 
                  3 : "Ports. cross.", 
                  4 : "Overtaking"}
+
+COLREG_NAMES_DUNE  = {0 : "Null", 
+                 1 : "Head-on", 
+                 5 : "Starb. cross.", 
+                 4 : "Ports. cross.", 
+                 3 : "Overtaking"}
+
 COLREG_COLORS = [plt.rcParams["axes.prop_cycle"].by_key()["color"][i] for i in range(8)] + mcp.gen_color(cmap="tab20b", n=20) 
 
 
@@ -167,7 +175,10 @@ def get_ship_domain(A, B, C, D, OS, TS, ang=None):
 
     # relative bearing
     if ang is None:
-        ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
+        if type(TS).__name__ == "AIS_Ship":
+            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.n, E1=TS.e, head0=OS.eta[2])
+        else:
+            ang = bng_rel(N0=OS.eta[0], E0=OS.eta[1], N1=TS.eta[0], E1=TS.eta[1], head0=OS.eta[2])
 
     # ellipsis
     if 0 <= rtd(ang) < 90:

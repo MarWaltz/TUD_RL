@@ -10,10 +10,10 @@ env:
     N_agents_min: 25
     N_cutters_max: 0
     N_cutters_min: 0
-    w_coll: 1
+    w_coll: 0.75
     w_goal: 0.5
-    w_comf: 1.0
-    r_goal_norm: 5
+    w_comf: 0.5
+    r_goal_norm: 10
     c: 1.0
     curriculum: false
   info: ''
@@ -32,6 +32,7 @@ epoch_length: 5000
 eval_episodes: 5
 actor_weights:
 critic_weights:
+prior_buffer:
 gamma: 0.99
 tau: 0.001
 net_struc_actor:
