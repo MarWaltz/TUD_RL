@@ -165,11 +165,13 @@ class UAM_Modular(gym.Env):
                  c:float,
                  N_agents_min :int = 1,
                  N_cutters_min : int = 0,
-                 curriculum : bool = False):
+                 curriculum : bool = False,
+                 noise : float = 0.0):
         super(UAM_Modular, self).__init__()
 
         # setup
         self.curriculum = curriculum
+        self.noise = noise
         
         if curriculum:
             self.N_agents_max = 25
@@ -273,10 +275,20 @@ class UAM_Modular(gym.Env):
         # reset dest
         self.dest.reset()
 
+        # add positional noise
+        self._add_noise()
+
         # init state
         self._set_state()
         self.state_init = self.state
         return self.state
+
+    def _add_noise(self):
+        """Adds Gaussian noise to aircraft positions."""
+        if self.noise != 0.0:
+            for i, p in enumerate(self.planes):
+                self.planes[i].noisy_n = p.n + np.random.normal(loc=0.0, scale=self.noise)
+                self.planes[i].noisy_e = p.e + np.random.normal(loc=0.0, scale=self.noise)
 
     def _spawn_plane(self, role:str):
         assert role in ["RL", "VFG", "RND", "CUT"], "Unknown role."
@@ -378,9 +390,17 @@ class UAM_Modular(gym.Env):
         # select plane of interest
         p = self.planes[i]
 
+        # consider noise
+        if hasattr(p, "noisy_n"):
+            pn = p.noisy_n
+            pe = p.noisy_e
+        else:
+            pn = p.n
+            pe = p.e
+
         # relative bearing to goal, distance, fly to goal
-        rel_bng_goal = bng_rel(N0=p.n, E0=p.e, N1=self.dest.N, E1=self.dest.E, head0=dtr(p.hdg), to_2pi=False)/np.pi
-        d_goal   = ED(N0=p.n, E0=p.e, N1=self.dest.N, E1=self.dest.E)/self.dest.spawn_radius
+        rel_bng_goal = bng_rel(N0=pn, E0=pe, N1=self.dest.N, E1=self.dest.E, head0=dtr(p.hdg), to_2pi=False)/np.pi
+        d_goal   = ED(N0=pn, E0=pe, N1=self.dest.N, E1=self.dest.E)/self.dest.spawn_radius
         task     = p.fly_to_goal
         s_i = np.array([rel_bng_goal, d_goal, task])
 
@@ -388,21 +408,30 @@ class UAM_Modular(gym.Env):
         TS_info = []
         for j, other in enumerate(self.planes):
             if i != j:
+
+                # consider noise
+                if hasattr(other, "noisy_n"):
+                    other_n = other.noisy_n
+                    other_e = other.noisy_e
+                else:
+                    other_n = other.n
+                    other_e = other.e
+
                 # relative speed
                 v_r = (other.tas - p.tas)/(2*self.delta_tas)
 
                 # relative bearing
-                bng = bng_rel(N0=p.n, E0=p.e, N1=other.n, E1=other.e, head0=dtr(p.hdg), to_2pi=False)/np.pi
+                bng = bng_rel(N0=pn, E0=pe, N1=other_n, E1=other_e, head0=dtr(p.hdg), to_2pi=False)/np.pi
 
                 # distance
-                d = ED(N0=p.n, E0=p.e, N1=other.n, E1=other.e)/self.dest.spawn_radius
+                d = ED(N0=pn, E0=pe, N1=other_n, E1=other_e)/self.dest.spawn_radius
 
                 # heading intersection
                 C_T = angle_to_pi(dtr(other.hdg - p.hdg))/np.pi
 
                 # CPA metrics
-                DCPA, TCPA = cpa(NOS=p.n, EOS=p.e, NTS=other.n, ETS=other.e, chiOS=np.radians(p.hdg), chiTS=dtr(other.hdg),
-                                    VOS=p.tas, VTS=other.tas)
+                DCPA, TCPA = cpa(NOS=pn, EOS=pe, NTS=other_n, ETS=other_e, chiOS=np.radians(p.hdg), chiTS=dtr(other.hdg),
+                                 VOS=p.tas, VTS=other.tas)
                 DCPA = DCPA / 100.0
                 TCPA = TCPA / 60.0
 
@@ -521,6 +550,9 @@ class UAM_Modular(gym.Env):
                 self._high_level_control()
         else:
             self._high_level_control()
+
+        # add positional noise
+        self._add_noise()
 
         # compute state and done        
         self._set_state()
@@ -696,7 +728,7 @@ class UAM_Modular(gym.Env):
     def initialize_figure(self):
         """Initialize the figure and subplots."""
         if len(plt.get_fignums()) == 0:
-            sns.set()
+            sns.set_theme()
 
             if self.plot_reward and self.plot_state:
                 self.f = plt.figure(figsize=(WIDTH/MY_DPI, HEIGTH/MY_DPI), dpi=MY_DPI)
@@ -816,11 +848,11 @@ class UAM_Modular(gym.Env):
         # aircraft information
         self.ax1.scs   = []
         self.ax1.lns   = []
-        self.ax1.paths = []
-        self.ax1.pts1  = []
-        self.ax1.pts2  = []
-        self.ax1.pts3  = []
         self.ax1.txts  = []
+
+        if self.noise != 0.0:
+            self.ax1.scs2 = []
+            self.ax1.lns2 = []
 
         for i in range(self.N_agents_max):
             try:
@@ -835,6 +867,15 @@ class UAM_Modular(gym.Env):
 
             # incident area
             self.ax1.lns.append(self.ax1.plot([], [], color=color, animated=True, zorder=10)[0])
+
+            if self.noise != 0.0:
+                color2 = "darkgray"
+
+                # show aircraft
+                self.ax1.scs2.append(self.ax1.scatter([], [], marker=(3, 0, -hdg), color=color2, animated=True))
+
+                # incident area
+                self.ax1.lns2.append(self.ax1.plot([], [], color=color2, animated=True, zorder=10)[0])
 
             # information
             self.ax1.txts.append(self.ax1.text(x=0.0, y=0.0, s="", color=color, fontdict={"size" : 12}, animated=True))
@@ -866,15 +907,17 @@ class UAM_Modular(gym.Env):
             self.ax3.bg = self.f.canvas.copy_from_bbox(self.ax3.bbox)
 
     def update_video(self):
-        # Capture the current figure as an image
-        img = Image.frombytes("RGB", self.f.canvas.get_width_height(), self.f.canvas.tostring_rgb())
-        frame = np.array(img)
+        if self.step_cnt % 25 != 0:
 
-        # Convert RGB to BGR (required for OpenCV)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # Capture the current figure as an image
+            img = Image.frombytes("RGB", self.f.canvas.get_width_height(), self.f.canvas.tostring_rgb())
+            frame = np.array(img)
 
-        # Write the frame to the video file
-        self.video_writer.write(frame)
+            # Convert RGB to BGR (required for OpenCV)
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            # Write the frame to the video file
+            self.video_writer.write(frame)
 
     def restore_background(self):
         """Restore the background."""
@@ -905,6 +948,15 @@ class UAM_Modular(gym.Env):
                 self.ax1.scs[i].set_color("dimgrey")
             self.ax1.draw_artist(self.ax1.scs[i])
 
+            if self.noise != 0.0:
+                self.ax1.scs2[i].set_offsets(np.array([p.noisy_e, p.noisy_n]))
+
+                if p.fly_to_goal == 1.0:
+                    self.ax1.scs2[i].set_color("mediumaquamarine")
+                else:
+                    self.ax1.scs2[i].set_color("darkgray")
+                self.ax1.draw_artist(self.ax1.scs2[i])
+
             # incident area
             lats, lons = map(list, zip(*[qdrpos(latd1=p.lat, lond1=p.lon, qdr=deg, dist=meter_to_NM(self.incident_dist/2))\
                 for deg in self.clock_degs]))
@@ -916,6 +968,19 @@ class UAM_Modular(gym.Env):
             else:
                 self.ax1.lns[i].set_color("dimgrey")
             self.ax1.draw_artist(self.ax1.lns[i])
+
+            if self.noise != 0.0:
+                lat, lon = to_latlon(north=p.noisy_n, east=p.noisy_e, number=32)
+                lats, lons = map(list, zip(*[qdrpos(latd1=lat, lond1=lon, qdr=deg, dist=meter_to_NM(self.incident_dist/2))\
+                    for deg in self.clock_degs]))
+                ns, es, _ = to_utm(lat=np.array(lats), lon=np.array(lons))
+                self.ax1.lns2[i].set_data(es, ns)
+
+                if p.fly_to_goal == 1.0:
+                    self.ax1.lns2[i].set_color("mediumaquamarine")
+                else:
+                    self.ax1.lns2[i].set_color("darkgray")
+                self.ax1.draw_artist(self.ax1.lns2[i])
 
             # information
             #s = f"id: {i}" + "\n" + f"hdg: {p.hdg:.1f}" + "\n" + f"alt: {p.alt:.1f}" + "\n" + f"tas: {p.tas:.1f}"

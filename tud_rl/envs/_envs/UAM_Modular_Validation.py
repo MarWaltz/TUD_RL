@@ -52,13 +52,14 @@ class UAMLogger:
 
 class UAM_Modular_Validation(UAM_Modular):
     """Validation scenarios for the Urban Air Mobility agent."""
-    def __init__(self, situation:int, sim_study:bool, sim_study_N:int, safe_number:int, entry_check:bool):
+    def __init__(self, situation:int, sim_study:bool, sim_study_N:int, safe_number:int, entry_check:bool, noise:float = 0.0):
 
         self.situation   = situation
         self.sim_study   = sim_study
         self.sim_study_N = sim_study_N
         self.safe_number = safe_number
         self.entry_check = entry_check
+        self.noise = noise
 
         assert not (not sim_study and entry_check), "Entry check only in sim-study possible."
 
@@ -71,7 +72,7 @@ class UAM_Modular_Validation(UAM_Modular):
         elif situation == 1:
             N_agents_max = 3 * 4 # 3 waves of 4 aircraft
 
-        super().__init__(N_agents_max=N_agents_max, N_cutters_max=0, w_coll=0.0, w_goal=0.0, w_comf=0.0, r_goal_norm=1.0, c=1.0)
+        super().__init__(N_agents_max=N_agents_max, N_cutters_max=0, w_coll=0.0, w_goal=0.0, w_comf=0.0, r_goal_norm=1.0, c=1.0, noise=noise)
         self._max_episode_steps = 100_000 if sim_study else 2000
 
         # gates
@@ -125,6 +126,9 @@ class UAM_Modular_Validation(UAM_Modular):
 
         # reset dest
         self.dest.reset()
+
+        # add positional noise
+        self._add_noise()
 
         # init state
         self._set_state()
@@ -237,4 +241,4 @@ class UAM_Modular_Validation(UAM_Modular):
 
     def render(self, mode=None):
         pass
-        super().render(mode=mode)
+        #super().render(mode=mode)

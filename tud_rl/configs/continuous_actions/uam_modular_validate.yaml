@@ -7,10 +7,11 @@ env:
   wrapper_kwargs: {}
   env_kwargs:
     situation: 1
-    sim_study: False
-    sim_study_N: 
+    sim_study: True
+    sim_study_N: 20
     safe_number: 77
-    entry_check: False
+    entry_check: True
+    noise: 100
   info: ''
 agent:
   LSTMRecTD3:
