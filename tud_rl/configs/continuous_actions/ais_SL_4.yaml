@@ -1,14 +1,14 @@
 ---
 env:
   name: AIS-Env-v0
-  max_episode_steps: 75
+  max_episode_steps: 35
   state_type: feature
   wrappers: []
   wrapper_kwargs: {}
   env_kwargs:
     AIS_path: C:/Users/Martin Waltz/Desktop/trajs_Ebeltoft/Ebeltoft.dict
     supervised_path: C:/Users/Martin Waltz/Desktop/Forschung/RL_packages/TUD_RL/cpa_weights_10_1200.pth
-    N_TSs: 1
+    N_TSs: 5
     pdf_traj: false
     cpa: true
   info: ''
@@ -26,9 +26,9 @@ agent:
     history_length: 4
     use_past_actions: false
 seed: 42
-timesteps: 1_000_000
+timesteps: 500_000
 epoch_length: 5000
-eval_episodes: 50
+eval_episodes: 10
 actor_weights:
 critic_weights:
 prior_buffer:

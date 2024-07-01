@@ -25,9 +25,10 @@ class AIS_Env(gym.Env):
     def __init__(self, 
                  AIS_path : str = None,
                  supervised_path : str = None,
-                 N_TSs : int = 1, 
+                 N_TSs : int = 5, 
                  pdf_traj : bool = False,
-                 cpa : bool = False):
+                 cpa : bool = False,
+                 continuous : bool = True):
         super().__init__()
 
         # Simulation settings
@@ -47,7 +48,7 @@ class AIS_Env(gym.Env):
 
         if supervised_path is not None:
             self.forecast_window = 200  # forecast window
-            self.n_obs_est   = 50      # number of points used for iterative 'n_forecasts'-step ahead forecasts
+            self.n_obs_est   = 75      # number of points used for iterative 'n_forecasts'-step ahead forecasts
             self.n_forecasts = 10       # number of points to predict per forward pass
             self.data_norm = 10.        # normalization factor of data during SL phase
             self.diff = True            # whether to forecast positions or differences in positions
@@ -62,10 +63,11 @@ class AIS_Env(gym.Env):
             for p in self.CPA_net.parameters():
                 p.requires_grad = False
 
+        self.n_loops = 2
         self.num_obs_OS = 2                               # number of observations for the OS
         
         if cpa:
-            self.num_obs_TS = 6                               # number of observations per TS
+            self.num_obs_TS = 5                               # number of observations per TS
         else:
             self.num_obs_TS = 4
 
@@ -77,18 +79,25 @@ class AIS_Env(gym.Env):
         # Plotting
         self.pdf_traj = pdf_traj   # whether to plot trajectory after termination
         self.TrajPlotter = TrajPlotter(plot_every=5 * 60, delta_t=self.delta_t)
+        self.state_names = ["OS_spd", "CTE", "ED", "bng", "head-inter", "TS_spd", "DCPA", "TCPA"]
 
         # Gym definitions
         obs_size = self.num_obs_OS + self.N_TSs * self.num_obs_TS
 
+        self.continuous = continuous
+
         self.observation_space = spaces.Box(low  = np.full(obs_size, -np.inf, dtype=np.float32), 
                                             high = np.full(obs_size,  np.inf, dtype=np.float32))
-        self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
-                                       high = np.full(1,  1.0, dtype=np.float32))
-        self.dhead = 1.2 * dtr(0.5) # dtr(0.5)
+        if self.continuous:
+            self.action_space = spaces.Box(low  = np.full(1, -1.0, dtype=np.float32), 
+                                           high = np.full(1,  1.0, dtype=np.float32))
+        else:
+            self.action_space = spaces.Discrete(3)
+
+        self.dhead = self.n_loops * dtr(0.6)
 
         # Custom inits
-        self._max_episode_steps = 75
+        self._max_episode_steps = 35
         self.r = 0
 
     def reset(self):
@@ -97,86 +106,127 @@ class AIS_Env(gym.Env):
         self.step_cnt = 0           # simulation step counter
         self.sim_t    = 0           # overall passed simulation time (in s)
 
-        # sample situation: 0 - TS goes curve, 1 - TS goes linear
-        self.sit = random.getrandbits(1)
+        while True:
+            try:
+                # sample situation: 0 - TS goes curve, 1 - TS goes linear
+                self.sit = random.getrandbits(1)
 
-        if self.sit == 0:
-            self.ttpt = 120 + np.random.random() * 60 # time until TS is at turning point (time to turning point) # 240 initially
-            self.ttc  = 210 + np.random.random() * 60 # time to collision for OS spawning
-        else:
-            self.ttpt = 180 + np.random.random() * 60 # time passed since TS was at turning point (time to turning point)
-            self.ttc  = 240 + np.random.random() * 60 # time to collision for OS spawning
+                if self.sit == 0:
+                    self.ttpt = 240 + np.random.random() * 60 # time until TS is at turning point (time to turning point) # 240 initially
+                    self.ttc  = 240 #+ np.random.random() * 60 # time to collision for OS spawning
+                else:
+                    self.ttpt = 1000 + np.random.random() * 60 # time passed since TS was at turning point (time to turning point) # 180
+                    self.ttc  = 240 #+ np.random.random() * 60 # time to collision for OS spawning
 
-        # init TSs
-        self.TSs = []
-        for _ in range(self.N_TSs):
-            self.TSs.append(self._get_TS())
+                # init TSs
+                self.TSs = [self._get_AIS_TS()]
 
-        # init agent
-        self.OS = KVLCC2(N_init   = 0, 
-                         E_init   = 0, 
-                         psi_init = 0.0,
-                         u_init   = 0.0,
-                         v_init   = 0.0,
-                         r_init   = 0.0,
-                         delta_t  = self.delta_t,
-                         N_max    = self.N_max,
-                         E_max    = self.E_max,
-                         nps      = 1.940969) # 1.940969 gives 8 m/s, 1.21312 gives 5 m/s speed
+                # init agent
+                self.OS = KVLCC2(N_init   = 0, 
+                                E_init   = 0, 
+                                psi_init = 0.0,
+                                u_init   = 0.0,
+                                v_init   = 0.0,
+                                r_init   = 0.0,
+                                delta_t  = self.delta_t,
+                                N_max    = self.N_max,
+                                E_max    = self.E_max,
+                                nps      = 1.940969) # 1.940969 gives 8 m/s, 1.21312 gives 5 m/s speed
 
-        # set longitudinal speed to near-convergence
-        # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
-        self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
+                # set longitudinal speed to near-convergence
+                # Note: if we don't do this, the TCPA calculation for spawning other vessels is heavily biased
+                self.OS.nu[0] = self.OS._get_u_from_nps(self.OS.nps, psi=self.OS.eta[2])
 
-        # ---- place OS in head-on mode to TS ----
-        TS = self.TSs[0]
+                # ---- place OS in head-on mode to AIS TS ----
+                TS = self.TSs[0]
 
-        # 1. Estimate TS position linearly
-        E_hit = TS.e + self.ttc * TS.ve
-        N_hit = TS.n + self.ttc * TS.vn
+                # 1. Estimate TS position linearly
+                E_hit = TS.e + self.ttc * TS.ve
+                N_hit = TS.n + self.ttc * TS.vn
 
-        # 2. Backtrace position of OS
-        OS_head = angle_to_2pi(TS.head + np.pi)
-        ve_OS, vn_OS = xy_from_polar(r=self.OS.nu[0], angle=OS_head)
-        E_OS = E_hit - self.ttc * ve_OS
-        N_OS = N_hit - self.ttc * vn_OS
+                # 2. Backtrace position of OS
+                OS_head = angle_to_2pi(TS.head + np.pi)
+                ve_OS, vn_OS = xy_from_polar(r=self.OS.nu[0], angle=OS_head)
+                E_OS = E_hit - self.ttc * ve_OS
+                N_OS = N_hit - self.ttc * vn_OS
 
-        # 3. Set values
-        self.OS.eta = np.array([N_OS, E_OS, OS_head])
+                # 3. Set values
+                self.OS.eta = np.array([N_OS, E_OS, OS_head])
 
-        # create path
-        ve, vn = xy_from_polar(r=self.OS.nu[0], angle=self.OS.eta[2])
-        path_n = self.OS.eta[0] + np.arange(1000) * self.delta_t * vn
-        path_e = self.OS.eta[1] + np.arange(1000) * self.delta_t * ve
+                # create path
+                ve, vn = xy_from_polar(r=self.OS.nu[0], angle=self.OS.eta[2])
+                path_n = self.OS.eta[0] + np.arange(1000) * self.delta_t * vn
+                path_e = self.OS.eta[1] + np.arange(1000) * self.delta_t * ve
 
-        self.path = Path(level="global", north=path_n, east=path_e)
-        self.path_one = deepcopy(self.path)
-        self.path_one.move(-self.path_width_left)
+                self.path = Path(level="global", north=path_n, east=path_e)
+                self.path_one = deepcopy(self.path)
+                self.path_one.move(-self.path_width_left)
 
-        self.path_two = deepcopy(self.path)
-        self.path_two.move(self.path_width_right)
+                self.path_two = deepcopy(self.path)
+                self.path_two.move(self.path_width_right)
 
-        # add some noise
-        self.OS.eta[0] += np.random.randn() * 1.0
-        self.OS.eta[1] += np.random.randn() * 1.0
-        self.OS.eta[2] += dtr(np.random.uniform(-3, -3)) #-3,0
+                # add some noise
+                self.OS.eta[0] += np.random.randn() * 1.0
+                self.OS.eta[1] += np.random.randn() * 1.0
+                self.OS.eta[2] += dtr(np.random.uniform(-3, 0))
 
-        # update cte
-        _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=self.path.north, e_array=self.path.east, 
-                                                           a_n=self.OS.eta[0], a_e=self.OS.eta[1])
-        self.cte = cte(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
+                # generate other distracting target ships
+                for _ in range(self.N_TSs-1):
+                    self.TSs.append(self._get_usual_TS())
 
-        # init state
-        self._set_state()
-        self.state_init = self.state
+                # update cte
+                _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=self.path.north, e_array=self.path.east, 
+                                                                a_n=self.OS.eta[0], a_e=self.OS.eta[1])
+                self.cte = cte(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
 
-        # trajectory storing
-        self.TrajPlotter.reset(OS=self.OS, TSs=self.TSs, N_TSs=self.N_TSs)
+                # init state
+                self._set_state()
+                self.state_init = self.state
+
+                # trajectory storing
+                self.TrajPlotter.reset(OS=self.OS, TSs=self.TSs, N_TSs=self.N_TSs)
+
+            except:
+                continue
+            else:
+                break
         return self.state
 
-    def _get_TS(self) -> AIS_Ship:
+    def _get_AIS_TS(self) -> AIS_Ship:
         """Samples a target ship from the data."""
         return AIS_Ship(data=self.AIS_data, sit=self.sit, ttpt=self.ttpt)
+
+    def _get_usual_TS(self) -> KVLCC2:
+        """Generates a linearly-moving target ship."""
+        TS = deepcopy(self.OS)
+        TS.nu[0] += np.random.normal(0., 0.2)
+        case = random.randint(0,1)
+
+        # TS close to OS
+        if case == 0:
+            d = np.random.uniform(500., 1000.)
+            head = angle_to_2pi(self.OS.eta[2] + dtr(np.random.uniform(-30, 30)))
+            e_add, n_add = xy_from_polar(r=d, angle=angle_to_2pi(head + np.pi))
+ 
+            TS.eta[0] += n_add
+            TS.eta[1] += e_add
+            TS.eta[2] = head
+
+        # Irrelevant TS
+        else:
+            while True:
+                n    = TS.eta[0] + np.random.uniform(1500., 3000.) * random.choice([-1, 1])
+                e    = TS.eta[1] + np.random.uniform(1500., 3000.) * random.choice([-1, 1])
+                head = TS.eta[2] + dtr(np.random.uniform(-180, 180))
+                
+                dcpa, _ = cpa(NOS=self.OS.eta[0], EOS=self.OS.eta[1], NTS=n, ETS=e, chiOS=self.OS._get_course(), chiTS=head,
+                                 VOS=self.OS._get_V(), VTS=TS._get_V())
+                if dcpa >= 800.:
+                    TS.eta[0] = n
+                    TS.eta[1] = e
+                    TS.eta[2] = head
+                    break              
+        return TS
 
     def _iterative_forecasts(self, n_for_est : np.ndarray, e_for_est : np.ndarray) -> tuple:
         """Performs iterative 'n_forecasts'-step ahead forecasts using the given input points.
@@ -241,8 +291,8 @@ class AIS_Env(gym.Env):
         #e_predicted, n_predicted = rotate_point(x=np.array(e_predicted), y=np.array(n_predicted), cx=e_for_est[0], cy=n_for_est[0], #angle=rot_angle)
         return n_predicted, e_predicted
 
-    def _update_dcpa_tcpa_supervised(self, TS: AIS_Ship) -> None:
-        """Updates the DCPA and TCPA using the corresponding neural network, 
+    def _get_dcpa_tcpa_supervised(self, TS: AIS_Ship):
+        """Returns DCPA and TCPA using the corresponding neural network, 
         which has been trained separately."""
         # Only every 10th step for computation time
         if not hasattr(TS, "tcpa") or self.step_cnt % 2 == 0:
@@ -256,14 +306,7 @@ class AIS_Env(gym.Env):
             # Predict future
             n_future, e_future = self._iterative_forecasts(n_for_est=n_base.copy(), e_for_est=e_base.copy())
 
-            # 'Predict' past
-            #n_past, e_past = self._iterative_forecasts(n_for_est=np.flip(n_base.copy()), e_for_est=np.flip(e_base.copy()))
-            #n_past = np.flip(n_past)
-            #e_past = np.flip(e_past)
-
             # Stack it together
-            #n_TS = np.concatenate((n_past, n_base, n_future))
-            #e_TS = np.concatenate((e_past, e_base, e_future))
             n_TS = np.concatenate((n_base, n_future))
             e_TS = np.concatenate((e_base, e_future))
 
@@ -274,27 +317,18 @@ class AIS_Env(gym.Env):
             n_OS, e_OS, head_OS = self.OS.eta
             vOS_e, vOS_n = xy_from_polar(r=self.OS._get_V(), angle=head_OS)
 
-            #n_OS_future = np.arange(1, self.forecast_window+1)
-            #n_OS_base   = np.arange(-self.n_obs_est+1,1)
-            #n_OS_past   = np.arange(-self.forecast_window - self.n_obs_est+1, -self.n_obs_est+1)
-            #n_OS_full = n_OS + vOS_n * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
-            #e_OS_full = e_OS + vOS_e * np.arange(-self.forecast_window-self.n_obs_est+1, self.forecast_window+1) * self.delta_t
-            
             n_OS_full = n_OS + vOS_n * np.arange(-self.n_obs_est + 1, self.forecast_window+1) * self.delta_t
             e_OS_full = e_OS + vOS_e * np.arange(-self.n_obs_est + 1, self.forecast_window+1) * self.delta_t
 
             # Compute dcpa and tcpa
             dist = np.sqrt((n_OS_full - n_TS)**2 + (e_OS_full - e_TS)**2)
 
-            # Smoothing dist curve by using moving average (np.convolve)
-            #kernel_size = 21
-            #kernel = np.ones(kernel_size) / kernel_size
-            #smoothed_dist = np.convolve(dist, kernel, mode='same')
-
-            TS.dcpa = max([0, np.min(dist)])
-            TS.tcpa = self.delta_t * (np.argmin(dist) - self.forecast_window - self.n_obs_est)
-        else: 
-            TS.tcpa -= self.delta_t
+            dcpa = max([0, np.min(dist)])
+            tcpa = self.delta_t * (np.argmin(dist) - self.forecast_window - self.n_obs_est)
+        else:
+            dcpa = TS.dcpa
+            tcpa = TS.tcpa - self.delta_t
+        return dcpa, tcpa
 
     def _update_dcpa_tcpa_real_traj(self, TS : AIS_Ship) -> None:
         """Updates the DCPA and TCPA by accessing the true future trajectory."""
@@ -333,7 +367,6 @@ class AIS_Env(gym.Env):
             heading intersection angle C_T
             speed (V)
         """
-
         # quick access for OS
         N0, E0, head0 = self.OS.eta
 
@@ -344,13 +377,16 @@ class AIS_Env(gym.Env):
         state_TSs = []
 
         for TS_idx, TS in enumerate(self.TSs):
-
-            N = TS.n
-            E = TS.e
-            headTS = TS.head
+            
+            if TS_idx == 0:
+                N = TS.n
+                E = TS.e
+                headTS = TS.head
+            else:
+                N, E, headTS = TS.eta
 
             # Distance
-            ED_OS_TS_norm = ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True) / 3000.
+            ED_OS_TS_norm = (ED(N0=N0, E0=E0, N1=N, E1=E, sqrt=True)-self.coll_dist) / 3000.
 
             # Relative bearing
             bng_rel_TS = bng_rel(N0=N0, E0=E0, N1=N, E1=E, head0=head0, to_2pi=False) / (math.pi)
@@ -359,23 +395,38 @@ class AIS_Env(gym.Env):
             C_TS = head_inter(head_OS=head0, head_TS=headTS, to_2pi=False) / (math.pi)
 
             # Speed
-            V_TS = TS.v / 5.0
+            if TS_idx == 0:
+                V_TS = TS.v / 5.0
+            else:
+                V_TS = TS._get_V() / 5.0
 
             # Interface to supervised learning module
             if self.cpa:
-                if self.supervised_path is not None:
-                    self._update_dcpa_tcpa_supervised(TS)
-                else:
-                    self._update_dcpa_tcpa_real_traj(TS)
+                if TS_idx == 0:
+                    if self.supervised_path is not None:
+                        try:
+                            dcpa, tcpa = self._get_dcpa_tcpa_supervised(TS)
+                        except:
+                            dcpa = TS.dcpa
+                            tcpa = TS.tcpa
 
-                #self._update_dcpa_tcpa_real_traj(TS)
+                        TS.dcpa = dcpa
+                        TS.tcpa = tcpa
+                    else:
+                        self._update_dcpa_tcpa_real_traj(TS)
+
+                else:
+                    dcpa, tcpa = cpa(NOS=N0, EOS=E0, NTS=N, ETS=E, chiOS=self.OS._get_course(), chiTS=TS._get_course(),
+                                     VOS=self.OS._get_V(), VTS=TS._get_V())
+                    TS.dcpa = dcpa
+                    TS.tcpa = tcpa
 
                 # Normalize
-                dcpa = (TS.dcpa - self.coll_dist) / 100.0
-                tcpa = TS.tcpa / 60.0
+                dcpa = (dcpa - self.coll_dist) / 100.0
 
                 # store it
-                state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, dcpa, tcpa])
+                state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS, dcpa])
+                #["OS_spd", "CTE", "ED", "bng", "head-inter", "TS_spd", "DCPA", "TCPA"]
             else:
                 # store it
                 state_TSs.append([ED_OS_TS_norm, bng_rel_TS, C_TS, V_TS])
@@ -393,28 +444,35 @@ class AIS_Env(gym.Env):
         # combine state
         self.state = np.concatenate([state_OS, state_TSs], dtype=np.float32)
 
+        # add some noise
+        #self.state[0:6] += np.random.normal(loc=0.0, scale=0.05, size=len(self.state[0:6]))
+
     def _heading_control(self, a : float):
         """Controls the heading of the vessel."""
-        assert (-1 <= a) and (a <= 1), "Unknown action."
-        self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] + a * self.dhead)
+        if self.continuous:
+            assert (-1 <= a) and (a <= 1), "Unknown action."
+            self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] + a * self.dhead)
+        else:
+            assert a in [0, 1, 2], "Unknown action."
+
+            if a == 0:
+                pass
+            elif a == 1:
+                self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] + self.dhead)
+            else:
+                self.OS.eta[2] = angle_to_2pi(self.OS.eta[2] - self.dhead)
 
     def step(self, a):
         """Takes an action and performs one step in the environment.
         Returns new_state, r, done, {}."""
-        #self.render()
-        
         # perform control action
         a = float(a)
+        self.a = a
         self._heading_control(a)
 
-        #if self.state[-2] < 0:
-        #    a = 1.0
-        #else:
-        #    a = -0.05
-        #self._heading_control(a)
-
         # update agent dynamics
-        self.OS._upd_dynamics()
+        for _ in range(self.n_loops):
+            self.OS._upd_dynamics()
 
         # update cte
         _, wp1_N, wp1_E, _, wp2_N, wp2_E = get_init_two_wp(n_array=self.path.north, e_array=self.path.east, 
@@ -422,14 +480,13 @@ class AIS_Env(gym.Env):
         self.cte = cte(N1=wp1_N, E1=wp1_E, N2=wp2_N, E2=wp2_E, NA=self.OS.eta[0], EA=self.OS.eta[1])
 
         # update environmental dynamics, e.g., other vessels
-        [TS.update_dynamics() for TS in self.TSs]
-        #for TS in self.TSs:
-        #    TS.e += self.delta_t * TS.ve
-        #    TS.n += self.delta_t * TS.vn
+        for _ in range(self.n_loops):
+            for TS in self.TSs:
+                TS._upd_dynamics()
 
         # increase step cnt and overall simulation time
         self.step_cnt += 1
-        self.sim_t += self.delta_t
+        self.sim_t += (self.delta_t * self.n_loops)
 
         # trajectory plotting
         self.TrajPlotter.step(OS=self.OS, TSs=self.TSs, respawn_flags=[False] * self.N_TSs, step_cnt=self.step_cnt)
@@ -455,7 +512,14 @@ class AIS_Env(gym.Env):
 
         # Collision
         for TS in self.TSs:
-            if ED(N0=N0, E0=E0, N1=TS.n, E1=TS.e) <= self.coll_dist:
+            if isinstance(TS, AIS_Ship):
+                n = TS.n
+                e = TS.e
+            else:
+                n = TS.eta[0]
+                e = TS.eta[1]
+
+            if ED(N0=N0, E0=E0, N1=n, E1=e) <= self.coll_dist:
                 self.r -= 1.0
 
     def _done(self):
@@ -493,25 +557,25 @@ class AIS_Env(gym.Env):
 
                 # check whether figure has been initialized
                 if len(plt.get_fignums()) == 0:
-                    self.fig = plt.figure(figsize=(11, 6))
-                    self.gs  = self.fig.add_gridspec(1, 2)
-                    self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
-                    self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
+                    #self.fig = plt.figure(figsize=(11, 6))
+                    #self.gs  = self.fig.add_gridspec(2, 2)
+                    #self.ax0 = self.fig.add_subplot(self.gs[0, 0]) # ship
+                    #self.ax1 = self.fig.add_subplot(self.gs[0, 1]) # reward
                     #self.ax2 = self.fig.add_subplot(self.gs[1, 0]) # state
                     #self.ax3 = self.fig.add_subplot(self.gs[1, 1]) # action
 
-                    #self.fig2 = plt.figure(figsize=(10,7))
-                    #self.fig2_ax = self.fig2.add_subplot(111)
+                    self.fig2 = plt.figure(figsize=(10,7))
+                    self.fig2_ax = self.fig2.add_subplot(111)
 
                     plt.ion()
                     plt.show()
                 
                 # ------------------------------ ship movement --------------------------------
-                for ax in [self.ax0]:
+                for ax in [self.fig2_ax]: # , self.ax0
                     # clear prior axes, set limits and add labels and title
                     ax.clear()
-                    ax.set_xlim(0, self.E_max)
-                    ax.set_ylim(0, self.N_max)
+                    ax.set_xlim(0, self.E_max + 1000)
+                    ax.set_ylim(-1000, self.N_max)
 
                     # Axis
                     ax.set_xlabel("East [m]", fontsize=8)
@@ -545,9 +609,14 @@ class AIS_Env(gym.Env):
                     for TS in self.TSs:
 
                         # access
-                        N, E, headTS = TS.n, TS.e, TS.head
-                        chiTS = TS.head
-                        VTS = TS.v
+                        if isinstance(TS, AIS_Ship):
+                            N, E, headTS = TS.n, TS.e, TS.head
+                            chiTS = TS.head
+                            VTS = TS.v
+                        else:
+                            N, E, headTS = TS.eta
+                            chiTS = TS._get_course()
+                            VTS = TS._get_V()
                         col = "blue"
 
                         # place TS
@@ -590,14 +659,15 @@ class AIS_Env(gym.Env):
                             pass
 
                         # Plot true trajectory
-                        ax.scatter(TS.e_traj, TS.n_traj, s=4, color="black", alpha=0.05)
+                        if isinstance(TS, AIS_Ship):
+                            ax.scatter(TS.e_traj, TS.n_traj, s=4, color="black", alpha=0.05)
 
                         # Plot estimated trajectory
                         if hasattr(TS, "n_traj_pred"):
                             ax.scatter(TS.e_traj_pred, TS.n_traj_pred, s=4, color="red")
 
                 # ------------------------------ reward plot --------------------------------
-                if True:
+                if False:
                     if self.step_cnt == 0:
                         self.ax1.clear()
                         self.ax1.old_r = 0
@@ -617,46 +687,44 @@ class AIS_Env(gym.Env):
                     if self.step_cnt == 0:
                         self.ax2.clear()
                         self.ax2.old_time = 0
-                        self.ax2.old_state = self.state_init
+                        self.ax2.old_state = [0] * (self.num_obs_OS + self.num_obs_TS)
 
                     self.ax2.set_xlim(0, self._max_episode_steps)
                     self.ax2.set_xlabel("Timestep in episode")
                     self.ax2.set_ylabel("State information")
 
-                    #for i, obs in enumerate(self.state):
-                    #    if i > 6:
-                    #        self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], obs], 
-                    #                    color = plt.rcParams["axes.prop_cycle"].by_key()["color"][i-7], 
-                    #                    label=self.state_names[i])
-                    #self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.cr_cpa_old, self.cr_cpa], color="red", label="CR_CPA")
-                    #self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.cr_ed_old, self.cr_ed], color="blue", label="CR_ED")
-                    #if self.step_cnt == 0:
-                    #    self.ax2.legend()
+                    try:
+                        for i, obs in enumerate(self.state):
+                            if i >= self.num_obs_OS:
+                                self.ax2.plot([self.ax2.old_time, self.step_cnt], [self.ax2.old_state[i], obs], 
+                                               color=plt.rcParams["axes.prop_cycle"].by_key()["color"][i], 
+                                               label=self.state_names[i])
 
-                    self.ax2.old_time = self.step_cnt
-                    self.ax2.old_state = self.state
+                        self.ax2.old_time = self.step_cnt
+                        self.ax2.old_state = self.state
+                    except:
+                        pass
+
+                    if self.step_cnt == 0:
+                        self.ax2.legend()
 
                 # ------------------------------ action plot --------------------------------
                 if False:
                     if self.step_cnt == 0:
                         self.ax3.clear()
-                        self.ax3_twin = self.ax3.twinx()
-                        #self.ax3_twin.clear()
                         self.ax3.old_time = 0
                         self.ax3.old_action = 0
-                        self.ax3.old_rud_angle = 0
-                        self.ax3.old_tau_cnt_r = 0
 
                     self.ax3.set_xlim(0, self._max_episode_steps)
-                    self.ax3.set_ylim(-0.1, self.action_space.n - 1 + 0.1)
-                    self.ax3.set_yticks(range(self.action_space.n))
-                    self.ax3.set_yticklabels(range(self.action_space.n))
+                    self.ax3.set_ylim(-1.1, 2.1)
                     self.ax3.set_xlabel("Timestep in episode")
-                    self.ax3.set_ylabel("Action (discrete)")
+                    self.ax3.set_ylabel("Action")
 
-                    self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.OS.action], color="black", alpha=0.5)
-                    
-                    self.ax3.old_time = self.step_cnt
-                    self.ax3.old_action = self.OS.action
+                    try:
+                        self.ax3.plot([self.ax3.old_time, self.step_cnt], [self.ax3.old_action, self.a], color="black", alpha=0.5)
+                        self.ax3.old_time = self.step_cnt
+                        self.ax3.old_action = self.a
+                    except:
+                        pass
 
                 plt.pause(0.001)

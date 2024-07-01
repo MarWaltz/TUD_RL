@@ -91,7 +91,7 @@ class AIS_Ship:
             else:
                 break
 
-    def update_dynamics(self) -> None:
+    def _upd_dynamics(self) -> None:
         # Increment ptr if it does not exceed the traj lenght (-1 for Python index and -1 for heading computation)
         if self.ptr < len(self.e_traj)-2:
             self.ptr += 1
