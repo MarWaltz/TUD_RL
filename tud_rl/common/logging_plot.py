@@ -76,7 +76,13 @@ def plot_from_progress(dir, alg, env_str, info=None):
     if "Avg_bias" in df.columns:
         ax[1,1].plot(df["Timestep"], df["Avg_bias"], label="Avg. bias")
         ax[1,1].legend()
-    
+    if "Avg_Eval_cost_per_step" in df.columns:
+        for col in df.columns[[col.startswith("Avg_Eval_cost_per_step") for col in df.columns]]:
+            ax[1,1].plot(df["Timestep"], df[col], label=col)
+            ax[1,1].plot(df["Timestep"], exponential_smoothing(df[col].values), label = "Smoothed " + col)
+            ax[1,1].legend()
+            ax[1,1].set_xlabel("Timestep")
+            ax[1,1].set_ylabel("Cost")
     # safe figure and close
     plt.savefig(f"{dir}/{alg}_{env_str}.pdf")
     plt.close()

@@ -1,5 +1,5 @@
 import numpy as np
-import gym
+import gymnasium as gym
 
 class MinAtar_wrapper(gym.ObservationWrapper):
     """Changes observation to be of shape (in_channels, height, width) instead of (height, width, in_channels)"""

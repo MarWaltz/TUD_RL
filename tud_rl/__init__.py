@@ -1,6 +1,6 @@
 import logging
 import sys
-import gym
+import gymnasium as gym
 
 loc = "tud_rl.envs:"
 
@@ -94,7 +94,10 @@ gym.register(
     id="SimpleComm-v0",
     entry_point=loc + "SimpleComm"
 )
-
+gym.register(
+    id="CarlaEnv-v0",
+    entry_point=loc + "CarlaEnv"
+)
 # Initialize logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

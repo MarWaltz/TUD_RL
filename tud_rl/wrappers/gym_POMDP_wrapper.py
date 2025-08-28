@@ -1,6 +1,6 @@
 import numpy as np
 #import pybulletgym
-import gym
+import gymnasium as gym
 
 class gym_POMDP_wrapper(gym.ObservationWrapper):
     def __init__(self, env, env_name, pomdp_type='remove_velocity',
